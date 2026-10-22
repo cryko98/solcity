@@ -779,6 +779,33 @@ export class Shops {
         a.castShadow = true;
       }
     }
+    // a DaCity ATM on the pavement by the bank and the 24/7s
+    if (type === 'bank' || type === 'mart') {
+      const ax = W / 2 - 0.75, az = -0.62;
+      const body = std({ color: 0x2b2e33, roughness: 0.45, metalness: 0.6 });
+      box(body, 0.72, 1.62, 0.46, ax, 0, az);
+      box(std({ color: 0xffd23f, roughness: 0.5 }), 0.74, 0.18, 0.48, ax, 1.62, az); // DaCity yellow top
+      const scr = canvasTex(128, 96, (c2, w, h) => {
+        c2.fillStyle = '#081a24';
+        c2.fillRect(0, 0, w, h);
+        c2.fillStyle = '#ffd23f';
+        c2.font = 'bold 22px Arial';
+        c2.textAlign = 'center';
+        c2.fillText('DACITY', w / 2, 40);
+        c2.fillStyle = '#7fd6ff';
+        c2.font = '14px Arial';
+        c2.fillText('ATM', w / 2, 66);
+      });
+      const sm2 = new THREE.MeshStandardMaterial({ map: scr, emissiveMap: scr, emissive: 0xffffff, emissiveIntensity: 0.9 });
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), sm2);
+      screen.position.set(ax, 1.22, az - 0.235);
+      screen.rotation.y = Math.PI;
+      g.add(screen);
+      box(std({ color: 0x8e959c, roughness: 0.3, metalness: 0.8 }), 0.36, 0.05, 0.18, ax, 0.9, az - 0.28); // keypad shelf
+      this.atms = this.atms || [];
+      this.atms.push({ x: x + ax, z: z + az - 0.75 });
+      C.addColliders([{ type: 'box', minX: x + ax - 0.38, maxX: x + ax + 0.38, minZ: z + az - 0.25, maxZ: z + az + 0.25, h: g.position.y + 1.8 }]);
+    }
     // the front stands ~0.35 m proud of the building: solid, so nobody walks into it
     C.addColliders([{ type: 'box', minX: x - W / 2, maxX: x + W / 2, minZ: z - 0.36, maxZ: z + 0.05, h: g.position.y + SH + 1.4 }]);
     // the entrance ring on the pavement and a floating icon above it

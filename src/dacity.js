@@ -168,6 +168,60 @@ export class DaCity {
     });
   }
 
+  // ---------------------------------------------------------------- the ATM panel
+  // a DaCity ATM on the street: what the wallet has earned, what is on its way, today's room
+  async toggleAtm() {
+    if (this.atmEl?.style.display === 'block') return this.closeAtm();
+    if (!this.atmEl) {
+      const el = (this.atmEl = document.createElement('div'));
+      el.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);max-height:80vh;overflow:auto;z-index:12;' +
+        'background:rgba(8,14,20,.94);border:2px solid #ffd23f;border-radius:10px;padding:18px 20px;color:#eee;font:14px Inter,sans-serif;pointer-events:auto;display:none';
+      el.addEventListener('mousedown', (e) => e.stopPropagation());
+      document.body.appendChild(el);
+    }
+    document.exitPointerLock?.();
+    const el = this.atmEl;
+    el.style.display = 'block';
+    const title = '<div style="font:28px Anton,Impact,sans-serif;letter-spacing:2px;color:#ffd23f">DACITY ATM</div>';
+    const foot = '<div style="margin-top:12px;color:#8a96a3;font-size:12px">E or walk away to close</div>';
+    if (!this.cfg) {
+      el.innerHTML = title + '<p>The DaCity network is offline here: this server doesn\u2019t pay rewards.</p>' + foot;
+      return;
+    }
+    if (!this.session) {
+      el.innerHTML = title + `<p>Connect your wallet to see your DaCity.</p><p>Holders of <b>${this.need || '$SOLCITY'}</b> earn DaCity for story missions and races.</p>` +
+        '<button style="font:700 13px Inter,sans-serif;background:#ffd23f;border:0;border-radius:12px;padding:6px 14px;cursor:pointer">Connect wallet</button>' + foot;
+      el.querySelector('button').onclick = () => this.connect().then(() => this.session && this.toggleAtm().then(() => this.toggleAtm()));
+      return;
+    }
+    el.innerHTML = title + '<p>Loading...</p>';
+    try {
+      this.show(await this.call('GET', '/me'));
+    } catch (e) {
+      el.innerHTML = title + `<p>${e.message}</p>` + foot;
+      return;
+    }
+    const m = this.summary, row = (k, v) => `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.08)"><span>${k}</span><b>${v}</b></div>`;
+    const story = (this.cfg.story || []).length;
+    const recent = (m.recent || []).map((r) => {
+      const when = new Date(r.created).toLocaleDateString();
+      const link = r.signature ? ` <a href="https://solscan.io/tx/${r.signature}" target="_blank" rel="noopener" style="color:#7fd6ff">tx</a>` : '';
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${when} ${r.kind} ${r.ref}</span><span>${r.amount} ${r.status}${link}</span></div>`;
+    }).join('') || '<div style="font-size:12px;color:#8a96a3">Nothing yet.</div>';
+    el.innerHTML = title +
+      `<div style="color:#8a96a3;margin-bottom:8px">${m.wallet.slice(0, 6)}…${m.wallet.slice(-6)}${this.cfg.dryRun ? ' (test mode)' : ''}</div>` +
+      (m.eligible === false ? `<p style="color:#ff9a9a">Hold at least <b>${this.need}</b> to earn DaCity. Until then you play for dollars.</p>` : '') +
+      row('Paid to your wallet', m.paid + ' DACITY') +
+      row('On its way', m.pending + (m.dryRun || 0) + ' DACITY') +
+      row('Earned today', `${m.today} / ${m.dailyCap}`) +
+      row('Story missions rewarded', `${(m.story || []).length} / ${story}`) +
+      '<div style="margin:12px 0 4px;color:#ffd23f;font-weight:700">Recent</div>' + recent + foot;
+  }
+
+  closeAtm() {
+    if (this.atmEl) this.atmEl.style.display = 'none';
+  }
+
   // ---------------------------------------------------------------- runs
   async start(kind, ref) {
     this.run = null;

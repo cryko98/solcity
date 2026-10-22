@@ -467,6 +467,7 @@ export class Peds {
   shot(p, dmg, dir) {
     if (p.life) this.endLife(p); // off the bench / out of the chat
     p.hits += dmg;
+    p.wasShot = true; // (a bounty brought in shot is worth half)
     const ko = p.hits >= KO_HITS;
     this.onCrime?.(ko ? (p.cop ? 'ko_cop' : 'ko') : p.cop ? 'assault_cop' : 'shooting', p);
     p.yaw = Math.atan2(-dir.x, -dir.z);
@@ -625,6 +626,7 @@ export class Peds {
       if (v.circles().some(([cx, cz]) => Math.hypot(cx - p.x, cz - p.z) < v.spec.r + RADIUS)) {
         p.yaw = Math.atan2(-v.vel.x, -v.vel.z);
         if (v.driven) this.onCrime?.(p.cop ? 'runover_cop' : 'runover', p);
+        p.runOver = true;
         this.knockOut(p, v.vel.x * 0.8, v.vel.z * 0.8, false);
         this.scare(p.x, p.z, p);
         return;
