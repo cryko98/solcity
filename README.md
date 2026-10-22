@@ -57,7 +57,7 @@ block the road ahead of you with armed officers behind them. Code: `src/police.j
 
 ## Shops
 
-Eleven shops you can walk into, spread over the districts ():
+Eleven shops you can walk into, spread over the districts (`src/shops.js`):
 
 - **Ammu-Nation** (Downtown, Old Harbor, South Beach): pistol, SMG, shotgun (ammo if you own it), body armor.
 - **Restaurants**: Burger Sol (Little Havana), Taco Loco (Little Havana), Pizza Sol (South Beach): meals heal 25 / 50 / 100 HP.
@@ -72,7 +72,7 @@ room's own lights. The clerk serves you at the counter ring (keys 1-6); the ring
 back out. You can't go in while the cops are after you.
 
 The minimap and the big map (M) show every shop and place of interest with its own SVG icon
-(); the big map has a legend.
+(`src/icons.js`); the big map has a legend.
 
 ## Hidden packages
 
