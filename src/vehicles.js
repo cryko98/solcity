@@ -246,6 +246,10 @@ class Vehicle {
   update(dt, ctl, city, night, wet = 0) {
     const s = this.spec;
     const wreck = this.data.wrecked;
+    if (this.doorSwing && !this.data.entering) {
+      this.doorOpen = Math.max(0, this.doorOpen + this.doorSwing * dt);
+      if (!this.doorOpen) this.doorSwing = 0;
+    }
     if (wreck) ctl = null;
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     const rx = -fz, rz = fx;
@@ -430,6 +434,9 @@ class Vehicle {
   }
 }
 
+// parked-car batches have room for this many more cars (abandoned, wrecked, parked police cars)
+const CAR_HEADROOM = 48;
+
 export class Vehicles {
   constructor(scene, city, models) {
     this.scene = scene;
@@ -454,7 +461,7 @@ export class Vehicles {
         }
         // two sets: near cars cast shadows, far ones don't
         const [near, far] = [true, false].map((shadow) => {
-          const inst = new THREE.InstancedMesh(o.geometry, mat, list.length);
+          const inst = new THREE.InstancedMesh(o.geometry, mat, list.length + CAR_HEADROOM);
           inst.castShadow = shadow;
           inst.receiveShadow = true;
           inst.frustumCulled = false;
@@ -475,7 +482,8 @@ export class Vehicles {
       for (const c of list) {
         const d2 = (c.x - cam.x) ** 2 + (c.z - cam.z) ** 2;
         if (c.vehicle || d2 > FAR2) continue;
-        const near = d2 < NEAR2;
+        const near = d2 < NEAR2 && kn < parts[0].near.instanceMatrix.count;
+        if (!near && kf >= parts[0].far.instanceMatrix.count) continue;
         const k = near ? kn++ : kf++;
         _q.setFromAxisAngle(UP, c.yaw);
         if (specOf(c).bike) _q.multiply(_q2.setFromAxisAngle(Z_AXIS, -0.2)); // on the side stand

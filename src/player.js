@@ -209,6 +209,7 @@ export class Player {
 
   exitVehicle() {
     const v = this.vehicle;
+    if (!v) return;
     this.model.rotation.set(0, 0, 0);
     this.model.position.set(0, 0, 0);
     const door = v.root.localToWorld(v.door.clone());
@@ -257,7 +258,7 @@ export class Player {
   }
 
   takeHit(dmg, from) {
-    if (this.dead || this.vehicle) return;
+    if (this.dead || this.busted || this.vehicle) return;
     if (this.overlay && this.overlay.name === 'roll' && this.overlay.t < this.overlay.dur * 0.8) return;
     const soak = Math.min(this.armor, dmg * 0.75);
     this.armor -= soak;
@@ -320,6 +321,7 @@ export class Player {
       return;
     }
     if (this.vehicle) {
+      this.guardTimer -= dt;
       this.animate(dt);
       return;
     }

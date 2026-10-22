@@ -762,6 +762,23 @@ KNEE_Z = REST["shin.L"][0].z
 
 
 # ================================================================ real clothing geometry
+CLOTH_PARTS = {}
+CLOTH_RIM = {}
+
+
+def smooth_rim(sb, n=10):
+    """plane cuts through the body mesh leave a sawtooth edge: run it along its own loop"""
+    rim = [v for v in sb.verts if v.is_boundary]
+    for _ in range(n):
+        new = {}
+        for v in rim:
+            nb = [o for e in v.link_edges if e.is_boundary for o in e.verts if o is not v]
+            if len(nb) == 2:
+                new[v] = v.co * .5 + (nb[0].co + nb[1].co) * .25
+        for v, c in new.items():
+            v.co = c
+
+
 def garment(name, pick, key, loose, planes=(), keep=None, smooth=14, thick=.0045, folds=None, post=None):
     """Cloth cut from the body surface: anatomy smoothed away, pushed out so it hangs
     loose, wrinkled, trimmed with clean plane cuts (hems) and given real thickness."""
@@ -788,6 +805,8 @@ def garment(name, pick, key, loose, planes=(), keep=None, smooth=14, thick=.0045
         bmesh.ops.delete(sb, geom=[v for v in sb.verts if not v.link_faces], context="VERTS")
     if post:
         post(sb)
+    smooth_rim(sb)
+    CLOTH_RIM[name] = [v.co.copy() for v in sb.verts if v.is_boundary]
     for f in sb.faces:
         f.material_index = mat_index(key)
     paint(sb, lambda f: key)
@@ -823,13 +842,13 @@ def upper_arm_t(c, dom):
 # ---- jeans: straight-leg, waistband, stacked at the ankles
 CUFF_Z = .125 * SCALE
 jeans_folds = [wrinkles(26, .0026), bunch(KNEE_Z, .05, .0035, 120), bunch(CUFF_Z + .03, .05, .005, 150)]
-if not MH_OUTFITS:
+if not MH_OUTFITS and not HERO:
     garment("Jeans", lambda f: base(face_dom(f)) in ("thigh", "shin") or torso_band(f, CUFF_Z - .03, BELT_Z + .03),
         "jeans", lambda p: .009 + .01 * sm(KNEE_Z + .1, CUFF_Z, p.z) + .006 * sm(BELT_Z - .2, BELT_Z - .05, p.z) * 0,
         planes=[((0, 0, BELT_Z + .01), (0, 0, 1)), ((0, 0, CUFF_Z), (0, 0, 1))],
         keep=lambda f, l: CUFF_Z < f.calc_center_median().z < BELT_Z + .01,
         folds=lambda p: sum(fn(p) for fn in jeans_folds))
-for f in (bm.faces if not MH_OUTFITS else ()):
+for f in (bm.faces if not MH_OUTFITS and not HERO else ()):
     c = f.calc_center_median()
     b = base(face_dom(f))
     # only skin well inside the jeans goes (the waist band stays as a safety layer)
@@ -837,7 +856,7 @@ for f in (bm.faces if not MH_OUTFITS else ()):
         HIDE.add(f.index)
 # waistband + belt
 belt_ring = [v.co for v in bm.verts if abs(v.co.z - BELT_Z) < .006 and base(VDOM[v.index]) in TRUNK]
-if belt_ring and not MH_OUTFITS:
+if belt_ring and not MH_OUTFITS and not HERO:
     garment("Waistband", lambda f: torso_band(f, BELT_Z - .03, BELT_Z + .022),
             "jeans", .016, planes=[((0, 0, BELT_Z + .013), (0, 0, 1)), ((0, 0, BELT_Z - .022), (0, 0, 1))],
             keep=lambda f, l: BELT_Z - .022 < f.calc_center_median().z < BELT_Z + .013, smooth=10, thick=.005)
@@ -900,6 +919,8 @@ def tank_pick(f):
 
 
 if HERO:
+    pass  # MakeHuman tee cut into a tank top, see tank_from_tee
+elif False:
     garment("Tank", tank_pick,
             "shirt", lambda p: .004 + .004 * sm(BELT_Z + .15, BELT_Z - .05, p.z),
             planes=[((0, 0, TANK_HEM), (0, 0, 1)), *scoop_planes(True), *scoop_planes(False), ((0, TORSO_Y, 0), (0, 1, 0)),
@@ -942,7 +963,7 @@ for f in bm.faces:
     c = f.calc_center_median()
     dom = face_dom(f)
     b = base(dom)
-    if MH_OUTFITS:
+    if MH_OUTFITS or HERO:
         continue
     if b in TRUNK and c.z > BELT_Z + .08:
         if HERO:
@@ -1695,10 +1716,7 @@ def push_out(q, parts, clearance):
     return q
 
 
-CLOTH_PARTS = {}
-
-
-def mh_cloth(folder, name, key, clearance, size=512, cut_above=None):
+def mh_cloth(folder, name, key, clearance, size=512, cut_above=None, post=None):
     """one MakeHuman garment, fitted, weighted like the skin under it, with its own textured material"""
     d_ = os.path.join(MHDIR, "clothes", folder)
     obj = next(x for x in os.listdir(d_) if x.endswith(".obj"))
@@ -1709,18 +1727,20 @@ def mh_cloth(folder, name, key, clearance, size=512, cut_above=None):
     if len(bound) != len(vs):
         print("WARNING", folder, "mhclo has", len(bound), "verts for", len(vs))
         return None
-    pts, parts_of = [], []
+    pts, parts_of, heights, armfrac = [], [], [], []
     mapped = []
     for p, refs in bound:
         q = map_body(p, refs)
         mapped.append(q.copy())
         pw = part_weights(refs)
+        armfrac.append(sum(x for k_, x in pw.items() if k_[:2] in ("UA", "FA", "HD")) / (sum(pw.values()) or 1))
         parts = sorted((k for k, x in pw.items() if x > .05), key=lambda k: -pw[k]) or ["T"]
         parts_of.append(parts)
         # shrink-wrap: as high over our skin as it was over the MakeHuman skin (tight parts fit
         # exactly; parts that hang well off the body, like a skirt, keep their mapped shape)
         ml, mn_, _, _ = MB_BODY_BVH.find_nearest(p)
         h_mh = (p - ml).dot(mn_) * MB_SIGN
+        heights.append(h_mh)
         if h_mh < .06:
             loc, nrm, _ = nearest_on(q, parts)
             q = (loc + nrm * max(clearance, h_mh + .002)).lerp(q, sm(.025, .06, h_mh))
@@ -1738,6 +1758,43 @@ def mh_cloth(folder, name, key, clearance, size=512, cut_above=None):
         disp = [d * .5 + (sum((disp[j] for j in nb), V((0, 0, 0))) / len(nb)) * .5 if nb else d for d, nb in zip(disp, nbr)]
     for i, (m, parts) in enumerate(zip(mapped, parts_of)):
         pts[i] = push_out(m + disp[i], parts, clearance)
+    # relax what lies on the body: carrying A-pose shoulders down to our rest pose folds the
+    # cloth there (flaps on the shoulder tops, creases at the armpits and the neckline). Each
+    # point moves toward its neighbours and is put back at its own height over the skin; hems
+    # and openings stay where they are.
+    edge_n = {}
+    for fc in faces:
+        ids = [i for i, _ in fc]
+        for a_, b_ in zip(ids, ids[1:] + ids[:1]):
+            k_ = (min(a_, b_), max(a_, b_))
+            edge_n[k_] = edge_n.get(k_, 0) + 1
+    rim = {i for k_, n_ in edge_n.items() if n_ == 1 for i in k_}
+    for _ in range(12):
+        nxt = list(pts)
+        for i, nb in enumerate(nbr):
+            if not nb or i in rim or heights[i] > .03:
+                continue
+            avg = sum((pts[j] for j in nb), V((0, 0, 0))) / len(nb)
+            q = pts[i].lerp(avg, .6)
+            loc, nrm, _ = nearest_on(q, parts_of[i])
+            nxt[i] = loc + nrm * max(clearance, heights[i] + .002)
+        pts = nxt
+    # openings (neckline, cuffs, hems): straighten along the edge loop and stand a little
+    # further off the skin, so the coarser body mesh cannot poke through in teeth along it
+    rim_nb = {i: [] for i in rim}
+    for (a_, b_), n_ in edge_n.items():
+        if n_ == 1:
+            rim_nb[a_].append(b_)
+            rim_nb[b_].append(a_)
+    for _ in range(6):
+        nxt = list(pts)
+        for i, nb in rim_nb.items():
+            if len(nb) == 2 and heights[i] < .03:
+                q = pts[i] * .5 + (pts[nb[0]] + pts[nb[1]]) * .25
+                loc, nrm, _ = nearest_on(q, parts_of[i])
+                nxt[i] = loc + nrm * max(clearance * 2.5, heights[i] + .004)
+        pts = nxt
+    pts = [push_out(q, parts, clearance * (2.5 if i in rim else 1)) for i, (q, parts) in enumerate(zip(pts, parts_of))]
     img = bpy.data.images.load(os.path.join(d_, texname))
     img.scale(size, size)
     img.pack()
@@ -1745,11 +1802,17 @@ def mh_cloth(folder, name, key, clearance, size=512, cut_above=None):
     b_ = bmesh.new()
     dl_ = b_.verts.layers.deform.verify()
     uvl_ = b_.loops.layers.uv.verify()
+    arm_l = b_.verts.layers.float.new("arm")  # (before any vertex exists: a new layer invalidates them)
     bv = [b_.verts.new(p) for p in pts]
+    for v, a_ in zip(bv, armfrac):
+        v[arm_l] = a_
     for v, parts in zip(bv, parts_of):
-        for gi, wv in skin_weights(v.co, parts[:1]).items():
+        # weighted like all the body parts under it (a strap over the shoulder follows torso and
+        # upper arm both, as the skin does); never the hand, so a hem next to it stays put
+        for gi, wv in skin_weights(v.co, [p_ for p_ in parts if p_[:2] != "HD"] or parts[:1]).items():
             v[dl_][gi] = wv
-    face_parts = []
+    partsets = []
+    pid = b_.faces.layers.int.new("pid")
     for fc in faces:
         if cut_above is not None and min(pts[i].z for i, _ in fc) > cut_above:
             continue
@@ -1757,22 +1820,49 @@ def mh_cloth(folder, name, key, clearance, size=512, cut_above=None):
             nf = b_.faces.new([bv[i] for i, _ in fc])
         except ValueError:
             continue
-        face_parts.append(set().union(*(parts_of[i] for i, _ in fc)))
+        partsets.append((set().union(*(parts_of[i] for i, _ in fc)), [parts_of[i][0] for i, _ in fc]))
+        nf[pid] = len(partsets) - 1
         for loop, (_, ti) in zip(nf.loops, fc):
             if ti >= 0:
                 loop[uvl_].uv = vts[ti]
         nf.material_index = mat_index(key)
+    if post:
+        # recut / restyle the garment (sees each face's body parts and texture colour)
+        px = np.array(img.pixels[:], np.float32).reshape(size, size, 4)
+
+        def colour(f_):
+            u = sum((l[uvl_].uv.x for l in f_.loops)) / len(f_.loops)
+            v = sum((l[uvl_].uv.y for l in f_.loops)) / len(f_.loops)
+            return px[min(size - 1, max(0, int(v % 1 * size))), min(size - 1, max(0, int(u % 1 * size))), :3]
+        post(b_, lambda f_: partsets[f_[pid]], colour)
+        bmesh.ops.delete(b_, geom=[v for v in b_.verts if not v.link_faces], context="VERTS")
+        # the cut runs through faces that were never meant to be cut: collapse the slivers it
+        # leaves along the edge, then straighten the edge
+        bmesh.ops.dissolve_degenerate(b_, dist=.004, edges=b_.edges[:])
+        smooth_rim(b_, 25)
+        for v in b_.verts:
+            if v.is_boundary:
+                v.co = push_out(v.co, partsets[v.link_faces[0][pid]][1][:1] or ["T"], clearance * 2.5)
     bmesh.ops.delete(b_, geom=[v for v in b_.verts if not v.link_faces], context="VERTS")
     paint(b_, lambda f: None)
     print("cloth", folder, len(b_.faces), "faces")
-    CLOTH_PARTS[name] = face_parts
+    CLOTH_PARTS[name] = [partsets[f_[pid]][0] for f_ in b_.faces]
+    CLOTH_RIM[name] = [v.co.copy() for v in b_.verts if v.is_boundary]
     return to_object(name, b_)
 
 
-def covered_faces(ob):
+def covered_faces(ob, rim_gap=.04):
     """body faces with this garment right over them (within 3.5 cm along the skin normal), the
     garment there belonging to the same body part (not a shirt seen from the inside of the arm)"""
-    fparts = CLOTH_PARTS[ob.name]
+    fparts = CLOTH_PARTS.get(ob.name)
+    # skin near an opening (neckline, sleeves, hems) stays: removing it there leaves the jagged
+    # edge of the hole visible inside the opening
+    from mathutils.kdtree import KDTree
+    rim_pts = CLOTH_RIM.get(ob.name, [])
+    kd = KDTree(max(1, len(rim_pts)))
+    for i, p in enumerate(rim_pts):
+        kd.insert(p, i)
+    kd.balance()
     b_ = bmesh.new()
     b_.from_mesh(ob.data)
     tree = BVHTree.FromBMesh(b_)
@@ -1782,11 +1872,135 @@ def covered_faces(ob):
         if base(face_dom(f_)) in ("head",) + HANDS:
             continue
         c = f_.calc_center_median()
+        if rim_pts and kd.find(c)[2] < rim_gap:
+            continue
         hit = tree.ray_cast(c + f_.normal * .001, f_.normal, .035)
-        if hit[0] is not None and our_part(f_) in fparts[hit[2]]:
+        if hit[0] is not None and (our_part(f_) in fparts[hit[2]] if fparts else our_part(f_) == "T"):
             out.add(f_.index)
     return out
 
+
+def tank_from_tee(b_, parts_of_face, colour):
+    """the hero's white tank top cut out of a MakeHuman tee (the jeans stay as they are):
+    sleeves off, deep armholes, scoop neck front and back, plain white ribbed cotton"""
+    # which separate piece is the shirt: by the average colour of each connected piece (the
+    # faded patches of the denim are light too, so single faces cannot tell)
+    uvl = b_.loops.layers.uv.active
+
+    def uv_at(f_, v):
+        return next(l[uvl].uv for l in f_.loops if l.vert is v)
+
+    def same_island(f_, g_, e):
+        """pieces of a garment are separate UV islands even where the mesh is welded"""
+        return all((uv_at(f_, v) - uv_at(g_, v)).length < 1e-4 for v in e.verts)
+
+    sid = b_.faces.layers.int.new("shirt")  # (a new layer invalidates face references: make it first)
+    shirt = set()
+    seen = set()
+    for f0 in b_.faces:
+        if f0 in seen:
+            continue
+        comp, stack = [], [f0]
+        seen.add(f0)
+        while stack:
+            f_ = stack.pop()
+            comp.append(f_)
+            for e in f_.edges:
+                for g_ in e.link_faces:
+                    if g_ not in seen and same_island(f_, g_, e):
+                        seen.add(g_)
+                        stack.append(g_)
+        cs = [colour(f_) for f_ in comp]
+        rr = sum(c[0] for c in cs) / len(cs)
+        bb = sum(c[2] for c in cs) / len(cs)
+        if not (bb > rr * 1.2):
+            shirt.update(comp)
+    for f_ in shirt:
+        f_[sid] = 1
+    arm_l = b_.verts.layers.float.get("arm")
+    shoulder_top = SH.z + .12
+
+    def top(x):
+        """upper outline of the tank seen from the front: scoop, straps, rounded armholes"""
+        ax = abs(x)
+        if ax <= SCOOP_X:
+            return None
+        if ax <= STRAP_X:
+            return shoulder_top
+        u = min(1.0, (ax - STRAP_X) / .03)
+        return ARMPIT_Z + (shoulder_top - ARMPIT_Z) * math.sqrt(max(0.0, 1 - u * u))
+
+    def phi(v):
+        c = v.co
+        t = top(c.x)
+        if t is None:
+            t = scoop_z(c.x, c.y < TORSO_Y)
+            # blend into the strap so the corner of the U is round, not a step
+            t += (shoulder_top - t) * sm(SCOOP_X * .8, SCOOP_X, abs(c.x))
+        # the sleeve goes by its arm weighting, but only outside the straps (MakeHuman's upper
+        # arm weights reach over the shoulder blades, which would punch holes in the back)
+        side = sm(STRAP_X - .03, STRAP_X + .01, abs(c.x))
+        return min(t - c.z, (.28 - v[arm_l]) * .12 * side + (1 - side))
+
+    shirt_v = {v for f_ in b_.faces if f_[sid] for v in f_.verts}
+    field_cut(b_, lambda v: phi(v) if v in shirt_v else 1.0, smooth=6)
+    # scraps of sleeve the cut left floating at the armholes
+    seen = set()
+    for f0 in [f_ for f_ in b_.faces if f_[sid]]:
+        if f0 in seen:
+            continue
+        comp, stack = [], [f0]
+        seen.add(f0)
+        while stack:
+            f_ = stack.pop()
+            comp.append(f_)
+            for e in f_.edges:
+                for g_ in e.link_faces:
+                    if g_ not in seen and g_[sid]:
+                        seen.add(g_)
+                        stack.append(g_)
+        if len(comp) < 60:
+            bmesh.ops.delete(b_, geom=comp, context="FACES")
+    for f_ in b_.faces:
+        if f_[sid]:
+            f_.material_index = mat_index("tank")
+
+
+def field_cut(b_, phi, smooth=0):
+    """cut the mesh exactly along phi = 0 and drop the phi < 0 side (a clean edge, however the
+    faces of the mesh happen to run)"""
+    val = {v: phi(v) for v in b_.verts}
+    for _ in range(smooth):  # a noisy field gives a ragged edge
+        val = {v: x * .4 + .6 * sum(val[e.other_vert(v)] for e in v.link_edges) / len(v.link_edges) if v.link_edges else x
+               for v, x in val.items()}
+    zero = set()
+    for e in list(b_.edges):
+        a_, b2 = e.verts
+        fa, fb = val[a_], val[b2]
+        if fa * fb < 0:
+            t_ = fa / (fa - fb)
+            _, nv = bmesh.utils.edge_split(e, a_, t_)
+            val[nv] = 0.0
+            zero.add(nv)
+    for v, x in val.items():
+        if x == 0:
+            zero.add(v)
+    for f_ in list(b_.faces):
+        zs = [v for v in f_.verts if v in zero]
+        if len(zs) == 2 and not any(set(e.verts) == set(zs) for e in f_.edges):
+            try:
+                bmesh.utils.face_split(f_, zs[0], zs[1])
+            except Exception:
+                pass
+    drop = [f_ for f_ in b_.faces if sum(val.get(v, 0) for v in f_.verts) / len(f_.verts) < 0]
+    bmesh.ops.delete(b_, geom=drop, context="FACES")
+
+
+HERO_OUTFIT = "male_casualsuit06" if HERO else None
+if HERO_OUTFIT:
+    MAT["tank"] = material("Shirt", "f2f1ec", 0.92)
+    ob_ = mh_cloth(HERO_OUTFIT, "HeroOutfit", "Jeans", .003, size=1024, post=tank_from_tee)
+    HIDE |= covered_faces(ob_, .03)
 
 _cover = None
 for o_ in MH_OUTFITS:
@@ -1801,6 +2015,7 @@ for s_ in MH_SHOES:
 # skin that every outfit covers goes (each ped wears one of them, so only the common part)
 if _cover:
     HIDE |= _cover
+
 
 # ---- sneakers fitted to each foot
 def loft_part(name, rings, key, segs, bone):
@@ -2893,6 +3108,7 @@ if PREVIEW:
     shoot("back.png", "Idle", 0, (-1.6, 3.0, 1.6), (0, 0, 1.1))
     shoot("head_34.png", "Idle", 0, (0.75, -0.75, EYE_Z + .12), (0, 0, EYE_Z + .02))
     shoot("head_back.png", "Idle", 0, (-.55, .8, EYE_Z + .25), (0, 0, EYE_Z + .02))
+    shoot("neck_34.png", "Idle", 0, (0.32, -0.42, NECK_Z + .02), (0, 0, NECK_Z - .06))
     if HERO and "--quick" not in ARGS:
         shoot("walk_09.png", "Walk", 9, (4.0, -2.5, 1.1))
         shoot("guard.png", "Guard", 0, (2.2, -2.6, 1.4), (0, 0, 1.15))

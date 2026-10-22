@@ -99,6 +99,7 @@ export class CarEntry {
     const hurt = Math.min(30, v.speed * 1.1);
     P.health = Math.max(1, P.health - hurt);
     this.onExited?.(c, true);
+    v.doorSwing = -1.2; // swings shut again
     this.audio.blip({ noise: 1, cutoff: 900, tone: 120, toneEnd: 50, dur: 0.25, gain: 0.5 });
   }
 
@@ -119,7 +120,7 @@ export class CarEntry {
     if (!s) return;
     const P = this.player;
     s.t += dt;
-    if (!s.c.vehicle || s.c.wrecked || P.dead) return this.cancel();
+    if (!s.c.vehicle || s.c.wrecked || P.dead || P.busted) return this.cancel();
     const v = (s.v = s.c.vehicle);
 
     if (s.mode === 'enter') {

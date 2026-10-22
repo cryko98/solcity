@@ -119,7 +119,7 @@ export class Traffic {
         continue;
       }
       // hijacked or wrecked: hand the car over to the normal physics
-      if (v.driven || v.impact > 5) {
+      if (v.driven) {
         c.ai = null;
         this.cars.splice(this.cars.indexOf(c), 1);
         continue;

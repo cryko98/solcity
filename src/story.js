@@ -203,6 +203,7 @@ export class Story {
   // ---------------------------------------------------------------- cutscene
   // fade to black -> into the room -> conversation -> fade -> back at the door -> mission
   startCutscene(c) {
+    this.entry?.cancel();
     const m = c.missions[this.progress[c.id]];
     const P = this.player;
     P.vel.set(0, 0, 0);
@@ -638,7 +639,11 @@ export class Story {
         this.goal.visible = this.arrow.visible = false;
         this.hud.route = null;
         this.enterStep(ms.i + 1);
-      } else if (r === 'back') this.enterStep(ms.i - 1);
+      } else if (r === 'back') {
+        this.goal.visible = this.arrow.visible = false;
+        this.hud.route = null;
+        this.enterStep(ms.i - 1);
+      }
       else if (r && r.startsWith('fail:')) this.finish(false, r.slice(5));
       return;
     }

@@ -125,6 +125,7 @@ export class TaxiMissions {
 
   stop(msg = 'Taxi missions over.') {
     if (this.fare) {
+      this.fare.keep = false;
       if (this.fare.state === 'riding') this.peds.alight(this.fare);
       else if (this.fare.state === 'fare' || this.fare.state === 'board') {
         this.fare.keep = false;

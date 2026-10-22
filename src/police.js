@@ -219,7 +219,10 @@ export class Police {
         continue;
       }
       v.siren = !u.leaving;
-      this.drive(u, dt, target, targetVel, onFoot);
+      if (v.officersOut) {
+        // nobody at the wheel: the car stays where they left it
+        Object.assign(u.c.ai.ctl, { throttle: 0, steer: 0, handbrake: true });
+      } else this.drive(u, dt, target, targetVel, onFoot);
       if (!u.leaving && this.visible(v.pos, target)) this.seen = true;
       // officers step out when the car has stopped near a player on foot (or a stopped car)
       const maxOfficers = wanted.level >= 3 ? 2 : 1;

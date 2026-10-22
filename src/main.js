@@ -197,6 +197,13 @@ Promise.all([
       exitVehicle();
     };
     story.load(savedStory);
+    story.entry = entry;
+    // stars gone (lost them, paint shop): officers on foot stand down
+    const onWanted = wanted.onChange;
+    wanted.onChange = (l) => {
+      onWanted?.(l);
+      if (!l) peds.standDown();
+    };
     hud.stats = stats;
     stunts.onStunt = () => (stats.uniqueJumps = stunts.doneCount);
     races.onFinish = () => stats.races++;
@@ -365,6 +372,8 @@ function showTips() {
 
 let exitQueued = false;
 function exitVehicle() {
+  if (entry.active) entry.cancel();
+  if (!driving) return;
   const v = driving.vehicle;
   v.driven = false;
   player.exitVehicle();
@@ -485,7 +494,7 @@ function loadGame() {
   } catch {}
   if (!s || s.v !== 1) return;
   hud.setMoney(s.money ?? 500);
-  if (s.inv && Object.keys(s.inv).length) {
+  if (s.inv) {
     weapons.inv = s.inv;
     weapons.equip(s.inv[s.current] ? s.current : null);
   }
@@ -494,6 +503,7 @@ function loadGame() {
   if (s.time != null) env.minutes = s.time;
   if (s.stats) Object.assign(stats, s.stats);
   savedStory = s.story;
+  story?.load(s.story);
   stats.uniqueJumps = stunts.doneCount;
   hud.say('Welcome back to <em>Sol City</em>.', 3);
 }
@@ -551,6 +561,7 @@ function blast(p, c) {
 
 // arrested: hands up, pay a fine, start over at the spawn point
 function bust() {
+  if (entry.active) entry.cancel();
   if (driving) {
     exitQueued = false;
     exitVehicle();
@@ -661,7 +672,8 @@ function step(dt) {
           handbrake: input.down('Space'),
         }
       : null;
-    const focusPos = driving ? driving.vehicle.pos : player.position;
+    // in a contact's room (far outside the map) the street outside stays populated
+    const focusPos = driving ? driving.vehicle.pos : story.cutscene && story.cut.c.stand ? story.cut.c.stand : player.position;
     const people = peds.obstacles;
     traffic.update(dt, focusPos, driving ? people : [...people, player.position]);
     vehicles.wet = env.wet;
@@ -693,7 +705,13 @@ function step(dt) {
         const near = (v.pos.x - camera.position.x) ** 2 + (v.pos.z - camera.position.z) ** 2 < 60 * 60;
         const wantDriver = c.ai && near && !v.driven && !(c.ai.police && v.officersOut);
         if (wantDriver && !v.npcDriver) peds.seatDriver(v, c.ai.police ? 'police' : Math.random() < 0.4 ? 'female' : 'male');
-        else if (!wantDriver && v.npcDriver && !v.driven) peds.unseatDriver(v);
+        else if (!wantDriver && v.npcDriver && !v.driven) {
+          if (c.ai || !near) peds.unseatDriver(v);
+          else if (v.speed < 1) {
+            peds.unseatDriver(v);
+            peds.spawnFleeing(v.pos.x + Math.cos(v.heading) * 1.4, v.pos.z - Math.sin(v.heading) * 1.4, player.position);
+          }
+        }
       }
     }
     peds.updateDrivers(dt);

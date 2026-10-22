@@ -14,7 +14,11 @@ export class Input {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => this.keys.clear());
+    addEventListener('blur', () => {
+      this.keys.clear();
+      this.buttons.clear();
+      this.dragging = false;
+    });
 
     dom.addEventListener('mousedown', (e) => {
       if (e.button === 0) this.pressedOnce.add('Mouse0');

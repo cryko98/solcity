@@ -389,6 +389,7 @@ export class Weapons {
     if (hits) {
       if (P.vehicle) {
         P.health = Math.max(1, P.health - 2);
+        this.hud.setHealth(P.health);
         P.vehicle.damage(1.2);
       } else P.takeHit(6, p);
       this.impact(end, !P.vehicle);

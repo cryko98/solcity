@@ -556,6 +556,54 @@ def build_car(name, P):
     body_ob.name = "Body"
     # flip liner normals inward visually: rely on double-sided-ish solidify
 
+    # ---- open the cabin: the lower body and the greenhouse are both closed lofts, so a painted
+    # lid ran through the cabin at waist height (people looked like they sat in a bathtub).
+    # Cut it out between the windshield and the back of the seats, and line the opening with
+    # interior side panels and front / rear walls so nothing can be seen through.
+    cab0 = gh[0][0] + 0.12
+    cab1 = min(gh[-1][0] - 0.12, P["rear_seat_y"] + 0.42 if P.get("rear_seat", True) else P["seat_y"] + 0.55)
+    floor_z = max(0.34 + FL, P.get("floor_min", 0.0)) + 0.02
+
+    def belt(y):
+        return min(interp(body, y)[2], interp(gh, y)[0])
+
+    def inner_x(y):
+        return body_x(y, belt(y) - 0.03) - 0.06
+
+    shell = (PAINT, GLASS, TRIM) + ((PAINT2,) if LUX else ()) + ((LIVERY,) if POLICE else ())
+    bm = bmesh.new()
+    bm.from_mesh(body_ob.data)
+    lid = []
+    for f in bm.faces:
+        c, n = f.calc_center_median(), f.normal
+        if (f.material_index in shell and cab0 < c.y < cab1 and abs(n.z) > 0.6
+                and abs(c.x) < inner_x(c.y) and belt(c.y) - 0.12 < c.z < belt(c.y) + 0.12):
+            lid.append(f)
+    bmesh.ops.delete(bm, geom=lid, context="FACES")
+    uvb = bm.loops.layers.uv.verify()
+    ys_ = [cab0 + (cab1 - cab0) * k / 24 for k in range(25)]
+    for s_ in (1, -1):
+        col = [(bm.verts.new((s_ * inner_x(y), y, floor_z)), bm.verts.new((s_ * inner_x(y), y, belt(y) + 0.01))) for y in ys_]
+        for (a0, a1), (b0, b1) in zip(col, col[1:]):
+            fc = bm.faces.new((a0, b0, b1, a1) if s_ > 0 else (a0, a1, b1, b0))
+            fc.material_index = INT
+        # sill: closes the gap between the panel and what is left of the body top
+        for (a0, a1), (b0, b1) in zip(col, col[1:]):
+            y_a, y_b = a1.co.y, b1.co.y
+            o_a = bm.verts.new((s_ * (inner_x(y_a) + 0.07), y_a, belt(y_a) + 0.01))
+            o_b = bm.verts.new((s_ * (inner_x(y_b) + 0.07), y_b, belt(y_b) + 0.01))
+            fc = bm.faces.new((a1, b1, o_b, o_a) if s_ > 0 else (a1, o_a, o_b, b1))
+            fc.material_index = TRIM
+    for y, flip in ((cab0, False), (cab1, True)):
+        w_, top = inner_x(y), belt(y) + 0.01
+        q = [bm.verts.new((-w_, y, floor_z)), bm.verts.new((w_, y, floor_z)), bm.verts.new((w_, y, top)), bm.verts.new((-w_, y, top))]
+        fc = bm.faces.new(list(reversed(q)) if flip else q)
+        fc.material_index = INT
+    bm.normal_update()
+    bm.to_mesh(body_ob.data)
+    bm.free()
+    print("CABIN", name, len(lid), "lid faces removed")
+
     # ---- driver door: cut out of the body (skin, window, handle, lettering) as its own object,
     # hinged on its front edge so the game can swing it open. The cutter is an L-shaped prism:
     # the lower part reaches in to 80% of the half width (clear of the seats and dash), the

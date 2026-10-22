@@ -24,7 +24,10 @@ function rng(seed) {
   };
 }
 
-const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const fmt = (t) => {
+  const d = Math.round(t * 10);
+  return `${Math.floor(d / 600)}:${((d % 600) / 10).toFixed(1).padStart(4, '0')}`;
+};
 
 export class Races {
   constructor({ scene, city, hud, audio }) {
@@ -135,6 +138,7 @@ export class Races {
     this.race = null;
     this.vehicle = null;
     this.hud.route = null;
+    this.hud.blips = [];
     this.hud.mission(null);
     this.cpBeam.visible = this.nextBeam.visible = this.finishBeam.visible = false;
     if (msg) this.hud.say(msg, 4);
