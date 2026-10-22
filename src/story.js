@@ -624,7 +624,7 @@ export class Story {
 
     });
     this.blips = this.active ? [] : CONTACTS.filter((c) => this.progress[c.id] < c.missions.length)
-      .map((c) => ({ x: c.pos.x, z: c.pos.z, color: '#ffd23f', r: 6, label: c.letter }));
+      .map((c) => ({ x: c.pos.x, z: c.pos.z, color: '#ffd23f', r: 6, label: c.letter, icon: 'contact' }));
 
     if (this.cut) return this.updateCutscene(dt, input);
 

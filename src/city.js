@@ -1111,16 +1111,10 @@ export function buildCity(scene) {
     }
   }
 
-  // the gun shop booth (src/shop.js) on the pavement of block (4, 4)
-  {
-    const sx = blockMin(4) + 21, sz = blockMin(4) + 2.9;
-    box(sx - 1.75, sx + 1.75, sz - 1.05, sz + 1.1, 3);
-  }
-
   // ------------------------------------------------------------- spatial queries
   const CELL = 8, grid = new Map();
   const key = (cx, cz) => cx * 4096 + cz;
-  city.colliders.forEach((c, idx) => {
+  const insert = (c, idx) => {
     const [minX, maxX, minZ, maxZ] = c.type === 'box' ? [c.minX, c.maxX, c.minZ, c.maxZ] : [c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r];
     for (let gx = Math.floor(minX / CELL); gx <= Math.floor(maxX / CELL); gx++) {
       for (let gz = Math.floor(minZ / CELL); gz <= Math.floor(maxZ / CELL); gz++) {
@@ -1129,9 +1123,17 @@ export function buildCity(scene) {
         grid.get(k).push(idx);
       }
     }
-  });
+  };
+  city.colliders.forEach(insert);
   let stamp = 0;
-  const seen = new Uint32Array(city.colliders.length);
+  let seen = new Uint32Array(city.colliders.length);
+  // solids added later (shop fronts, shop interiors)
+  city.addColliders = (list) => {
+    for (const c of list) insert(c, city.colliders.push(c) - 1);
+    const s2 = new Uint32Array(city.colliders.length);
+    s2.set(seen);
+    seen = s2;
+  };
   city.query = (minX, maxX, minZ, maxZ) => {
     stamp++;
     const out = [];

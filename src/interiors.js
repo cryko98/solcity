@@ -10,7 +10,7 @@ import * as TX from './textures.js';
 const FLOOR = -0.03; // ground level off the island (see city.groundHeight)
 export const SEAT_Y = 0.47;
 
-function checker(a, b, n = 8) {
+export function checker(a, b, n = 8) {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');
@@ -25,7 +25,7 @@ function checker(a, b, n = 8) {
   return t;
 }
 
-function planks(base) {
+export function planks(base) {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d');

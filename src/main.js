@@ -26,7 +26,7 @@ import { Stunts } from './stunts.js';
 import { Packages } from './packages.js';
 import { Birds } from './birds.js';
 import { PoliceHeli } from './heli.js';
-import { GunShop } from './shop.js';
+import { Shops } from './shops.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
 import { CarEntry } from './carentry.js';
@@ -183,7 +183,7 @@ Promise.all([
     birds = new Birds({ scene, city, env });
     packages.onFound = (n) => (stats.packages = n);
     stats.packages = packages.count;
-    shop = new GunShop({ scene, city, hud, audio, weapons, player });
+    shop = new Shops({ scene, city, hud, audio, weapons, player, env, follow, peds, wanted, models: { male: npcMale, female: npcFemale } });
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
     story.onSave = () => saveGame();
@@ -692,7 +692,7 @@ function step(dt) {
         }
       : null;
     // in a contact's room (far outside the map) the street outside stays populated
-    const focusPos = driving ? driving.vehicle.pos : story.cutscene && story.cut.c.stand ? story.cut.c.stand : player.position;
+    const focusPos = driving ? driving.vehicle.pos : story.cutscene && story.cut.c.stand ? story.cut.c.stand : shop.inside ? shop.inside.door : player.position;
     const people = peds.obstacles;
     traffic.update(dt, focusPos, driving ? people : [...people, player.position]);
     vehicles.wet = env.wet;
@@ -755,7 +755,7 @@ function step(dt) {
     races.update(dt, { driving, input, wanted, blocked: taxiJobs.state !== 'off' || vigilante.state !== 'off' || story.active, dead: player.dead || player.busted });
     spray.update(dt, driving);
     if (!races.active && !story.active) vigilante.update(dt, { driving, input, dead: player.dead || player.busted });
-    wanted.frozen = !!story.mission;
+    wanted.frozen = !!story.mission || !!shop.inside;
     story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
     radio.update(dt, !!driving && !player.dead, input);
     // horn: people in front of the car jump out of the way
@@ -765,7 +765,7 @@ function step(dt) {
       const v = driving.vehicle;
       peds.scare(v.pos.x + Math.sin(v.heading) * 6, v.pos.z + Math.cos(v.heading) * 6, null, 9);
     }
-    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.label !== 'J' && b.label !== 'G' && !b.story), ...stunts.blips(), shop.blip(), ...story.blips.map((b) => ({ ...b, story: true }))];
+    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.kind !== 'stunt' && b.kind !== 'shop' && !b.story), ...stunts.blips(), ...shop.blips(), ...story.blips.map((b) => ({ ...b, story: true }))];
     hud.setWanted(wanted.level, wanted.flashing, elapsed);
     audio.siren(Math.min(police.nearestSiren(focusPos), ...(traffic.sirens || []).map((v) => Math.hypot(v.pos.x - focusPos.x, v.pos.z - focusPos.z))));
     let near = null, nd = 90;
@@ -809,7 +809,7 @@ function step(dt) {
     night = env.lightsOn;
     fx.setAmbient(env.ambient);
     // raindrops bouncing off the ground around the camera
-    if (env.rain > 0.1) {
+    if (env.rain > 0.1 && !shop.inside) {
       for (let n = Math.floor(env.rain * 6 + Math.random()); n > 0; n--) {
         const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 16;
         const x = camera.position.x + Math.sin(follow.yaw) * 10 + Math.cos(a) * r, z = camera.position.z + Math.cos(follow.yaw) * 10 + Math.sin(a) * r;
@@ -818,7 +818,7 @@ function step(dt) {
     }
     fx.update(dt);
     hud.minutes = env.minutes;
-    hud.update(dt, focus, subject.yaw, follow.yaw, driving ? driving.vehicle.vf : null, !driving && !entry.active && vehicles.nearest(player.position));
+    hud.update(dt, shop.inside ? shop.inside.door : focus, subject.yaw, follow.yaw, driving ? driving.vehicle.vf : null, !driving && !entry.active && vehicles.nearest(player.position));
 
   } else {
     camera.position.set(Math.sin(elapsed * 0.1) * 90, 45, Math.cos(elapsed * 0.1) * 90);

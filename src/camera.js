@@ -3,6 +3,8 @@ import * as THREE from 'three';
 
 const MODES = {
   foot: { height: 1.55, zoom: 4.6, minZoom: 2.2, maxZoom: 10, pitch: 0.2, idle: 1.5, follow: 1.4, fov: 62 },
+  // inside shops: closer and a little higher, under the ceiling
+  indoor: { height: 1.5, zoom: 3.1, minZoom: 1.6, maxZoom: 4.6, pitch: 0.32, idle: 1.5, follow: 1.4, fov: 66 },
   car: { height: 1.35, zoom: 6.8, minZoom: 4.5, maxZoom: 14, pitch: 0.17, idle: 0.9, follow: 3.2, fov: 64 },
 };
 
@@ -91,6 +93,7 @@ export class FollowCamera {
     cam.position.z += Math.sin(this.yaw) * so;
     cam.position.y += 0.1 * this.aimK;
     cam.position.y = Math.max(cam.position.y, this.city.groundHeight(cam.position.x, cam.position.z) + 0.4);
+    if (this.ceiling) cam.position.y = Math.min(cam.position.y, this.ceiling);
     if (this.shake > 0.001) {
       cam.position.x += (Math.random() - 0.5) * this.shake;
       cam.position.y += (Math.random() - 0.5) * this.shake;

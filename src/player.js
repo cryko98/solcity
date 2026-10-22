@@ -459,9 +459,12 @@ export class Player {
     this.collide(p);
     if (vehicles) vehicles.collideCircle(p, RADIUS);
     if (peds && !this.dead) peds.collideCircle(p, RADIUS);
-    const b = this.city.bounds;
-    p.x = THREE.MathUtils.clamp(p.x, -b, b);
-    p.z = THREE.MathUtils.clamp(p.z, -b, b);
+    if (!this.indoors) {
+      // (shop interiors are built far outside the island)
+      const b = this.city.bounds;
+      p.x = THREE.MathUtils.clamp(p.x, -b, b);
+      p.z = THREE.MathUtils.clamp(p.z, -b, b);
+    }
     if (this.dead) p.y += (this.city.groundHeight(p.x, p.z) - p.y) * Math.min(1, dt * 10);
   }
 

@@ -55,6 +55,25 @@ on foot. Stay out of every officer's sight until the stars stop blinking and the
 if officers hold you still, you're BUSTED (fine + respawn). From four stars, two patrol cars
 block the road ahead of you with armed officers behind them. Code: `src/police.js`.
 
+## Shops
+
+Eleven shops you can walk into, spread over the districts ():
+
+- **Ammu-Nation** (Downtown, Old Harbor, South Beach): pistol, SMG, shotgun (ammo if you own it), body armor.
+- **Restaurants**: Burger Sol (Little Havana), Taco Loco (Little Havana), Pizza Sol (South Beach): meals heal 25 / 50 / 100 HP.
+- **Sol Threads** clothes stores (Little Havana, South Beach, Old Harbor): tank tops and jeans in other colours for the hero (kept between sessions).
+- **24/7** stores (Old Harbor, South Beach): snacks, energy drinks, a first-aid kit and scratch cards.
+
+Each has a real shop front (door, fascia with a lit sign, awning, display windows) and its own furnished
+interior: Ammu-Nation's pegboard of guns and glass display counter, a diner with booths, a kitchen and a
+menu board, a clothes store with rails, mannequins and fitting rooms, a 24/7 with aisles and lit fridges.
+Step into the ring at the door: the screen fades and you're inside, with a closer indoor camera and the
+room's own lights. The clerk serves you at the counter ring (keys 1-6); the ring by the door takes you
+back out. You can't go in while the cops are after you.
+
+The minimap and the big map (M) show every shop and place of interest with its own SVG icon
+(); the big map has a legend.
+
 ## Hidden packages
 
 Twenty taped-up parcels are hidden around Sol City: along building walls, on the beaches, up
@@ -68,7 +87,7 @@ Pistol, SMG and pump shotgun (`src/weapons.js`, models + hold/aim poses in
 weapon pickups (respawn after 45 s). `1`-`4` / `Q` switch, right mouse aims over the shoulder
 (two-handed isosceles pistol stance, shouldered long guns), left mouse fires, `R` reloads.
 From four stars the police draw their pistols and shoot back. Getting busted costs your guns.
-Guns, ammo and armour can also be bought at **Ammu-Nation** (G on the map, Downtown): walk up to the counter, keys 1-4.
+Guns, ammo and armour can also be bought at **Ammu-Nation** (see Shops below).
 Red first-aid kits refill your health, blue vests give body armour (it soaks up most of the damage).
 Dying costs a $100 hospital bill.
 

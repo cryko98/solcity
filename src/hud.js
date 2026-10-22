@@ -1,4 +1,6 @@
 // HUD: minimap (rotates with the camera), money, clock, street name banner.
+import { iconImage, legendHtml } from './icons.js';
+
 export class Hud {
   constructor(city) {
     this.city = city;
@@ -140,8 +142,27 @@ export class Hud {
       c.lineJoin = 'round';
       c.stroke();
     }
+    const legend = document.querySelector('#bigmap .legend');
+    if (legend && !legend.dataset.icons) {
+      legend.dataset.icons = '1';
+      legend.innerHTML = legendHtml();
+    }
     for (const b of [...(this.pickupBlips || []), ...(this.poiBlips || []), ...(this.blips || [])]) {
       const [sx, sy] = at(b.x, b.z);
+      const img = b.icon && iconImage(b.icon);
+      if (img) {
+        const s = Math.max(22, S / 34);
+        c.drawImage(img, sx - s / 2, sy - s / 2, s, s);
+        if (b.label) {
+          c.fillStyle = '#fff';
+          c.strokeStyle = '#000';
+          c.lineWidth = 3;
+          c.font = 'bold ' + Math.round(s * 0.42) + 'px Arial';
+          c.strokeText(b.label, sx + s * 0.45, sy - s * 0.45);
+          c.fillText(b.label, sx + s * 0.45, sy - s * 0.45);
+        }
+        continue;
+      }
       c.beginPath();
       c.arc(sx, sy, b.label ? 9 : b.r ? 4 : 8, 0, Math.PI * 2);
       c.fillStyle = b.color;
@@ -236,6 +257,12 @@ export class Hud {
       const k = Math.min(1, (W / 2 - 10) / Math.abs(sx || 1e-6), (sy > 0 ? H - oy - 10 : oy - 10) / Math.abs(sy || 1e-6));
       sx *= k;
       sy *= k;
+      const img = b.icon && iconImage(b.icon);
+      if (img) {
+        if (k < 1 && !b.edge) continue; // shops etc. only when on the map
+        c.drawImage(img, ox + sx - 11, oy + sy - 11, 22, 22);
+        continue;
+      }
       c.beginPath();
       if (b.r && k < 1) continue; // small blips only when on the map
       c.arc(ox + sx, oy + sy, b.r || 7, 0, Math.PI * 2);
@@ -285,3 +312,4 @@ export class Hud {
     c.fillText('N', cx, cy + 0.5);
   }
 }
+

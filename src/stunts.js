@@ -151,6 +151,6 @@ export class Stunts {
   }
 
   blips() {
-    return this.ramps.map((r) => ({ x: r.x, z: r.z, color: '#f2c12e', r: 5, label: 'J' }));
+    return this.ramps.map((r) => ({ x: r.x, z: r.z, color: '#f2c12e', r: 5, icon: 'stunt', kind: 'stunt' }));
   }
 }
