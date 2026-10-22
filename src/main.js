@@ -385,9 +385,9 @@ let driverTimer = 0;
 // ------------------------------------------------------------------ graphics quality (P)
 // resolution scale and shadow-map size; HIGH is the default look, LOW for weak integrated GPUs
 const QUALITY = [
-  { name: 'HIGH', ratio: 1.25, shadow: 2048 },
-  { name: 'MEDIUM', ratio: 0.9, shadow: 2048 },
-  { name: 'LOW', ratio: 0.75, shadow: 1024 },
+  { name: 'HIGH', ratio: 1.25, shadow: 2048, lamps: 6 },
+  { name: 'MEDIUM', ratio: 0.9, shadow: 2048, lamps: 4 },
+  { name: 'LOW', ratio: 0.75, shadow: 1024, lamps: 2 },
 ];
 let quality = 0;
 try {
@@ -407,6 +407,7 @@ function setQuality(q, announce) {
     sh.map = null;
   }
   fx.setViewport(viewH());
+  env.setLampLights(Q.lamps);
   try {
     localStorage.setItem('solcity.quality', String(q));
   } catch {}

@@ -6,11 +6,11 @@
 import * as THREE from 'three';
 
 const PRESETS = {
-  night: { top: 0x050a1c, horizon: 0x2a2346, bottom: 0x0b0b14, fog: 0x1d1a33, sun: 0x8ea8ff, sunI: 0.4, hemi: 0.25, hemiSky: 0x4a5a9a, env: 0.35, exposure: 1.1, bloom: 0.9, thr: 0.6, lamps: 1 },
+  night: { top: 0x0a1430, horizon: 0x343060, bottom: 0x10101a, fog: 0x272443, sun: 0x9db4ff, sunI: 0.85, hemi: 0.6, hemiSky: 0x6a7ab8, env: 0.5, exposure: 1.3, bloom: 0.6, thr: 0.78, lamps: 1 },
   dawn: { top: 0x4f6fae, horizon: 0xf2b293, bottom: 0x6a5a5a, fog: 0xd2aba0, sun: 0xffc4a0, sunI: 2.0, hemi: 0.7, hemiSky: 0xb8c8ef, env: 0.6, exposure: 1.0, bloom: 0.35, thr: 0.85, lamps: 0.3 },
   noon: { top: 0x2c6bd0, horizon: 0xbcd8f0, bottom: 0x8a8070, fog: 0xc6d6e4, sun: 0xfff1dc, sunI: 3.4, hemi: 1.0, hemiSky: 0xc4d8ff, env: 0.85, exposure: 1.0, bloom: 0.2, thr: 0.95, lamps: 0 },
   golden: { top: 0x3f74c4, horizon: 0xffc58a, bottom: 0x8a6a5a, fog: 0xe8b98f, sun: 0xffd6a8, sunI: 3.2, hemi: 0.9, hemiSky: 0xbcd3ff, env: 0.75, exposure: 1.0, bloom: 0.22, thr: 0.95, lamps: 0 },
-  dusk: { top: 0x1b2352, horizon: 0xe0764a, bottom: 0x2a2030, fog: 0x7a5060, sun: 0xff9a60, sunI: 1.3, hemi: 0.5, hemiSky: 0x7a7ab8, env: 0.5, exposure: 1.05, bloom: 0.6, thr: 0.7, lamps: 0.7 },
+  dusk: { top: 0x1b2352, horizon: 0xe0764a, bottom: 0x2a2030, fog: 0x7a5060, sun: 0xff9a60, sunI: 1.4, hemi: 0.65, hemiSky: 0x7a7ab8, env: 0.55, exposure: 1.15, bloom: 0.5, thr: 0.8, lamps: 0.7 },
 };
 const KEYS = [[0, 'night'], [4.6, 'night'], [6.2, 'dawn'], [8.6, 'noon'], [15.6, 'noon'], [18, 'golden'], [19.7, 'dusk'], [21.2, 'night'], [24, 'night']];
 const COLOR_KEYS = ['top', 'horizon', 'bottom', 'fog', 'sun', 'hemiSky'];
@@ -42,6 +42,18 @@ export class Environment {
     this.makeLights();
     this.makeRain();
     this.wetMats = (city.wetMats || []).map((m) => ({ m, r: m.roughness, c: m.color.clone() }));
+    // real lights for the street lamps nearest the camera: they light walls, cars and people;
+    // they fade out with distance so swapping lamps never pops
+    this.lampLights = [];
+    for (let i = 0; i < 6; i++) {
+      const l = new THREE.PointLight(0xffc27a, 0, 30, 1.7);
+      l.position.set(0, -100, 0);
+      this.scene.add(l);
+      this.lampLights.push(l);
+    }
+    this.lampCount = 6;
+    this.lampTimer = 0;
+    this.nearLamps = [];
   }
 
   // ---------------------------------------------------------------- sky
@@ -205,6 +217,40 @@ export class Environment {
     return this.nightK > 0.35 || this.cloud > 0.8;
   }
 
+  // graphics quality: fewer real lamp lights on weaker GPUs (changing the count recompiles shaders once)
+  setLampLights(n) {
+    this.lampCount = n;
+    this.lampLights.forEach((l, i) => (l.visible = i < n));
+  }
+
+  updateLampLights(dt, camera, k) {
+    const heads = this.city.lampHeads;
+    if (!heads) return;
+    // look a little ahead of the camera, where the player is
+    const fx = camera.position.x, fz = camera.position.z;
+    if ((this.lampTimer -= dt) <= 0) {
+      this.lampTimer = 0.25;
+      const near = [];
+      for (const h of heads) {
+        const d = Math.abs(h.x - fx) + Math.abs(h.z - fz);
+        if (d < 70) near.push([d, h]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      this.nearLamps = near.slice(0, this.lampCount).map(([, h]) => h);
+    }
+    const R0 = 18, R1 = 34;
+    this.lampLights.forEach((l, i) => {
+      const h = this.nearLamps[i];
+      if (!h || k <= 0 || i >= this.lampCount) {
+        l.intensity = 0;
+        return;
+      }
+      l.position.copy(h);
+      const d = Math.hypot(h.x - fx, h.z - fz);
+      l.intensity = 70 * k * (1 - THREE.MathUtils.smoothstep(d, R0, R1));
+    });
+  }
+
   // ---------------------------------------------------------------- update
   blend() {
     const h = this.hour;
@@ -286,7 +332,11 @@ export class Environment {
     this.bloom.enabled = bloomOn;
     this.bloom.strength = L.bloom + this.flash * 0.3;
     this.bloom.threshold = L.thr;
-    for (const m of this.city.nightMats) m.emissiveIntensity = m.userData.day + (m.userData.night - m.userData.day) * Math.max(nk, cl * 0.35);
+    const lampK = Math.max(nk, cl * 0.35);
+    for (const m of this.city.nightMats) m.emissiveIntensity = m.userData.day + (m.userData.night - m.userData.day) * lampK;
+    const glowK = THREE.MathUtils.smoothstep(lampK, 0.25, 0.8);
+    for (const g of this.city.nightGlow || []) g.mat.opacity = g.k * glowK;
+    this.updateLampLights(dt, camera, glowK);
     this.ambient = THREE.MathUtils.lerp(1, 0.22, nk) * (1 - cl * 0.25);
 
     // wet roads: darker and glossy

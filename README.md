@@ -80,7 +80,8 @@ double the first time.
 
 The clock runs one game minute per second, with sunrise, noon, golden hour, dusk and a starry night.
 The weather cycles between clear, cloudy, rain and thunderstorms: rain, wet glossy roads (less grip!),
-lightning and thunder. Car headlights light up the road after dark.
+lightning and thunder. After dark the street lamps nearest to you are real lights (they light up walls,
+cars and people; HIGH / MEDIUM / LOW quality uses 6 / 4 / 2 of them) and car headlights light up the road.
 
 ## Vigilante missions
 

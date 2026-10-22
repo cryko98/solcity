@@ -40,7 +40,7 @@ export function buildCity(scene) {
   const blockMin = (i) => -HALF + ROAD + i * PITCH;
   const PARKS = new Set(['4,3', '1,6']);
 
-  const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [] };
+  const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [] };
 
   // ------------------------------------------------------------- materials
   const buckets = new Map();
@@ -72,7 +72,7 @@ export function buildCity(scene) {
     const { map, emissive } = TX.facade({ ...style, seed });
     return nightEmissive(
       std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: style.glass ? 0.22 : 0.85, metalness: style.glass ? 0.4 : 0 }),
-      0, 1.25
+      0, 0.55
     );
   };
   const pastel = [
@@ -89,7 +89,7 @@ export function buildCity(scene) {
   ].map((s, i) => facadeMat(s, i * 71 + 13));
   const shopMats = [1, 2, 3, 4, 5].map((s) => {
     const { map, emissive } = TX.shopfront(s * 17);
-    return nightEmissive(std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: 0.4 }), 0.15, 1.4);
+    return nightEmissive(std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: 0.4 }), 0.15, 0.85);
   });
   const awningMats = [['#c8202f', '#f2efe6'], ['#1d5ea8', '#f2efe6'], ['#2b7a3f', '#f2efe6'], ['#e2b33a', '#3a2a1a']].map(
     ([a, b]) => std({ map: TX.awning(a, b), roughness: 0.9, side: THREE.DoubleSide })
@@ -118,10 +118,10 @@ export function buildCity(scene) {
   const lit = (mapPair, opts, night) => nightEmissive(std({ map: mapPair.map, emissiveMap: mapPair.emissive, emissive: 0xffffff, ...opts }), 0, night);
   const warehouseMats = [
     { wall: '#7a3b2e' }, { wall: '#6a5a4a' }, { wall: '#7d8c93', metal: true }, { wall: '#5f7a64', metal: true }, { wall: '#9a8a6e', metal: true },
-  ].map((o, i) => lit(TX.warehouse({ ...o, seed: i * 13 + 301 }), { roughness: o.metal ? 0.55 : 0.9, metalness: o.metal ? 0.35 : 0 }, 1));
+  ].map((o, i) => lit(TX.warehouse({ ...o, seed: i * 13 + 301 }), { roughness: o.metal ? 0.55 : 0.9, metalness: o.metal ? 0.35 : 0 }, 0.5));
   const villaMats = [
     { wall: '#f4efe4', shutter: '#3e6e8f' }, { wall: '#efe2c8', shutter: '#6b8e4e' }, { wall: '#f6f3ee', shutter: '#2e3b4c' }, { wall: '#e8d4bf', shutter: '#8a4b2f' },
-  ].map((o, i) => lit(TX.villa({ ...o, seed: i * 17 + 401 }), { roughness: 0.85 }, 1.2));
+  ].map((o, i) => lit(TX.villa({ ...o, seed: i * 17 + 401 }), { roughness: 0.85 }, 0.6));
   const rollerMat = std({ map: TX.rollerDoor(), roughness: 0.6, metalness: 0.3 });
   const trimWhite = std({ color: 0xf3f0e8, roughness: 0.7 });
   const poolMat = std({ color: 0x48c0e0, roughness: 0.04, metalness: 0.1 });
@@ -807,8 +807,42 @@ export function buildCity(scene) {
     new THREE.CylinderGeometry(0.16, 0.2, 0.3, 8).translate(0, 0.15, 0),
   ]);
   instanced(lampGeo, metalMat, props.lamp, ([x, z, yaw]) => at(x, CURB, z, yaw));
-  const lampHeadMat = nightEmissive(std({ color: 0xdedad0, emissive: 0xffd49a, roughness: 0.4 }), 0.1, 4);
+  const lampHeadMat = nightEmissive(std({ color: 0xdedad0, emissive: 0xffd49a, roughness: 0.4 }), 0.1, 10);
   instanced(new THREE.BoxGeometry(0.34, 0.12, 0.6).translate(0, 6.87, 1.55), lampHeadMat, props.lamp, ([x, z, yaw]) => at(x, CURB, z, yaw), false);
+  {
+    const glow = (inner, outer) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, inner);
+      gr.addColorStop(0.35, outer);
+      gr.addColorStop(1, 'rgba(255,200,130,0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(c);
+    };
+    // warm pool of light on the pavement / road under each lamp head
+    const poolMat = new THREE.MeshBasicMaterial({ map: glow('rgba(255,196,120,1)', 'rgba(255,180,105,.42)'), transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const pools = instanced(new THREE.PlaneGeometry(1, 1).rotateX(-HALF_PI), poolMat, props.lamp, ([x, z, yaw]) => {
+      at(x + Math.sin(yaw) * 1.7, CURB + 0.02, z + Math.cos(yaw) * 1.7, yaw, 15);
+    }, false);
+    pools.receiveShadow = false;
+    pools.renderOrder = 1;
+    // soft halo around each lamp head
+    const pos = new Float32Array(props.lamp.length * 3);
+    props.lamp.forEach(([x, z, yaw], k) => pos.set([x + Math.sin(yaw) * 1.55, CURB + 6.75, z + Math.cos(yaw) * 1.55], k * 3));
+    const hg = new THREE.BufferGeometry();
+    hg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const haloMat = new THREE.PointsMaterial({ map: glow('rgba(255,236,200,1)', 'rgba(255,205,140,.35)'), size: 2.6, sizeAttenuation: true,
+      transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    const halos = new THREE.Points(hg, haloMat);
+    scene.add(halos);
+    city.nightGlow.push({ mat: poolMat, k: 0.38 }, { mat: haloMat, k: 0.85 });
+    // lamp head positions: the nearest ones get real point lights (Environment)
+    city.lampHeads = props.lamp.map(([x, z, yaw]) => new THREE.Vector3(x + Math.sin(yaw) * 1.55, CURB + 6.6, z + Math.cos(yaw) * 1.55));
+  }
 
   // palms
   const trunkTex = TX.bark();
