@@ -107,7 +107,7 @@ class Vehicle {
     this.root.traverse((o) => {
       if (!/^wheel_(FL|FR|RL|RR|F|R)$/.test(o.name)) return;
       o.rotation.order = 'YXZ';
-      this.wheels.push({ o, front: o.name[6] === 'F', rest: o.quaternion.clone() });
+      this.wheels.push({ o, front: o.name[6] === 'F', rest: o.quaternion.clone(), at: o.position.clone() });
     });
     this.doorMesh = this.root.getObjectByName('Door_L');
     if (this.doorMesh) {
@@ -300,8 +300,8 @@ class Vehicle {
     const aLong = (vf - this.prevVf) / Math.max(dt, 1e-4);
     this.prevVf = vf;
     this.vf = vf;
-    const tPitch = THREE.MathUtils.clamp(-aLong * 0.006, -0.05, 0.06);
-    let tRoll = THREE.MathUtils.clamp(vf * this.angVel * 0.006, -0.07, 0.07);
+    const tPitch = THREE.MathUtils.clamp(-aLong * 0.005, -0.04, 0.045);
+    let tRoll = THREE.MathUtils.clamp(vf * this.angVel * 0.005, -0.05, 0.05);
     if (s.bike) {
       // lean into the turn; parked bikes rest on the side stand
       tRoll = this.driven || this.data.ai ? THREE.MathUtils.clamp(-Math.atan((vf * this.angVel) / 9.81), -0.75, 0.75) : -0.2;
@@ -413,6 +413,13 @@ class Vehicle {
     this.object.rotation.set(this.tPitch, this.heading, this.tRoll, 'YXZ');
     this.body.rotation.set(this.pitch, 0, this.roll);
     for (const w of this.wheels) {
+      // the body pitches and rolls on its springs: where it comes down onto a wheel further
+      // than the arch allows, the wheel goes down with it (it never pokes through the wing)
+      if (!this.fork) {
+        _p.copy(w.at).applyEuler(this.body.rotation);
+        w.o.position.copy(w.at);
+        w.o.position.y += Math.min(0, _p.y - w.at.y + 0.06);
+      }
       w.o.quaternion.copy(w.rest);
       if (w.front && !this.fork) w.o.quaternion.multiply(_q.setFromAxisAngle(UP, this.steer));
       w.o.quaternion.multiply(_q.setFromAxisAngle(X_AXIS, this.spin));

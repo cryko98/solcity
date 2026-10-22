@@ -11,6 +11,7 @@ Axes: car faces -Y (exports as +Z in three.js), left side = +X, Z up, origin on 
 import bpy, bmesh, math, sys, os
 import numpy as np
 from mathutils import Vector, Matrix
+from mathutils.bvhtree import BVHTree
 
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ROOT = os.path.abspath(ARGS[0]) if ARGS else os.getcwd()
@@ -103,8 +104,9 @@ def to_object(name, bm, mats, smooth=True, coll=None):
     return ob
 
 
-def section_loft(bm, stations, shape, segs, uvl, mat_index=0):
-    """stations: list of y; shape(y) -> list of (x, z) closed polygon. Caps both ends."""
+def section_loft(bm, stations, shape, segs, uvl, mat_index=0, seg_layer=None):
+    """stations: list of y; shape(y) -> list of (x, z) closed polygon. Caps both ends.
+    seg_layer: face int layer that gets the segment index around the section (caps: -1)"""
     rings = []
     for y in stations:
         rings.append([bm.verts.new((x, y, z)) for x, z in shape(y)])
@@ -113,11 +115,15 @@ def section_loft(bm, stations, shape, segs, uvl, mat_index=0):
             j = (i + 1) % segs
             f = bm.faces.new((a[i], a[j], b[j], b[i]))
             f.material_index = mat_index
+            if seg_layer is not None:
+                f[seg_layer] = i
             for loop, uv in zip(f.loops, ((i / segs, k / 8), ((i + 1) / segs, k / 8), ((i + 1) / segs, (k + 1) / 8), (i / segs, (k + 1) / 8))):
                 loop[uvl].uv = uv
     for ring, flip in ((rings[0], True), (rings[-1], False)):
         f = bm.faces.new(list(reversed(ring)) if flip else ring)
         f.material_index = mat_index
+        if seg_layer is not None:
+            f[seg_layer] = -1
     return rings
 
 
@@ -206,7 +212,7 @@ def build_car(name, P):
     trim = material("Trim", "111214", 0.55)
     chrome = material("Chrome", "d8dadc", 0.12, 1.0)
     head = material("Headlight", "e8eef5", 0.05, 0.2, emit="fff6e0", emit_str=0.0)
-    tail = material("Taillight", "8a0b0b", 0.15, 0.1, emit="ff1a10", emit_str=0.0)
+    tail = material("Taillight", "b0141c", 0.12, 0.1, emit="ff1a10", emit_str=0.0)
     indic = material("Indicator", "d27a10", 0.2, 0.1)
     interior = material("Interior", "2a2b2e", 0.85)
     plate = material("Plate", "e9e4cf", 0.6)
@@ -247,6 +253,8 @@ def build_car(name, P):
     segs = 26
     unit = superellipse(segs, 4.5)
     body = P["body"]  # (y, half_width_factor, z_bottom, z_top)
+    # a squarer tail: the last sections stay wider (the rear used to round off into a pill)
+    body = [(y, f + (1 - f) * 0.55 * max(0.0, min(1.0, (y - (L / 2 - 0.3)) / 0.25)), zb, zt) for y, f, zb, zt in body]
     ys = sorted(set([round(front + k * 0.1, 3) for k in range(int(L / 0.1) + 1)] + [b[0] for b in body]))
 
     def body_shape(y):
@@ -273,7 +281,7 @@ def build_car(name, P):
     # wheel arches cut with booleans
     R = P["wheel_r"]
     for wy in (P["axle_f"], P["axle_r"]):
-        bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=R + 0.075, depth=hw * 2 + 0.4, location=(0, wy, R + 0.01), rotation=(0, math.pi / 2, 0))
+        bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=R + 0.1, depth=hw * 2 + 0.4, location=(0, wy, R + 0.02), rotation=(0, math.pi / 2, 0))
         cutter = bpy.context.active_object
         mod = body_ob.modifiers.new("arch", "BOOLEAN")
         mod.operation = "DIFFERENCE"
@@ -309,7 +317,8 @@ def build_car(name, P):
             out.append((u * (wb + (wt - wb) * t), zb - 0.06 + (zt - zb + 0.06) * t))
         return out
 
-    section_loft(bm, g_ys, cabin_shape, 20, uvl, GLASS)
+    seg_l = bm.faces.layers.int.new("seg")
+    section_loft(bm, g_ys, cabin_shape, 20, uvl, GLASS, seg_layer=seg_l)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.normal_update()
     roof0, roof1 = P["roof_span"]
@@ -327,9 +336,15 @@ def build_car(name, P):
                 f.material_index = PAINT if not (bpil and bpil[0] < c.y < bpil[1]) else TRIM
             elif c.z > zt - 0.04:
                 f.material_index = PAINT
-        elif 0.2 < abs(n.x) <= 0.55 and n.z > 0.3:
-            if c.y < roof0 + 0.05 or c.y > roof1 - 0.05:
-                f.material_index = PAINT  # A / C pillar edges framing the screens
+        # the corner segment of the section (36..54 degrees) runs the full length of the
+        # greenhouse: A-pillar, roof rail and C-pillar in one straight band (choosing face by
+        # face from the normals gave a wavy, stepped pillar)
+        if f[seg_l] in (2, 7):
+            f.material_index = PAINT
+        elif f[seg_l] >= 0 and f[seg_l] not in (3, 4, 5, 6) and (c.y > P["c_pillar_start"] or c.y < P["a_pillar_end"]) and c.z > zb + 0.02:
+            f.material_index = PAINT  # solid quarter panels ahead of / behind the side windows, cut straight
+        elif f[seg_l] in (1, 3, 6, 8) and f.material_index == PAINT and not (c.z > zt - 0.04 or c.y < P["a_pillar_end"] or c.y > P["c_pillar_start"]):
+            f.material_index = GLASS
         if CARGO and f.material_index == GLASS and (c.y > P["c_pillar_start"] or n.y > 0.5 or (n.z > 0.6 and c.y > roof0) or 0.4 < abs(n.x) < 0.93):
             f.material_index = PAINT
         if CARGO and f.material_index == GLASS and c.y < P["a_pillar_end"] and abs(c.x) > P["half_width"] * .78:
@@ -368,6 +383,35 @@ def build_car(name, P):
     if LUX:
         strip(CHROME, P["axle_f"] + R + .1, P["axle_r"] - R - .1, P["split_z"] - .012, P["split_z"] + .012, off=0.005)
 
+    # rear decals follow the real tail surface (after the arches were cut)
+    _tail_bvh = BVHTree.FromObject(body_ob, bpy.context.evaluated_depsgraph_get())
+
+    def decal(b_, mat, x0, x1, z0, z1, off, nx=8, nz=3):
+        """a thin panel laid onto the back of the body over x0..x1, z0..z1 (seen from behind)"""
+        if x0 > x1:
+            x0, x1 = x1, x0
+        grid = []
+        for i in range(nx + 1):
+            row = []
+            for j in range(nz + 1):
+                x, z = x0 + (x1 - x0) * i / nx, z0 + (z1 - z0) * j / nz
+                hit = _tail_bvh.ray_cast(V((x, rear + 1.0, z)), V((0, -1, 0)), 2.0)
+                if hit[0] is None:  # past the corner of the tail: stop at the last good column
+                    hit = (row[-1].co if row else (grid[-1][j].co if grid else None), V((0, 1, 0)))
+                    if hit[0] is None:
+                        return
+                    row.append(b_.verts.new(hit[0]))
+                    continue
+                row.append(b_.verts.new(hit[0] + hit[1] * off))
+            grid.append(row)
+        for i in range(nx):
+            for j in range(nz):
+                fc = b_.faces.new((grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]))
+                fc.material_index = mat
+                fc.normal_update()
+                if fc.normal.y < 0:
+                    fc.normal_flip()
+
     # ---- lights, grille, bumpers, mirrors, plates, handles
     zf = interp(body, front + 0.06)
     for s in (1, -1):
@@ -386,8 +430,11 @@ def build_car(name, P):
             prim(bm, "cube", TAIL, T(s * hw * 0.86, rear + 0.02, P["tail_z"] + .06, .11, .03, .2))
             prim(bm, "cube", INDIC, T(s * hw * 0.86, rear + 0.02, P["tail_z"] - .1, .11, .03, .1))
         else:
-            prim(bm, "sphere", TAIL, T(s * hw * 0.66, rear - 0.07, P["tail_z"], .24, .06, .06, rz=s * 0.1), segs=10, rings=6)
-            prim(bm, "cube", TRIM, T(s * hw * 0.66, rear - 0.055, P["tail_z"], .5, .05, .13, rz=s * 0.1))
+            # light cluster wrapped onto the tail: red lamp, amber indicator outboard, dark surround
+            tz = min(P["tail_z"], interp(body, rear - 0.06)[2] - 0.09)  # on the tail, below its top edge
+            decal(bm, TRIM, s * hw * 0.42, s * hw * 0.9, tz - 0.075, tz + 0.06, 0.004)
+            decal(bm, TAIL, s * hw * 0.46, s * hw * 0.8, tz - 0.06, tz + 0.045, 0.008)
+            decal(bm, INDIC, s * hw * 0.8, s * hw * 0.88, tz - 0.06, tz + 0.045, 0.008)
         # side mirror
         my, mz = P["mirror"]
         prim(bm, "cube", TRIM, T(s * (hw * 0.93), my, mz - 0.02, .12, .05, .04))
@@ -462,7 +509,9 @@ def build_car(name, P):
             prim(bm, "cube", CHROME, T(s * .07, rear + 0.015, (rz0 + rz1) / 2 - .05, .025, .02, .16))
             prim(bm, "cube", TRIM, T(s * hw * .7, rear + 0.006, rz1 - .05, .08, .012, .025))  # hinges
             prim(bm, "cube", TRIM, T(s * hw * .7, rear + 0.006, rz0 + .1, .08, .012, .025))
-    prim(bm, "cube", TRIM, T(0, rear - 0.04, P["tail_z"], hw * 0.7, .03, .08))
+    if P.get("tail_style") != "vertical":
+        tz = min(P["tail_z"], interp(body, rear - 0.06)[2] - 0.09)
+        decal(bm, TRIM, -hw * 0.42, hw * 0.42, tz - 0.03, tz + 0.03, 0.005)  # garnish between the lamps
     # side skirts
     for s in (1, -1):
         # tucked under the body side (the body tumbles in at the bottom), so it does not stick out
@@ -524,7 +573,7 @@ def build_car(name, P):
     bm.loops.layers.uv.verify()
     for wy in (P["axle_f"], P["axle_r"]):
         for s in (1, -1):
-            prim(bm, "cyl", TRIM, T(s * (hw - 0.17), wy, R + 0.01, ry=math.pi / 2), r1=R + 0.07, depth=0.36, segs=18, caps=False)
+            prim(bm, "cyl", TRIM, T(s * (hw - 0.17), wy, R + 0.02, ry=math.pi / 2), r1=R + 0.095, depth=0.36, segs=18, caps=False)
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < R - 0.05], context="VERTS")
     liner = to_object(name + "_liners", bm, MATS)
     m2 = liner.modifiers.new("flip", "SOLIDIFY")
