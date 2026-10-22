@@ -145,7 +145,7 @@ addEventListener('resize', () => {
 const loader = new GLTFLoader();
 const manager = { total: 13, done: 0 };
 // bump when the models are rebuilt, so no browser keeps showing an old cached copy
-const ASSET_VERSION = '2026-10-23f';
+const ASSET_VERSION = '2026-10-23g';
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
     loader.load(url + '?v=' + ASSET_VERSION, (g) => {

@@ -43,12 +43,12 @@ export class Player {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp', 'Swim', 'Dance', 'BenchPress'];
+    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp', 'Swim', 'Tread', 'Dance', 'BenchPress'];
     // Ride / HandsUp may be missing from older exports
     const clips = Object.fromEntries(names.map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     // stride length = ground covered per gait cycle, measured from the foot motion in the clip
     this.walkStride = this.measureStride(clips.walk, 1.0);
-    this.runStride = this.measureStride(clips.run, 1.3);
+    this.runStride = this.measureStride(clips.run, 1.3, true);
 
     this.actions = {};
     this.weights = {};
@@ -129,23 +129,32 @@ export class Player {
     this.onLand = null; // (fallSpeed) => void
   }
 
-  measureStride(clip, flightFactor) {
+  // ground covered per gait cycle. planted: the clip plants its feet (the run): how fast the
+  // foot slides back under the body while it's on the ground, times the cycle, so they never
+  // skid. Otherwise (and as a fallback) from the foot's reach.
+  measureStride(clip, flightFactor, planted = false) {
     const action = this.mixer.clipAction(clip);
     action.play();
     const foot = this.model.getObjectByName('footL') || this.model.getObjectByName('foot.L');
-    const v = new THREE.Vector3();
-    let min = Infinity, max = -Infinity;
-    for (let i = 0; i <= 40; i++) {
-      action.time = (clip.duration * i) / 40;
+    const v = new THREE.Vector3(), pts = [], N = 80;
+    for (let i = 0; i < N; i++) {
+      action.time = (clip.duration * i) / N;
       this.mixer.update(0);
       this.model.updateMatrixWorld(true);
       foot.getWorldPosition(v);
-      min = Math.min(min, v.z);
-      max = Math.max(max, v.z);
+      pts.push([v.y, v.z]);
     }
     action.stop();
     this.mixer.uncacheAction(clip);
-    return Math.max(0.8, 2 * (max - min) * flightFactor);
+    const minY = Math.min(...pts.map((p) => p[0]));
+    const speeds = [];
+    for (let i = 0; i < N; i++) {
+      const a = pts[(i + N - 1) % N], b = pts[(i + 1) % N];
+      if (pts[i][0] < minY + 0.02 && a[0] < minY + 0.03 && b[0] < minY + 0.03) speeds.push(Math.abs(b[1] - a[1]) * (N / 2));
+    }
+    if (planted && speeds.length >= 3) return speeds.sort((p, q) => p - q)[Math.floor(speeds.length / 2)];
+    const zs = pts.map((p) => p[1]);
+    return Math.max(0.8, 2 * (Math.max(...zs) - Math.min(...zs)) * flightFactor);
   }
 
   get position() {
@@ -571,9 +580,11 @@ export class Player {
     else if (this.vehicle) tw = { [this.seatClip]: 1 };
     else if (this.busted) tw = this.actions.handsup ? { handsup: 1 } : { idle: 1 };
     else if (this.swimming && this.actions.swim) {
-      tw = { swim: 1 };
-      // strokes keep pace with the speed (a slow paddle when treading water)
-      this.actions.swim.timeScale = 0.45 + s / SWIM;
+      // treading water when still, front crawl once moving; the stroke rate follows the speed
+      // (one cycle, two strokes, carries him ~2.7 m at the normal pace)
+      const k = THREE.MathUtils.clamp((s - 0.15) / 0.7, 0, 1);
+      tw = this.actions.tread ? { swim: k, tread: 1 - k } : { swim: 1 };
+      this.actions.swim.timeScale = 0.5 + (0.5 * s) / SWIM;
     } else if (this.overlay) tw = { [this.overlay.name]: 1 };
     else if (!this.grounded) tw = { jump: 1 };
     else if (s < WALK) {

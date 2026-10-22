@@ -2524,6 +2524,98 @@ def run_leg(t_):
     return hip, knee, ankle
 
 
+RUN_ST = .27  # the share of the cycle each foot is on the ground (the rest: swing; two flights)
+RUN_F0, RUN_B0 = .34, .58  # ankle ahead of the hips at touch-down / behind them at toe-off
+# where the ankle goes during the swing (u 0..1 from toe-off to touch-down): forward of the hips,
+# height above the ground, toe-down pitch of the foot in degrees
+RUN_SWING = [
+    (0.00, -RUN_B0, .07, 34),
+    (0.20, -0.52, .34, 58),   # the heel kicks up behind
+    (0.44, -0.14, .50, 30),   # folded under the hips, high
+    (0.66, 0.26, .36, 4),     # the knee drives forward, the shin swings out
+    (0.85, 0.42, .13, -10),   # reaching
+    (1.00, RUN_F0, .0, -8),   # pawing back onto the ground, heel first
+]
+
+
+def run_foot(tt):
+    """the ankle through one running stride: (forward of the hips, height, foot pitch)"""
+    if tt < RUN_ST:
+        # planted: it slides straight back under the body (it is the body that moves)
+        k = tt / RUN_ST
+        pitch = -8 * (1 - smooth01(0, .25, k)) + 34 * smooth01(.6, 1, k)
+        return RUN_F0 - (RUN_F0 + RUN_B0) * k, .13 * math.sin(math.radians(max(0.0, pitch))), pitch
+    u = (tt - RUN_ST) / (1 - RUN_ST)
+    keys = RUN_SWING
+    vst = -(RUN_F0 + RUN_B0) / RUN_ST * (1 - RUN_ST)  # the stance speed, per unit of u
+    for i in range(len(keys) - 1):
+        u0, f0, h0, p0 = keys[i]
+        u1, f1, h1, p1 = keys[i + 1]
+        if u <= u1:
+            w = u1 - u0
+            x = (u - u0) / w
+
+            def tan(j, c):
+                if j == 0 and c == 1:
+                    return vst
+                if j == len(keys) - 1 and c == 1:
+                    return vst
+                a, b = keys[max(0, j - 1)], keys[min(len(keys) - 1, j + 1)]
+                return (b[c] - a[c]) / ((b[0] - a[0]) or 1)
+
+            def herm(c):
+                y0, y1 = keys[i][c], keys[i + 1][c]
+                m0, m1 = tan(i, c) * w, tan(i + 1, c) * w
+                x2, x3 = x * x, x * x * x
+                return y0 * (2 * x3 - 3 * x2 + 1) + m0 * (x3 - 2 * x2 + x) + y1 * (-2 * x3 + 3 * x2) + m1 * (x3 - x2)
+            return herm(1), max(0.0, herm(2)), herm(3)
+    return RUN_F0, 0.0, -8
+
+
+def run_cycle(t_):
+    """running, one stride (two steps), built from where the feet go: each foot is planted
+    for a quarter of the cycle and slides straight back under the hips (so it never skids),
+    rolls onto the ball and toes off, the heel comes up high behind, the knee drives forward
+    and the foot reaches out and paws back onto the ground. Two flight phases: the hips are
+    lowest at each mid-stance and highest in the air. The pelvis and the shoulders turn
+    against each other, the trunk leans in from the ankles, the arms swing from the shoulder
+    against the legs with the elbows near 90 degrees, the hands relaxed fists."""
+    c1, s1 = math.cos(2 * math.pi * t_), math.sin(2 * math.pi * t_)
+    # hips: lowest at mid-stance (left .13, right .63), highest in flight
+    z = -.04 - .034 * math.cos(4 * math.pi * (t_ - RUN_ST / 2))
+    sway = .012 * math.sin(2 * math.pi * (t_ - RUN_ST / 2))  # a touch over the planted foot
+    pelvis_rot = 8 * -c1
+    drop = 4 * -math.sin(2 * math.pi * (t_ - RUN_ST / 2 + .25))  # the swing side's hip dips in stance
+    lean = 11
+    p = {}
+    p["hips"] = rot("hips", (ZA, pelvis_rot), (YA, drop), (XA, lean * .4))
+    p["spine"] = rot("spine", (XA, lean * .3), (ZA, -pelvis_rot * 1.0))
+    p["chest"] = rot("chest", (XA, lean * .15), (ZA, -pelvis_rot * 1.9 - 2 * c1), (YA, -drop * 1.1))
+    p["neck"] = rot("neck", (XA, -lean * .4 + 2), (ZA, pelvis_rot * 1.1))
+    p["head"] = rot("head", (XA, -lean * .5 + 3 * math.cos(4 * math.pi * (t_ - RUN_ST / 2))), (ZA, pelvis_rot * .7))
+    ankle_h = REST["foot.L"][0].z
+    for side, sgn, ph in (("L", 1, 0.0), ("R", -1, .5)):
+        tt = (t_ + ph) % 1
+        fwd, up, pitch = run_foot(tt)
+        apply_pose(p)
+        hip = pbones["thigh." + side].head
+        target = V((sgn * .085 - sway, -fwd, ankle_h + up - z))
+        foot0 = (REST["foot." + side][1] - REST["foot." + side][0]).normalized()
+        flat = V((foot0.x, foot0.y, 0)).normalized()
+        fdir = Matrix.Rotation(math.radians(pitch), 3, "X") @ V((flat.x, flat.y, foot0.z))
+        solve_chain(p, "thigh." + side, "shin." + side, "foot." + side, target,
+                    V((hip.x + sgn * .1, hip.y - 1.2, hip.z - .3)), fdir.normalized())
+        # arms: against the legs, from the shoulder; the elbow opens a little as it goes back
+        c = math.cos(2 * math.pi * (tt - .04))
+        sw = 44 * c - 6
+        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * 6), (XA, sw), (ZA, -sgn * 7))
+        el = -(84 + 16 * max(0.0, -c) - 10 * max(0.0, c))
+        p["forearm." + side] = rot("forearm." + side, (XA, el), (ZA, -sgn * 8))
+        p["hand." + side] = rot("hand." + side, (XA, -10), (ZA, sgn * 6))
+    hands(p, 50)
+    return p, (sway, 0, z)
+
+
 def gait(t_, run):
     """masculine gait: little hip sway, the shoulders drive the swing, arms held off the body"""
     p = {}
@@ -2783,37 +2875,108 @@ def drive(t_):
     return p, (0, 0, 0)
 
 
+def loop_spline(keys, x):
+    """closed Catmull-Rom through (time, Vector) keys on a 0..1 loop (times ascending)"""
+    n = len(keys)
+    for i in range(n):
+        t0, p0 = keys[i]
+        t1, p1 = keys[(i + 1) % n]
+        span = (t1 - t0) % 1 or 1.0
+        if (x - t0) % 1 <= span:
+            u = ((x - t0) % 1) / span
+            tm, pm = keys[i - 1]
+            t2, p2 = keys[(i + 2) % n]
+            # tangents scaled to this span (non-uniform Catmull-Rom)
+            m0 = (p1 - pm) * (span / (((t1 - tm) % 1) or 1.0))
+            m1 = (p2 - p0) * (span / (((t2 - t0) % 1) or 1.0))
+            u2, u3 = u * u, u * u * u
+            return p0 * (2 * u3 - 3 * u2 + 1) + m0 * (u3 - 2 * u2 + u) + p1 * (-2 * u3 + 3 * u2) + m1 * (u3 - u2)
+    return keys[0][1].copy()
+
+
+# hand path of one arm through a front-crawl stroke, relative to the shoulder, in the body's
+# frame: (toward the head, down into the water, out to the side) in metres; phase 0 = entry
+CRAWL_HAND = [
+    (0.00, V((0.40, 0.10, 0.03))),    # entry: in front of the shoulder, fingertips first
+    (0.10, V((0.60, 0.20, 0.05))),    # reach: arm long under the surface
+    (0.22, V((0.48, 0.40, 0.09))),    # catch: the hand drops, the elbow stays high
+    (0.36, V((0.10, 0.50, -0.07))),   # pull: under the chest toward the centre line
+    (0.50, V((-0.30, 0.40, -0.01))),  # push: back past the hip
+    (0.60, V((-0.55, 0.16, 0.09))),   # finish by the thigh
+    (0.67, V((-0.48, -0.14, 0.15))),  # exit, little finger first
+    (0.80, V((-0.10, -0.34, 0.24))),  # recovery: over the water, elbow high, the hand below it
+    (0.92, V((0.26, -0.24, 0.14))),   # the hand swings past the head
+]
+SWIM_ROLL = 38.0  # body roll each way, degrees
+
+
 def swim(t_):
-    """front crawl, body level just under the surface: the arms pull from overhead back to
-    the hip and recover out of the water round the side, a flutter kick, the body rolls a
-    little with each stroke and the head turns to breathe. The game puts the hips at the
-    waterline (the root offset lifts them from standing height)."""
-    s1 = math.sin(2 * math.pi * t_)
-    p = {
-        "hips": rot("hips", (XA, 80)),
-        "spine": rot("spine", (XA, -6), (YA, 6 * s1)),
-        "chest": rot("chest", (XA, -4), (YA, 8 * s1)),
-        "neck": rot("neck", (XA, -34)),
-        "head": rot("head", (XA, -20), (YA, 28 * max(0.0, math.sin(2 * math.pi * t_ - .4)))),
-    }
+    """front crawl, one full cycle (a stroke with each arm), the body flat under the surface:
+    the body rolls ~40 degrees each way about its long axis with the strokes, each hand
+    follows the real path (entry, reach, high-elbow catch, pull under the body, push to the
+    thigh, exit, high-elbow recovery), the head turns to breathe on every second stroke and a
+    six-beat flutter kick runs from the hips with pointed toes. The game puts the hips just
+    under the waterline (the root offset lifts them from standing height)."""
+    hip_h = REST["hips"][0].z
+    roll = SWIM_ROLL * math.sin(2 * math.pi * (t_ - .05))
+    breathe = bump(t_, .3, .1)  # head out to the right as the right arm recovers
+    # the body's frame without the roll: the hands pull along the centre line while it rolls
+    apply_pose({"hips": rot("hips", (XA, 82))})
+    H = (pbones["neck"].head - pbones["hips"].head).normalized()
+    L = V((1, 0, 0))
+    F = L.cross(H).normalized()  # belly side: down into the water
+    p = {"hips": rot("hips", (XA, 82), (ZA, roll))}
+    p["spine"] = rot("spine", (XA, -3), (ZA, .15 * roll))
+    p["chest"] = rot("chest", (XA, -3), (ZA, .1 * roll))
+    p["neck"] = rot("neck", (XA, -22 + 6 * breathe), (ZA, -.25 * roll - 30 * breathe))
+    p["head"] = rot("head", (XA, -14 + 8 * breathe), (ZA, -.2 * roll - 38 * breathe))
+    for side, sgn, ph in (("L", 1, 0.0), ("R", -1, 0.5)):
+        # six-beat kick: three kicks per leg per cycle, the knee bends just before each down-beat
+        k = math.sin(6 * math.pi * t_ + (0 if side == "L" else math.pi))
+        kb = max(0.0, math.sin(6 * math.pi * t_ + (0 if side == "L" else math.pi) + 1.3))
+        p["thigh." + side] = rot("thigh." + side, (XA, -5 - 8 * k), (ZA, sgn * 3))
+        p["shin." + side] = rot("shin." + side, (XA, 6 + 18 * kb))
+        p["foot." + side] = rot("foot." + side, (XA, 48 + 8 * k), (ZA, -sgn * 6))
     for side, sgn, ph in (("L", 1, 0.0), ("R", -1, 0.5)):
         a = (t_ + ph) % 1
-        if a < .55:  # the pull: from reaching overhead back to the thigh, elbow nearly straight
-            k = smooth01(0, .55, a)
-            xa, za, el = -175 + 175 * k, -sgn * 6, -18 - 22 * math.sin(math.pi * k)
-        else:  # the recovery: out of the water, round the side, elbow high
-            k = smooth01(.55, 1, a)
-            xa, za, el = -175 * k, -sgn * 48 * math.sin(math.pi * k), -18 - 70 * math.sin(math.pi * k)
-        p["upper_arm." + side] = rot("upper_arm." + side, (XA, xa), (ZA, za))
-        p["forearm." + side] = rot("forearm." + side, (XA, el))
-        p["hand." + side] = rot("hand." + side, (XA, -10))
-        kick = math.sin(4 * math.pi * t_ + (0 if side == "L" else math.pi))
-        p["thigh." + side] = rot("thigh." + side, (XA, 6 * kick), (ZA, sgn * 4))
-        p["shin." + side] = rot("shin." + side, (XA, 8 + 10 * max(0.0, kick)))
-        p["foot." + side] = rot("foot." + side, (XA, 38))
-    hands(p, 8, 10)
+        apply_pose(p)
+        S = pbones["upper_arm." + side].head.copy()
+        out = L * sgn
+        h = loop_spline(CRAWL_HAND, a)
+        target = S + H * h.x + F * h.y + out * h.z
+        rec = smooth01(.6, .7, a) - smooth01(.94, 1.0, a)  # the arm is out of the water
+        pole = S + out * (.5 - .25 * rec) - F * (.5 + .7 * rec) + H * (.2 - .5 * rec)
+        hand_dir = (H * (.6 - 1.2 * smooth01(.2, .55, a)) + F * (.8 - .9 * rec)).normalized()
+        solve_chain(p, "upper_arm." + side, "forearm." + side, "hand." + side, target, pole, hand_dir, roll=(0, 0, -sgn * 70 * (1 - rec)))
+    hands(p, 6, 8)
+    return p, (0, 0, .25 - hip_h + .015 * abs(math.sin(2 * math.pi * t_)))
+
+
+def tread(t_):
+    """treading water, upright with the head out: the hands scull out and in just under the
+    surface, the legs work a slow eggbeater (alternate circles from bent knees)"""
     hip_h = REST["hips"][0].z
-    return p, (0, 0, .25 - hip_h)
+    s1 = math.sin(2 * math.pi * t_)
+    p = {"hips": rot("hips", (XA, 12))}
+    p["spine"] = rot("spine", (XA, -4))
+    p["chest"] = rot("chest", (XA, -6))
+    p["neck"] = rot("neck", (XA, -4))
+    p["head"] = rot("head", (XA, -3), (ZA, 4 * s1))
+    for side, sgn, ph in (("L", 1, 0.0), ("R", -1, 0.5)):
+        c = math.cos(2 * math.pi * (t_ + ph))
+        p["thigh." + side] = rot("thigh." + side, (XA, -48 + 10 * c), (ZA, sgn * (24 + 8 * math.sin(2 * math.pi * (t_ + ph)))))
+        p["shin." + side] = rot("shin." + side, (XA, 80 + 18 * c))
+        p["foot." + side] = rot("foot." + side, (XA, -10 + 10 * c))
+    apply_pose(p)
+    for side, sgn in (("L", 1), ("R", -1)):
+        S = pbones["upper_arm." + side].head
+        sweep = .5 + .5 * math.sin(4 * math.pi * t_)  # two sculls a cycle: out, in
+        target = V((S.x + sgn * (.22 + .2 * sweep), S.y - .25, S.z - .16))
+        solve_chain(p, "upper_arm." + side, "forearm." + side, "hand." + side, target,
+                    V((S.x + sgn * .8, S.y + .4, S.z - .2)), V((sgn * (.3 + .6 * sweep), -1, -.2)).normalized(), roll=(0, 0, -sgn * (60 - 120 * sweep)))
+    hands(p, 6, 8)
+    # the head just out of the water: the hips well below the swim depth
+    return p, (0, 0, -.12 - hip_h + .025 * math.sin(4 * math.pi * t_))
 
 
 def dance(t_):
@@ -3237,7 +3400,7 @@ if HERO or PREVIEW:
     actions = [
         make_action("Idle", 120, idle, 4),
         make_action("Walk", 34, lambda t_: gait(t_, False), 1),
-        make_action("Run", 22, lambda t_: gait(t_, True), 1),
+        make_action("Run", 21, run_cycle, 1),
         make_action("Jump", 40, jump, 4),
         make_action("Drive", 90, drive, 6),
         make_action("Guard", 36, guard, 3),
@@ -3246,7 +3409,8 @@ if HERO or PREVIEW:
         make_action("Hit", 16, hit, 1),
         make_action("KnockDown", 42, knockdown, 1),
         make_action("GetUp", 48, get_up, 1),
-        make_action("Swim", 40, swim, 1),
+        make_action("Swim", 54, swim, 1),
+        make_action("Tread", 60, tread, 2),
         make_action("Dance", 60, dance, 1),
         make_action("BenchPress", 60, bench_press, 2),
         make_action("Ride", 72, ride, 6),
