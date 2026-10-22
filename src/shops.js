@@ -11,6 +11,7 @@ import * as TX from './textures.js';
 import { checker, planks } from './interiors.js';
 import { ICONS, iconImage } from './icons.js';
 import { chooseOutfit } from './materials.js';
+import { SHOP_BRANCHES } from './shared/world.mjs';
 
 const FADE = 0.45;
 const IN_X = 2200, IN_Z = 1700, IN_STEP = 160; // interiors: one row far east of the story rooms
@@ -37,13 +38,15 @@ const CLOTHES = [
   { name: 'Black jeans', part: 'jeans', color: '#45484f', price: 80 },
 ];
 
-// branches: [type, name, block i, block j]
-const BRANCHES = [
-  ['gun', 'AMMU-NATION', 4, 4], ['gun', 'AMMU-NATION', 2, 2], ['gun', 'AMMU-NATION', 6, 5],
-  ['food', 'BURGER SOL', 2, 6], ['food', 'TACO LOCO', 0, 4], ['food', 'PIZZA SOL', 5, 4],
-  ['clothes', 'SOL THREADS', 3, 6], ['clothes', 'SOL THREADS', 6, 7], ['clothes', 'SOL THREADS', 8, 4],
-  ['mart', '24/7', 0, 2], ['mart', '24/7', 7, 6], ['mart', '24/7', 5, 8], ['food', 'BURGER SOL', 9, 7],
-];
+// branches: [type, name, block i, block j] (shared with the city, which keeps their fronts plain)
+const BRANCHES = SHOP_BRANCHES;
+// the look of each kind of shop front: wall, trim, what the windows show
+const FRONT_LOOK = {
+  gun: { wall: 0x2e3136, trim: 0x585e66, metal: true, inside: '#3b3d40', goods: ['#1d1d1f', '#4a4d52', '#7a6a50', '#2b2f35', '#8a8f96'] },
+  food: { wall: 0xf1e3c8, trim: 0xb8452a, inside: '#f4e7cb', goods: ['#d2452c', '#f2c12e', '#7cbf4a', '#e98b2e', '#8a5032'] },
+  clothes: { wall: 0xf4f2ee, trim: 0x2b2b30, inside: '#efe9df', goods: ['#c0392b', '#2c3e70', '#e8d8b0', '#4a7a5a', '#222', '#d98cb3'] },
+  mart: { wall: 0xf2f4f1, trim: 0x1f7a45, inside: '#e8eef0', goods: ['#d63a3a', '#f2c12e', '#3d6ea8', '#2bb673', '#ef8a3c', '#8a5fb0'] },
+};
 const STYLE = {
   gun: { sign: '#ff4040', awning: 0x8e1b1b },
   food: { sign: '#ffb02e', awning: 0xc8541c },
@@ -603,41 +606,42 @@ export class Shops {
   }
 
   // ---------------------------------------------------------------- the shop front on the street
+  // A shop front built onto the plain ground floor the city kept for it (city.shopFronts):
+  // pilasters, a bulkhead, display windows across the whole width with mullions, a glass
+  // double door in the middle, a fascia with the lit name and an awning over the windows.
   front(type, name, bi, bj) {
-    const C = this.city, x0 = C.blockMin(bi), z0 = C.blockMin(bj);
-    // the building facing the street on the south side of the block
-    let best = null;
-    for (const c of C.query(x0, x0 + C.BLOCK, z0, z0 + C.BLOCK)) {
-      if (c.type !== 'box' || c.h < 5 || c.maxX - c.minX < 7 || c.minZ < z0 + 3 || c.minZ > z0 + 12) continue;
-      if (!best || c.minZ < best.minZ) best = c;
-    }
-    if (!best) return null;
-    const x = (best.minX + best.maxX) / 2, z = best.minZ;
+    const C = this.city, f = C.shopFronts?.[`${bi},${bj}`];
+    if (!f) return null;
+    const x = f.x, z = f.z;
+    const W = Math.min(f.w - 0.6, 18); // the shop's width along the street
     const st = STYLE[type];
     const g = new THREE.Group();
     g.position.set(x, C.groundHeight(x, z - 1), z);
     this.scene.add(g);
-    const dark = std({ color: 0x1c1d21, roughness: 0.5, metalness: 0.5 });
-    const glass = std({ color: 0x9fb3c2, roughness: 0.08, metalness: 0.3, emissive: 0xffd9a0, emissiveIntensity: 0 });
+    const look = FRONT_LOOK[type];
+    const facade = std({ color: look.wall, roughness: 0.75 });
+    const trim = std({ color: look.trim, roughness: 0.55, metalness: look.metal ? 0.5 : 0 });
+    const frame = std({ color: 0x1f2226, roughness: 0.4, metalness: 0.7 });
+    const glass = std({ color: 0x9fb3c2, roughness: 0.08, metalness: 0.3, emissive: 0xffd9a0, emissiveIntensity: 0, transparent: true, opacity: 0.55 });
     // display windows: a lit view of the shop inside
     const shelves = canvasTex(256, 192, (c2, w, h) => {
-      c2.fillStyle = '#e8dcc0';
+      c2.fillStyle = look.inside;
       c2.fillRect(0, 0, w, h);
-      c2.fillStyle = 'rgba(0,0,0,.25)';
+      c2.fillStyle = 'rgba(0,0,0,.22)';
       for (let y = 40; y < h; y += 46) c2.fillRect(0, y, w, 6);
-      const cols = ['#d63a3a', '#f2c12e', '#3d6ea8', '#2bb673', '#8a5fb0', '#ef8a3c', '#333'];
-      for (let y = 10; y < h - 20; y += 46) for (let x = 6; x < w - 10; x += 14 + ((x * 7) % 9)) {
-        c2.fillStyle = cols[(x + y) % cols.length];
-        c2.fillRect(x, y + 6, 10, 28);
+      const cols = look.goods;
+      for (let y = 10; y < h - 20; y += 46) for (let xx = 6; xx < w - 10; xx += 14 + ((xx * 7) % 9)) {
+        c2.fillStyle = cols[(xx + y) % cols.length];
+        c2.fillRect(xx, y + 6, 10, 28);
       }
       const gr = c2.createLinearGradient(0, 0, 0, h);
       gr.addColorStop(0, 'rgba(255,240,210,.35)');
-      gr.addColorStop(1, 'rgba(0,0,0,.25)');
+      gr.addColorStop(1, 'rgba(0,0,0,.3)');
       c2.fillStyle = gr;
       c2.fillRect(0, 0, w, h);
-    });
+    }, true);
     const window_ = std({ map: shelves, emissiveMap: shelves, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.15, metalness: 0.2 });
-    const add = (m, w, h, d, px, py, pz, rx = 0) => {
+    const box = (m, w, h, d, px, py, pz, rx = 0) => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
       b.position.set(px, py + h / 2, pz);
       b.rotation.x = rx;
@@ -645,35 +649,64 @@ export class Shops {
       g.add(b);
       return b;
     };
-    // door surround, double glass door, display windows on both sides
-    add(dark, 2.8, 3.0, 0.3, 0, 0, -0.1);
-    add(glass, 1.1, 2.4, 0.06, -0.57, 0.05, -0.27);
-    add(glass, 1.1, 2.4, 0.06, 0.57, 0.05, -0.27);
-    add(std({ color: 0xc8ccd0, metalness: 0.9, roughness: 0.2 }), 0.04, 0.6, 0.05, -0.08, 0.9, -0.32);
-    add(std({ color: 0xc8ccd0, metalness: 0.9, roughness: 0.2 }), 0.04, 0.6, 0.05, 0.08, 0.9, -0.32);
+    const SH = 3.3; // shop-floor height (top of the windows / door head)
+    // the shop's face over the whole ground floor, standing just proud of the building's wall
+    box(facade, W, SH + 1.25, 0.12, 0, 0, -0.06);
+    // pilasters at both ends, a cornice on top
+    for (const s of [-1, 1]) box(trim, 0.42, SH + 1.25, 0.34, s * (W / 2 - 0.21), 0, -0.17);
+    box(trim, W + 0.3, 0.16, 0.42, 0, SH + 1.25, -0.2);
+    // the door: steel frame, two glass leaves with push bars, a step
+    const DW = 2.1, DH = 2.55;
+    box(frame, DW + 0.24, DH + 0.12, 0.16, 0, 0, -0.14);
     for (const s of [-1, 1]) {
-      add(dark, 2.4, 2.2, 0.2, s * 2.7, 0.3, -0.06);
-      add(window_, 2.2, 1.9, 0.05, s * 2.7, 0.45, -0.18);
+      box(glass, DW / 2 - 0.08, DH - 0.1, 0.04, s * (DW / 4), 0.06, -0.2);
+      box(std({ color: 0xc8ccd0, metalness: 0.9, roughness: 0.2 }), 0.7, 0.04, 0.05, s * (DW / 4), 1.0, -0.25);
     }
-    // a fascia across the whole front with the shop's name: covers whatever sign the
-    // building had there before
-    add(dark, 8.8, 2.4, 0.9, 0, 3.7, -0.6); // deep enough to hide whatever the building had on its front
-    add(std({ color: st.awning, roughness: 0.6 }), 8.9, 0.14, 0.34, 0, 3.62, -0.3);
-    add(dark, 8.8, 0.9, 0.2, 0, 2.75, -0.1); // between the door head and the awning
-    // awning and the lit sign above it
-    const aw = std({ map: TX.awning ? TX.awning('#' + st.awning.toString(16).padStart(6, '0'), '#f2efe6') : null, color: TX.awning ? 0xffffff : st.awning, roughness: 0.8 });
-    add(aw, 9.0, 0.08, 2.1, 0, 3.32, -1.0, -0.36); // over the building's own awning
+    box(trim, DW + 0.6, 0.12, 0.5, 0, -0.05, -0.3); // step
+    box(facade, DW + 0.24, SH - DH - 0.12, 0.16, 0, DH + 0.12, -0.14); // transom panel over the door
+    // display windows from the door to the pilasters, in panes no wider than ~2.4 m
+    const span = W / 2 - 0.42 - (DW / 2 + 0.12);
+    if (span > 0.6) {
+      const n = Math.max(1, Math.round(span / 2.4)), pw = span / n;
+      for (const s of [-1, 1]) {
+        const x0 = s * (DW / 2 + 0.12);
+        box(trim, span, 0.55, 0.22, x0 + s * span / 2, 0, -0.16); // bulkhead
+        for (let k = 0; k < n; k++) {
+          const cx = x0 + s * (k + 0.5) * pw;
+          box(window_, pw - 0.1, SH - 0.75, 0.04, cx, 0.6, -0.12);
+          box(glass, pw - 0.1, SH - 0.75, 0.02, cx, 0.6, -0.17);
+        }
+        for (let k = 0; k <= n; k++) box(frame, 0.09, SH - 0.65, 0.14, x0 + s * k * pw, 0.55, -0.16); // mullions
+        box(frame, span, 0.09, 0.14, x0 + s * span / 2, SH - 0.1, -0.16); // head
+      }
+    }
+    // fascia across the front with the shop's name, lit
+    box(std({ color: st.awning, roughness: 0.5 }), W - 0.84, 1.0, 0.3, 0, SH + 0.1, -0.2);
     const t = TX.sign(name, st.sign);
     const sm = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 1.2, roughness: 0.5 });
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(6.4, 1.6, 0.2), [dark, dark, dark, dark, dark, sm]);
-    sign.position.set(0, 4.9, -0.85);
+    const sw = Math.min(W - 1.4, 7.5);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(sw, sw / 4.2), sm);
+    sign.position.set(0, SH + 0.6, -0.36);
+    sign.rotation.y = Math.PI; // faces the street (-z)
     g.add(sign);
-    // the building's own shop sign above this door goes (the fascia replaces it)
-    for (const o of [...this.scene.children]) {
-      if (!o.isMesh || o.isInstancedMesh || !Array.isArray(o.material) || o.parent !== this.scene) continue;
-      const p = o.position;
-      if (Math.abs(p.x - x) < 6.5 && p.z > z - 2.5 && p.z < z + 1.5 && p.y > 3 && p.y < 9) o.visible = false;
+    // striped awning over each run of windows (the door stays open to the sky)
+    if (span > 0.6) {
+      const hex = '#' + st.awning.toString(16).padStart(6, '0');
+      const stripes = canvasTex(128, 32, (c2, w, h) => {
+        for (let i = 0; i < 8; i++) {
+          c2.fillStyle = i % 2 ? '#f2efe6' : hex;
+          c2.fillRect((i * w) / 8, 0, w / 8, h);
+        }
+      }, true);
+      stripes.repeat.set((span + 0.2) / 1.6, 1);
+      const aw = std({ map: stripes, roughness: 0.8 });
+      for (const s of [-1, 1]) {
+        const a = box(aw, span + 0.2, 0.05, 1.25, s * (DW / 2 + 0.12 + span / 2), SH - 0.02, -0.72, -0.38);
+        a.castShadow = true;
+      }
     }
+    // the front stands ~0.35 m proud of the building: solid, so nobody walks into it
+    C.addColliders([{ type: 'box', minX: x - W / 2, maxX: x + W / 2, minZ: z - 0.36, maxZ: z + 0.05, h: g.position.y + SH + 1.4 }]);
     // the entrance ring on the pavement and a floating icon above it
     const door = { x, z: z - 1.4 };
     const ring = this.ring(st.sign, door.x, door.z, 0.9, g.position.y);

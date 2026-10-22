@@ -76,10 +76,10 @@ Thirteen shops you can walk into, spread over the districts (`src/shops.js`):
 
 - **Ammu-Nation** (two Downtown, Old Harbor): pistol, SMG, shotgun (ammo if you own it), body armor.
 - **Restaurants**: Burger Sol (Little Havana, South Beach), Taco Loco (Old Harbor), Pizza Sol (Downtown): meals heal 25 / 50 / 100 HP.
-- **Sol Threads** clothes stores (Little Havana, South Beach, Vinewood Hills): tank tops and jeans in other colours for the hero (kept between sessions).
+- **Sol Threads** clothes stores (Little Havana, two in South Beach): tank tops and jeans in other colours for the hero (kept between sessions).
 - **24/7** stores (Old Harbor, two in South Beach): snacks, energy drinks, a first-aid kit and scratch cards.
 
-Each has a real shop front (door, fascia with a lit sign, awning, display windows) and its own furnished
+Each has its own shop front across the ground floor of its building (the city leaves that floor plain for it: pilasters, display windows, a glass double door, a lit name on the fascia, striped awnings) and its own furnished
 interior: Ammu-Nation's pegboard of guns and glass display counter, a diner with booths, a kitchen and a
 menu board, a clothes store with rails, mannequins and fitting rooms, a 24/7 with aisles and lit fridges.
 Step into the ring at the door: the screen fades and you're inside, with a closer indoor camera and the

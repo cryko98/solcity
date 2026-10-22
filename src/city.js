@@ -38,8 +38,17 @@ export function buildCity(scene) {
   // the grid is shared with the reward server (src/shared/world.mjs)
   const { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, roadC, blockMin } = W;
   const PARKS = new Set(['4,3', '1,6', '6,8']);
+  // blocks with a walk-in shop: one building's street face keeps a plain ground floor for it
+  const SHOP_BLOCKS = new Set(W.SHOP_BRANCHES.map(([, , i, j]) => `${i},${j}`));
+  let reserve = null; // the shop block being built, until its front is taken
 
-  const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [], benches: [] };
+  const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [], benches: [], shopFronts: {} };
+  // the south (street) face of this building becomes the shop's: record it, dress nothing on it
+  const takeFront = (nx, nz, cx, cz, w, d, h) => {
+    if (!reserve || nx !== 0 || nz !== -1 || city.shopFronts[reserve] || w < 9) return false;
+    city.shopFronts[reserve] = { x: cx, z: cz - d / 2, w, top: CURB + h };
+    return true;
+  };
 
   // ------------------------------------------------------------- materials
   const buckets = new Map();
@@ -343,8 +352,9 @@ export function buildCity(scene) {
       const neon = pick(neonMats);
       for (const [nx, nz] of street) {
         const fw = nx ? d : w;
-        storefront(cx, cz, w, d, nx, nz, true);
         faceBox(neon, cx, cz, w, d, nx, nz, 0, CURB + h - 0.95, fw * 0.92, 0.14, 0.1);
+        if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
+        storefront(cx, cz, w, d, nx, nz, true);
       }
       mrect(x0, z0, w, d, '#7f6a78');
     } else if (dist === 'Little Havana') {
@@ -361,6 +371,7 @@ export function buildCity(scene) {
         add(metalMat, new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6).translate(tx - 0.7, CURB + h + 0.6, tz - 0.7));
       }
       for (const [nx, nz] of street) {
+        if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         const fw = nx ? d : w;
         storefront(cx, cz, w, d, nx, nz, true);
         const n = Math.max(1, Math.floor(fw / 6));
@@ -380,6 +391,7 @@ export function buildCity(scene) {
       for (let k = 0; k < 2; k++) solid(ventMat, cx + (rand() - 0.5) * (w - 3), CURB + h, cz + (rand() - 0.5) * (d - 3), 1.6, 0.9, 1.6);
       band(stoneMat, cx, cz, w, d, CURB + h, 0.5, 0.1);
       for (const [nx, nz] of street) {
+        if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         const fw = nx ? d : w;
         const n = fw > 15 ? 2 : 1;
         for (let k = 0; k < n; k++) {
@@ -492,6 +504,7 @@ export function buildCity(scene) {
       walls(mat, cx, cz, cw, cd, CURB + h, ch);
       if (rand() < 0.6) solid(metalMat, cx, CURB + h + ch, cz, 0.3, 6 + rand() * 10, 0.3);
       for (const [nx, nz] of street) {
+        if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         const fw = nx ? d : w;
         const g = new THREE.PlaneGeometry(fw - 1, 4.2);
         scaleUV(g, (fw - 1) / 8, 1);
@@ -504,6 +517,7 @@ export function buildCity(scene) {
       walls(pick(type === 'shop' ? pastel : rand() < 0.5 ? urban : pastel), cx, cz, w, d, CURB, h);
       rooftopJunk(cx, cz, w, d, CURB + h);
       for (const [nx, nz] of street) {
+        if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         if (type === 'shop' || rand() < 0.65) storefront(cx, cz, w, d, nx, nz, type === 'shop' || rand() < 0.55);
       }
       mrect(x0, z0, w, d, type === 'shop' ? '#5c6870' : '#52616a');
@@ -625,6 +639,7 @@ export function buildCity(scene) {
       add(sidewalkMat, slab.translate(cx, CURB / 2, cz));
       mrect(x0, z0, BLOCK, BLOCK, '#3b474e');
       const dist = districtOf(cx, cz);
+      reserve = SHOP_BLOCKS.has(`${bi},${bj}`) ? `${bi},${bj}` : null;
       sidewalkProps(x0, z0, dist);
       if (PARKS.has(`${bi},${bj}`)) {
         park(x0, z0);
@@ -634,7 +649,7 @@ export function buildCity(scene) {
       const core = { x0: x0 + SW, z0: z0 + SW, x1: x0 + BLOCK - SW, z1: z0 + BLOCK - SW };
       mrect(core.x0, core.z0, core.x1 - core.x0, core.z1 - core.z0, '#34414a');
       if (dist === 'Vinewood Hills') villaBlock(x0, z0);
-      else if (dist === 'Old Harbor' && rand() < 0.35) containerYard(x0, z0);
+      else if (dist === 'Old Harbor' && rand() < 0.35 && !reserve) containerYard(x0, z0); // a shop block always gets buildings
       else if (dist === 'Old Harbor') {
         // fewer, bigger lots for warehouses
         const W = core.x1 - core.x0, alongX = rand() < 0.5, m = 0.45 + rand() * 0.1;

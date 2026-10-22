@@ -59,6 +59,16 @@ export function raceRoute(r) {
   throw new Error('no race route for ' + r.name);
 }
 
+// ------------------------------------------------------------------ walk-in shops
+// [type, name, block i, block j]: the shop takes the street (south) face of a building on that
+// block; the city leaves that ground floor plain so the shop front can be built onto it
+export const SHOP_BRANCHES = [
+  ['gun', 'AMMU-NATION', 4, 4], ['gun', 'AMMU-NATION', 2, 2], ['gun', 'AMMU-NATION', 6, 5],
+  ['food', 'BURGER SOL', 2, 6], ['food', 'TACO LOCO', 0, 4], ['food', 'PIZZA SOL', 5, 4],
+  ['clothes', 'SOL THREADS', 3, 6], ['clothes', 'SOL THREADS', 6, 7], ['clothes', 'SOL THREADS', 7, 5],
+  ['mart', '24/7', 0, 2], ['mart', '24/7', 7, 6], ['mart', '24/7', 5, 8], ['food', 'BURGER SOL', 9, 7],
+];
+
 // ------------------------------------------------------------------ story
 // contacts stand at a door on the south side of their block
 export const CONTACT_PLACES = {
