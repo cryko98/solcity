@@ -60,13 +60,13 @@ Dying costs a $100 hospital bill.
 
 Three contacts give you jobs (yellow letter blips): **Rosa** (R, her cafe in Little Havana), **Vince** (V, his
 office in an Old Harbor warehouse) and **Lt. Diaz** (D, an interview room at the Downtown precinct). Walk into
-the yellow ring at their door: the screen fades and a cutscene plays inside their place ():
+the yellow ring at their door: the screen fades and a cutscene plays inside their place (`src/interiors.js`):
 letterbox, shot / reverse-shot camera, typed dialogue with mumbled voices, the speaker talking with their hands
 and the listener nodding. In one scene per contact they sit at a table or desk. Space / click skips a line.
 Two missions per contact (beat up a racketeer, a timed delivery, torch a rival's car, steal a supercar without
 a scratch, stop a snitch's getaway car, grab evidence and shake off the cops); MISSION PASSED pays out and
 the progress is saved. During a mission the GPS line follows the streets and ordinary crimes don't raise
-your wanted level. Talking / listening clips (sitting and standing) are made in .
+your wanted level. Talking / listening clips (sitting and standing) are made in `blender/build_character.py`.
 
 ## Police helicopter
 
