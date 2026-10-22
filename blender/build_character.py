@@ -1931,12 +1931,21 @@ def tank_from_tee(b_, parts_of_face, colour):
     # faded patches of the denim are light too, so single faces cannot tell)
     sid = b_.faces.layers.int.new("shirt")  # (a new layer invalidates face references: make it first)
     shirt = set()
+    arm_l = b_.verts.layers.float.get("arm")
+    sleeves = []
     for comp in uv_islands(b_):
         cs = [colour(f_) for f_ in comp]
         rr = sum(c[0] for c in cs) / len(cs)
         bb = sum(c[2] for c in cs) / len(cs)
         if not (bb > rr * 1.2):
-            shirt.update(comp)
+            arm = sum(v[arm_l] for f_ in comp for v in f_.verts) / sum(len(f_.verts) for f_ in comp)
+            print("TEE PIECE", len(comp), round(arm, 2))
+            if arm > 0.3:
+                sleeves.append(comp)  # a whole sleeve piece of the pattern: off it comes
+            else:
+                shirt.update(comp)
+    for comp in sleeves:
+        bmesh.ops.delete(b_, geom=comp, context="FACES")
     for f_ in shirt:
         f_[sid] = 1
     arm_l = b_.verts.layers.float.get("arm")
@@ -1962,7 +1971,7 @@ def tank_from_tee(b_, parts_of_face, colour):
         # the sleeve goes by its arm weighting, but only outside the straps (MakeHuman's upper
         # arm weights reach over the shoulder blades, which would punch holes in the back)
         side = sm(STRAP_X - .03, STRAP_X + .01, abs(c.x))
-        return min(t - c.z, (.28 - v[arm_l]) * .12 * side + (1 - side))
+        return min(t - c.z, (.1 - v[arm_l]) * .12 * side + (1 - side))
 
     shirt_v = {v for f_ in b_.faces if f_[sid] for v in f_.verts}
     field_cut(b_, lambda v: phi(v) if v in shirt_v else 1.0, smooth=6)

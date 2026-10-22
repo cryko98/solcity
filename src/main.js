@@ -132,9 +132,11 @@ addEventListener('resize', () => {
 
 const loader = new GLTFLoader();
 const manager = { total: 13, done: 0 };
+// bump when the models are rebuilt, so no browser keeps showing an old cached copy
+const ASSET_VERSION = '2026-10-22d';
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
-    loader.load(url, (g) => {
+    loader.load(url + '?v=' + ASSET_VERSION, (g) => {
       manager.done++;
       loadingBar.style.width = `${Math.round((manager.done / manager.total) * 100)}%`;
       res(g);

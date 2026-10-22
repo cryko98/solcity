@@ -127,6 +127,11 @@ def section_loft(bm, stations, shape, segs, uvl, mat_index=0, seg_layer=None):
     return rings
 
 
+def smooth(a, b, x):
+    t = max(0.0, min(1.0, (x - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+
+
 def superellipse(n_pts, exp):
     pts = []
     for i in range(n_pts):
@@ -257,14 +262,34 @@ def build_car(name, P):
     body = [(y, f + (1 - f) * 0.55 * max(0.0, min(1.0, (y - (L / 2 - 0.3)) / 0.25)), zb, zt) for y, f, zb, zt in body]
     ys = sorted(set([round(front + k * 0.1, 3) for k in range(int(L / 0.1) + 1)] + [b[0] for b in body]))
 
+    RW = P["wheel_r"]
+    ARCH_TOP = 2 * RW + 0.105  # top of the wheel-arch cut (see below)
+
+    def wing_lift(y):
+        """how far the wings must rise over a wheel so the arch never opens through the top
+        (0 away from the axles), smoothly over a little more than the arch length"""
+        best = 0.0
+        for ay in (P["axle_f"], P["axle_r"]):
+            d = abs(y - ay) / (RW + 0.45)
+            if d < 1:
+                best = max(best, 0.5 + 0.5 * math.cos(math.pi * d))
+        return best
+
     def body_shape(y):
         f, zb, zt = interp(body, y)
         zc, hh = (zb + zt) / 2, (zt - zb) / 2
+        lift = wing_lift(y)
         out = []
         for u, v in unit:
             # sides tuck in toward the bottom (tumble-under) and top (shoulder)
             w = hw * f * (1 - 0.06 * max(0, -v) ** 2 - 0.05 * max(0, v) ** 3)
-            out.append((u * w, zc + v * hh))
+            z = zc + v * hh
+            if lift > 0 and v > 0:
+                # wing crown over the wheel: the outer part of the top rises to clear the arch
+                need = ARCH_TOP + 0.07
+                k = lift * smooth(0.35, 0.8, abs(u)) * smooth(0.0, 0.5, v)
+                z = max(z, z + (need - z) * k)
+            out.append((u * w, z))
         return out
 
     def body_x(y, z):
@@ -281,7 +306,7 @@ def build_car(name, P):
     # wheel arches cut with booleans
     R = P["wheel_r"]
     for wy in (P["axle_f"], P["axle_r"]):
-        bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=R + 0.1, depth=hw * 2 + 0.4, location=(0, wy, R + 0.02), rotation=(0, math.pi / 2, 0))
+        bpy.ops.mesh.primitive_cylinder_add(vertices=40, radius=R + 0.085, depth=hw * 2 + 0.4, location=(0, wy, R + 0.02), rotation=(0, math.pi / 2, 0))
         cutter = bpy.context.active_object
         mod = body_ob.modifiers.new("arch", "BOOLEAN")
         mod.operation = "DIFFERENCE"
@@ -328,7 +353,9 @@ def build_car(name, P):
         n = f.normal
         zb, zt, wb, wt = interp(gh, c.y)
         if c.z < zb + 0.02:
-            f.material_index = TRIM if abs(n.x) > 0.5 else PAINT
+            # rubber seal only along the side windows; the base of the pillars is body colour
+            side_glass = P["a_pillar_end"] < c.y < P["c_pillar_start"]
+            f.material_index = TRIM if abs(n.x) > 0.5 and side_glass else PAINT
         elif n.z > 0.8 and roof0 < c.y < roof1:
             f.material_index = PAINT
         elif abs(n.x) > 0.55:
@@ -573,7 +600,7 @@ def build_car(name, P):
     bm.loops.layers.uv.verify()
     for wy in (P["axle_f"], P["axle_r"]):
         for s in (1, -1):
-            prim(bm, "cyl", TRIM, T(s * (hw - 0.17), wy, R + 0.02, ry=math.pi / 2), r1=R + 0.095, depth=0.36, segs=18, caps=False)
+            prim(bm, "cyl", TRIM, T(s * (hw - 0.17), wy, R + 0.02, ry=math.pi / 2), r1=R + 0.08, depth=0.36, segs=18, caps=False)
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < R - 0.05], context="VERTS")
     liner = to_object(name + "_liners", bm, MATS)
     m2 = liner.modifiers.new("flip", "SOLIDIFY")
