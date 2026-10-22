@@ -1834,7 +1834,8 @@ def mh_cloth(folder, name, key, clearance, size=512, cut_above=None, post=None):
             u = sum((l[uvl_].uv.x for l in f_.loops)) / len(f_.loops)
             v = sum((l[uvl_].uv.y for l in f_.loops)) / len(f_.loops)
             return px[min(size - 1, max(0, int(v % 1 * size))), min(size - 1, max(0, int(u % 1 * size))), :3]
-        post(b_, lambda f_: partsets[f_[pid]], colour)
+        cut = post(b_, lambda f_: partsets[f_[pid]], colour)
+    if post and cut:
         bmesh.ops.delete(b_, geom=[v for v in b_.verts if not v.link_faces], context="VERTS")
         # the cut runs through faces that were never meant to be cut: collapse the slivers it
         # leaves along the edge, then straighten the edge
@@ -1880,23 +1881,17 @@ def covered_faces(ob, rim_gap=.04):
     return out
 
 
-def tank_from_tee(b_, parts_of_face, colour):
-    """the hero's white tank top cut out of a MakeHuman tee (the jeans stay as they are):
-    sleeves off, deep armholes, scoop neck front and back, plain white ribbed cotton"""
-    # which separate piece is the shirt: by the average colour of each connected piece (the
-    # faded patches of the denim are light too, so single faces cannot tell)
+def uv_islands(b_):
+    """the separate pieces of a garment: its UV islands (the mesh itself is often welded through)"""
     uvl = b_.loops.layers.uv.active
 
     def uv_at(f_, v):
         return next(l[uvl].uv for l in f_.loops if l.vert is v)
 
     def same_island(f_, g_, e):
-        """pieces of a garment are separate UV islands even where the mesh is welded"""
         return all((uv_at(f_, v) - uv_at(g_, v)).length < 1e-4 for v in e.verts)
 
-    sid = b_.faces.layers.int.new("shirt")  # (a new layer invalidates face references: make it first)
-    shirt = set()
-    seen = set()
+    seen, out = set(), []
     for f0 in b_.faces:
         if f0 in seen:
             continue
@@ -1910,6 +1905,33 @@ def tank_from_tee(b_, parts_of_face, colour):
                     if g_ not in seen and same_island(f_, g_, e):
                         seen.add(g_)
                         stack.append(g_)
+        out.append(comp)
+    return out
+
+
+# street outfits whose top is a printed (logo) tee: the top becomes plain cotton the game tints
+PLAIN_TOPS = {"male_casualsuit04", "male_casualsuit06", "female_casualsuit01", "female_casualsuit02", "female_sportsuit01"}
+
+
+def plain_top(key):
+    def post(b_, parts_of_face, colour):
+        MAT[key + "__shirt"] = material(key + "__shirt", "f2f1ec", 0.9, tex=TEX_COTTON, nrm=NRM_COTTON, nstr=0.4)
+        for comp in uv_islands(b_):
+            zc = sum(f_.calc_center_median().z for f_ in comp) / len(comp)
+            if zc > BELT_Z + .06:
+                for f_ in comp:
+                    f_.material_index = mat_index(key + "__shirt")
+    return post
+
+
+def tank_from_tee(b_, parts_of_face, colour):
+    """the hero's white tank top cut out of a MakeHuman tee (the jeans stay as they are):
+    sleeves off, deep armholes, scoop neck front and back, plain white ribbed cotton"""
+    # which separate piece is the shirt: by the average colour of each connected piece (the
+    # faded patches of the denim are light too, so single faces cannot tell)
+    sid = b_.faces.layers.int.new("shirt")  # (a new layer invalidates face references: make it first)
+    shirt = set()
+    for comp in uv_islands(b_):
         cs = [colour(f_) for f_ in comp]
         rr = sum(c[0] for c in cs) / len(cs)
         bb = sum(c[2] for c in cs) / len(cs)
@@ -1964,6 +1986,7 @@ def tank_from_tee(b_, parts_of_face, colour):
     for f_ in b_.faces:
         if f_[sid]:
             f_.material_index = mat_index("tank")
+    return True  # cut: clean the new edges up
 
 
 def field_cut(b_, phi, smooth=0):
@@ -2004,7 +2027,7 @@ if HERO_OUTFIT:
 
 _cover = None
 for o_ in MH_OUTFITS:
-    ob_ = mh_cloth(o_, "Outfit_" + o_, "Outfit_" + o_, .003)
+    ob_ = mh_cloth(o_, "Outfit_" + o_, "Outfit_" + o_, .003, post=plain_top("Outfit_" + o_) if o_ in PLAIN_TOPS else None)
     if ob_:
         cv = covered_faces(ob_)
         _cover = cv if _cover is None else _cover & cv

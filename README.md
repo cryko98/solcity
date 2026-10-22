@@ -150,6 +150,7 @@ Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove gene
 - Pedestrians walk around the blocks, cross at the zebra crossings when the lights allow, and get knocked down by cars (`src/peds.js`). They steer around whatever is in their way (you, other people, cars, lamp posts) instead of stopping and queueing behind it.
 - Every pedestrian wears one of several real outfits (shirt and jeans, jacket, tee, suit; tee and shorts, blouse and skirt, sports top and leggings) with matching shoes, and gets their own skin and hair colour.
 - Street life: friends stop for a chat on the pavement and people sit on the park benches, taking turns talking, then walk on (or run off when something happens).
+- Seagulls wheel over the beaches and the park during the day (`src/birds.js`).
 - Traffic waits behind a car left standing in its lane, then pulls out and drives round it.
 - Both are spawned around the player and removed when far away.
 

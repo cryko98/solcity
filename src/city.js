@@ -794,6 +794,7 @@ export function buildCity(scene) {
   // slope is inside the island's bounds, so you can walk or drive up to the sign; the summit
   // is scenery. Heights are analytic so cars, people and the camera can follow the ground.
   const MC = { x: 175, z: -HALF - 118 }, MR = 116, MH = 118;
+  let hillPatch = () => 0.5;
   const bell = (d, r) => (d >= r ? 0 : 0.5 + 0.5 * Math.cos((Math.PI * d) / r));
   const mountainRaw = (x, z) => {
     if (z > -HALF - 5) return 0;
@@ -830,34 +831,44 @@ export function buildCity(scene) {
     }
     geo.computeVertexNormals();
     const nrm = geo.attributes.normal, c = new THREE.Color();
-    const sand = new THREE.Color(0xc7b48a), dry = new THREE.Color(0x7d7444), bush = new THREE.Color(0x46502a), rock = new THREE.Color(0x766d62);
+    // California hills: golden dry grass, patches of olive chaparral, rock on the steep parts
+    const sand = new THREE.Color(0xc7b48a), dry = new THREE.Color(0xb59a5c), scrub = new THREE.Color(0x6b6a38), bush = new THREE.Color(0x4a5329), rock = new THREE.Color(0x8c8172);
+    const patch = (x, z) => 0.5 + 0.25 * Math.sin(x * 0.045 + Math.sin(z * 0.031) * 2) + 0.25 * Math.sin(z * 0.052 + Math.sin(x * 0.027) * 2.3);
+    hillPatch = patch;
     for (let i = 0; i < pos.count; i++) {
-      const y = pos.getY(i), up = nrm.getY(i);
-      c.copy(sand).lerp(dry, THREE.MathUtils.smoothstep(y, 0.3, 3)).lerp(bush, THREE.MathUtils.smoothstep(y, 6, 40) * 0.8);
-      c.lerp(rock, THREE.MathUtils.smoothstep(1 - up, 0.28, 0.5));
+      const y = pos.getY(i), up = nrm.getY(i), x = pos.getX(i), z = pos.getZ(i);
+      const green = THREE.MathUtils.smoothstep(patch(x, z), 0.45, 0.75) * THREE.MathUtils.smoothstep(y, 4, 14);
+      c.copy(sand).lerp(dry, THREE.MathUtils.smoothstep(y, 0.3, 3)).lerp(scrub, green * 0.8).lerp(bush, green * THREE.MathUtils.smoothstep(y, 20, 60) * 0.6);
+      c.lerp(rock, THREE.MathUtils.smoothstep(1 - up, 0.3, 0.55) * 0.85);
       const v = 0.92 + ((i * 2654435761) % 1000) / 1000 * 0.16; // a little speckle
       col.push(c.r * v, c.g * v, c.b * v);
     }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    const ground = TX.grass();
-    ground.repeat.set(45, 30);
-    const hill = new THREE.Mesh(geo, lightFog(std({ map: ground, color: 0xd8d0b8, vertexColors: true, roughness: 1 })));
+    // a neutral grainy texture for detail: the colour comes from the vertex colours
+    const ground = TX.sand();
+    ground.repeat.set(70, 46);
+    const hill = new THREE.Mesh(geo, lightFog(std({ map: ground, color: 0xffffff, vertexColors: true, roughness: 1 })));
     hill.receiveShadow = true;
     hill.castShadow = true;
     scene.add(hill);
     // scrub: one instanced mesh of squashed bushes on the gentler slopes
     const r2 = TX.rng(4242);
     const spots = [];
-    for (let k = 0; k < 1400 && spots.length < 520; k++) {
+    // chaparral clumps, thicker in the green patches, a few on the dry grass
+    for (let k = 0; k < 6000 && spots.length < 1300; k++) {
       const x = MC.x + (r2() - 0.5) * W, z = MC.z + (r2() - 0.5) * D;
       const h = mountainRaw(x, z) - 0.6;
       if (h < 2) continue;
-      spots.push([x, h, z, 0.8 + r2() * 1.6, r2() * 6.28]);
+      const p = THREE.MathUtils.smoothstep(hillPatch(x, z), 0.4, 0.8);
+      if (r2() > 0.12 + p * 0.88) continue;
+      spots.push([x, h, z, 0.6 + r2() * 1.5, r2() * 6.28, p]);
     }
-    const bushes = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), lightFog(std({ color: 0x3f4a26, roughness: 1, flatShading: true })), spots.length);
-    const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s4 = new THREE.Vector3(), p4 = new THREE.Vector3();
-    spots.forEach(([x, y, z, s, a], k) => {
-      bushes.setMatrixAt(k, m4.compose(p4.set(x, y + s * 0.3, z), q4.setFromAxisAngle(new THREE.Vector3(0, 1, 0), a), s4.set(s, s * 0.6, s)));
+    const bushes = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), lightFog(std({ color: 0xffffff, roughness: 1, flatShading: true })), spots.length);
+    const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s4 = new THREE.Vector3(), p4 = new THREE.Vector3(), bc = new THREE.Color();
+    const shades = [0x3c4524, 0x4a5229, 0x575a2e, 0x6a6436, 0x34401f];
+    spots.forEach(([x, y, z, s, a, p], k) => {
+      bushes.setMatrixAt(k, m4.compose(p4.set(x, y + s * 0.25, z), q4.setFromAxisAngle(new THREE.Vector3(0, 1, 0), a), s4.set(s, s * 0.55, s * (0.8 + 0.4 * ((k * 7) % 5) / 5))));
+      bushes.setColorAt(k, bc.set(shades[(k * 13) % shades.length]).multiplyScalar(0.85 + 0.3 * p));
     });
     bushes.castShadow = true;
     bushes.receiveShadow = true;
@@ -975,6 +986,13 @@ export function buildCity(scene) {
     hg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const haloMat = new THREE.PointsMaterial({ map: glow('rgba(255,236,200,1)', 'rgba(255,205,140,.35)'), size: 2.6, sizeAttenuation: true,
       transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    // up close a camera-facing halo fills the screen with glare: fade it out under the lamp
+    haloMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvNear = smoothstep(4.0, 14.0, -mvPosition.z);');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+        .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vNear; gl_FragColor.rgb *= vNear;\n#include <premultiplied_alpha_fragment>');
+    };
     const halos = new THREE.Points(hg, haloMat);
     scene.add(halos);
     city.nightGlow.push({ mat: poolMat, k: 0.38 }, { mat: haloMat, k: 0.85 });

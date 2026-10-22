@@ -465,7 +465,10 @@ def build_car(name, P):
     prim(bm, "cube", TRIM, T(0, rear - 0.04, P["tail_z"], hw * 0.7, .03, .08))
     # side skirts
     for s in (1, -1):
-        prim(bm, "cube", TRIM, T(s * hw * 0.97, (P["axle_f"] + P["axle_r"]) / 2, 0.26, .06, P["axle_r"] - P["axle_f"] - 2 * R - 0.2, .1))
+        # tucked under the body side (the body tumbles in at the bottom), so it does not stick out
+        ym = (P["axle_f"] + P["axle_r"]) / 2
+        sx = min(body_x(ym, 0.3), body_x(P["axle_f"] + R + .15, 0.3), body_x(P["axle_r"] - R - .15, 0.3)) - 0.035
+        prim(bm, "cube", TRIM, T(s * sx, ym, 0.27, .05, P["axle_r"] - P["axle_f"] - 2 * R - 0.3, .08))
     if P.get("spoiler"):
         prim(bm, "cube", PAINT, T(0, rear - 0.18, P["body"][-3][3] + 0.07, hw * 1.6, .2, .025))
         for s in (1, -1):

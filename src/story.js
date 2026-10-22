@@ -174,7 +174,7 @@ export class Story {
     if (outfit.wear) p.body.userData.outfit = chooseOutfit(p.body, outfit.wear);
     p.body.traverse((o) => {
       if (!o.isSkinnedMesh) return;
-      const c = outfit[/^(Hair|Brow)Cards$/.test(o.material.name) ? 'Hair' : o.material.name];
+      const c = outfit[/^(Hair|Brow)Cards$/.test(o.material.name) ? 'Hair' : o.material.name.endsWith('__shirt') ? 'Shirt' : o.material.name];
       if (!c) return;
       o.material = o.material.clone();
       o.material.color.set(c);

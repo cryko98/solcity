@@ -18,7 +18,7 @@ const SKIN = ['#7a4a30', '#a8714c', '#c99069', '#e6b897', '#f2cfb0', '#5c3a26'];
 const OUTFIT = {
   Shirt: ['#f2f2ee', '#262626', '#b93a3a', '#3d6ea8', '#e3bd52', '#6fa893', '#d98fa8', '#8a5fb0', '#ef8a3c', '#9aa3ab'],
   Denim: ['#3a5a8c', '#262b33', '#6b5a48', '#80838a', '#b8c4d0', '#3f5a45', '#c9b99c', '#1f2a44'],
-  Hair: ['#1c1410', '#3b2a1a', '#7a5a36', '#5c5c5c', '#0e0e0e', '#b08850', '#d9c08a', '#8a3a1e'],
+  Hair: ['#1c1410', '#2a1d14', '#3b2a1a', '#0e0e0e', '#4a3322', '#1c1410', '#5c5c5c', '#6b4a2c', '#9c7444', '#7a2e16'],
   Sneaker: ['#f4f4f4', '#2a2a2a', '#c9302c', '#e8d9b0', '#3a5fa0', '#9a9a9a'],
 };
 
@@ -96,7 +96,7 @@ export class Peds {
     const meshes = [];
     root.traverse((o) => {
       if (!o.isSkinnedMesh) return;
-      const c = colors[o.material.name];
+      const c = colors[o.material.name.endsWith('__shirt') ? 'Shirt' : o.material.name];
       if (c) {
         o.material = o.material.clone();
         o.material.color.copy(c);

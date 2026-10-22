@@ -11,6 +11,21 @@ export function prepareCharacter(root) {
         m.transparent = false;
         m.side = THREE.DoubleSide;
         m.alphaToCoverage = true;
+        m.envMapIntensity = 0.5;
+      } else if (m.name === 'Skin') {
+        // matte skin: a glossy one mirrors the blue sky and turns dark skin purple
+        m.roughness = Math.max(m.roughness, 0.72);
+        m.metalness = 0;
+        m.envMapIntensity = 0.45;
+        m.emissive?.setRGB(0.035, 0.016, 0.008); // a little warmth in the shade (blood under the skin)
+      } else if (m.name === 'EyeWhite') {
+        m.color.multiplyScalar(0.82); // white-hot eyes read as glowing
+        m.envMapIntensity = 0.4;
+      } else if (/^(Outfit_|Shoes_|Jeans|Shirt|Denim)/.test(m.name)) {
+        // fabric: no plastic sheen
+        m.roughness = Math.max(m.roughness, 0.82);
+        m.metalness = 0;
+        m.envMapIntensity = 0.6;
       }
     }
   });
@@ -23,7 +38,7 @@ export function chooseOutfit(root, want) {
   const have = { Outfit_: [], Shoes_: [] };
   root.traverse((o) => {
     const n = o.isMesh ? o.material.name || '' : '';
-    for (const p of Object.keys(have)) if (n.startsWith(p) && !have[p].includes(n)) have[p].push(n);
+    for (const p of Object.keys(have)) if (n.startsWith(p) && !n.endsWith('__shirt') && !have[p].includes(n)) have[p].push(n);
   });
   const any = (list) => list[Math.floor(Math.random() * list.length)];
   const outfit = have.Outfit_.includes('Outfit_' + want) ? 'Outfit_' + want : any(have.Outfit_);
@@ -33,7 +48,7 @@ export function chooseOutfit(root, want) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     const n = o.material.name || '';
-    if (n.startsWith('Outfit_')) o.visible = n === outfit;
+    if (n.startsWith('Outfit_')) o.visible = n === outfit || n === outfit + '__shirt';
     else if (n.startsWith('Shoes_')) o.visible = n === shoes;
   });
   return outfit;
