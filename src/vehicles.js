@@ -177,14 +177,14 @@ class Vehicle {
   }
 
   // ---------------------------------------------------------------- damage
-  // health 100..0: grey smoke below 65, black below 40, on fire at 25 (burns down), then explodes
+  // health 100..0: grey smoke below 65, black below 35, on fire at 12 (burns ~5 s), then explodes
   damage(amount) {
     const d = this.data;
     if (d.wrecked || amount <= 0) return;
     d.health -= amount;
-    if (d.health <= 25 && !d.burning) {
+    if (d.health <= 12 && !d.burning) {
       d.burning = true;
-      d.health = Math.min(d.health, 25);
+      d.health = Math.min(d.health, 12);
       this.onFire?.();
     }
     if (d.health <= 0) d.explodeNow = true;
@@ -300,7 +300,7 @@ class Vehicle {
       this.hopY += this.hopV * dt;
       if (this.hopY <= 0) {
         this.hopY = 0;
-        if (this.hopV < -7) this.damage((-this.hopV - 7) * 3);
+        if (this.hopV < -9) this.damage((-this.hopV - 9) * 1.5);
         if (this.hopV < -3) this.impact = Math.max(this.impact, -this.hopV * 0.5);
         this.hopV = this.hopV < -3 ? -this.hopV * 0.3 : 0;
       }
@@ -365,7 +365,8 @@ class Vehicle {
     const rxw = cx - this.pos.x, rzw = cz - this.pos.z;
     this.angVel += (rzw * (-vn * nx) - rxw * (-vn * nz)) * 0.08;
     this.impact = Math.max(this.impact, -vn);
-    if (-vn > 6) this.damage((-vn - 6) * 3.2);
+    // only real crashes hurt: scrapes and bumps are free
+    if (-vn > 9) this.damage((-vn - 9) * 1.6);
     if (-vn > 3.5) this.crashAt = { x: cx + (cx - this.pos.x) * 0.3, z: cz + (cz - this.pos.z) * 0.3, s: -vn };
   }
 
@@ -575,7 +576,7 @@ export class Vehicles {
       const ex = v.pos.x + fxh * (s.bike ? 0.1 : s.halfL - 0.75), ez = v.pos.z + fzh * (s.bike ? 0.1 : s.halfL - 0.75);
       const ey = v.hopY + (s.bike ? 0.7 : 0.95);
       if (c.burning) {
-        c.health -= dt * 6.5;
+        c.health -= dt * 2.4;
         if (c.health <= 0) c.explodeNow = true;
         fx.burning(ex, ey, ez, d2 < 60 * 60 ? 1 : 0.5);
         for (v.fireAcc += dt * 34; v.fireAcc > 1; v.fireAcc--) fx.flames(ex, ey - 0.1, ez, 1);
@@ -588,7 +589,7 @@ export class Vehicles {
           for (v.smokeAcc += dt * 10 * k; v.smokeAcc > 1; v.smokeAcc--) fx.engineSmoke(v.pos.x, 1.2, v.pos.z, 1);
         }
       } else if (c.health < 65) {
-        const dark = THREE.MathUtils.clamp((50 - c.health) / 25, 0, 1);
+        const dark = THREE.MathUtils.clamp((40 - c.health) / 25, 0, 1);
         for (v.smokeAcc += dt * (5 + 12 * (1 - c.health / 65)); v.smokeAcc > 1; v.smokeAcc--) fx.engineSmoke(ex, ey, ez, dark);
       }
       // sliding tyres: rubber on the road + smoke
@@ -644,8 +645,8 @@ export class Vehicles {
               va.impact = Math.max(va.impact, -vn);
               vb.impact = Math.max(vb.impact, -vn);
               if (-vn > 6) {
-                va.damage((-vn - 6) * 2.6);
-                vb.damage((-vn - 6) * 2.6);
+                va.damage(Math.max(0, -vn - 9) * 1.3);
+                vb.damage(Math.max(0, -vn - 9) * 1.3);
                 this.onCrash?.(mx, mz, -vn);
               }
             }

@@ -354,7 +354,7 @@ export class Weapons {
         } else if (hit.car) {
           const v = this.vehicles.activate(hit.car);
           v.vel.addScaledVector(new THREE.Vector3(d.x, 0, d.z), 0.15);
-          v.damage(w.dmg * 4);
+          v.damage(w.dmg * 2);
           this.worldFx?.sparks(at, 3, d.clone().negate());
         } else this.worldFx?.dust(at, key === 'shotgun' ? 1 : 3);
       }
@@ -389,7 +389,7 @@ export class Weapons {
     if (hits) {
       if (P.vehicle) {
         P.health = Math.max(1, P.health - 2);
-        P.vehicle.damage(3);
+        P.vehicle.damage(1.2);
       } else P.takeHit(6, p);
       this.impact(end, !P.vehicle);
     } else this.impact(end, false);

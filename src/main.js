@@ -487,7 +487,7 @@ function blast(p, c) {
     ov.vel.z += (dz / (d || 1)) * 9 * k;
     ov.angVel += (Math.random() - 0.5) * 3 * k;
     ov.hopV = Math.max(ov.hopV, 3.5 * k);
-    ov.damage(85 * k);
+    ov.damage(60 * k * k);
   }
   if (player.dead) return;
   const pd = Math.hypot(player.position.x - p.x, player.position.z - p.z);
