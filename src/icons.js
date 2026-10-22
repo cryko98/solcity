@@ -22,6 +22,16 @@ const GLYPHS = {
   house: '<path d="M12 4.6 4.4 11h2.2v8h4.2v-4.6h2.4V19h4.2v-8h2.2z"/>',
   // person (mission contact)
   contact: '<circle cx="12" cy="8.6" r="3.2"/><path d="M5.8 19.2c.5-3.8 3-5.6 6.2-5.6s5.7 1.8 6.2 5.6z"/>',
+  // scissors
+  barber: '<circle cx="8" cy="16.4" r="2.3" fill="none" stroke="#fff" stroke-width="1.5"/><circle cx="16" cy="16.4" r="2.3" fill="none" stroke="#fff" stroke-width="1.5"/><path d="M9.4 14.6 16.6 5M14.6 14.6 7.4 5" stroke="#fff" stroke-width="1.6"/>',
+  // a drop of ink
+  tattoo: '<path d="M12 4.5c2.6 4 5 6.6 5 9.6a5 5 0 0 1-10 0c0-3 2.4-5.6 5-9.6z"/>',
+  // dumbbell
+  gym: '<rect x="4" y="8.5" width="3" height="7" rx=".6"/><rect x="17" y="8.5" width="3" height="7" rx=".6"/><rect x="6.5" y="10" width="2" height="4"/><rect x="15.5" y="10" width="2" height="4"/><rect x="8.5" y="11.2" width="7" height="1.6"/>',
+  // cocktail glass
+  club: '<path d="M5.5 6h13L12 12.6z"/><path d="M12 12.4V18M8.6 18.6h6.8" stroke="#fff" stroke-width="1.6"/>',
+  // joystick
+  arcade: '<rect x="5" y="14.5" width="14" height="4.5" rx="1.2"/><path d="M12 14.5V9" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="7.6" r="2.6"/>',
 };
 
 export const ICONS = {
@@ -35,6 +45,11 @@ export const ICONS = {
   contact: { color: '#d4a514', name: 'Mission contact' },
   house: { color: '#3aa0d8', name: 'Safehouse (grey: for sale)' },
   bank: { color: '#1d2a44', name: 'Sol City Reserve (bank)' },
+  barber: { color: '#2c7fb8', name: 'Barber' },
+  tattoo: { color: '#7a1450', name: 'Tattoo parlour' },
+  gym: { color: '#b3202a', name: 'Gym' },
+  club: { color: '#9b30d9', name: 'Nightclub (dancing, darts)' },
+  arcade: { color: '#1aa3c8', name: 'Arcade' },
 };
 
 export function iconSvg(key, size = 24) {

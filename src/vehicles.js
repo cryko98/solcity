@@ -270,6 +270,19 @@ class Vehicle {
     this.sirenMats = [];
   }
 
+  // flooded: dead engine, lights out
+  drown() {
+    const d = this.data;
+    d.wrecked = true;
+    d.drowned = true;
+    d.health = 0;
+    d.burning = false;
+    this.siren = false;
+    for (const m of [this.headMat, this.tailMat, ...this.sirenMats]) if (m) m.emissiveIntensity = 0;
+    this.headMat = this.tailMat = this.signMat = null;
+    this.sirenMats = [];
+  }
+
   get speed() {
     return Math.hypot(this.vel.x, this.vel.z);
   }
@@ -380,7 +393,9 @@ class Vehicle {
   // ride on the hill: height from the terrain, body tilted to the slope, gravity along it
   followTerrain(dt, city) {
     const ter = city.terrain;
-    const gy = ter ? ter(this.pos.x, this.pos.z) : 0;
+    let gy = ter ? ter(this.pos.x, this.pos.z) : 0;
+    // off the beach: down the sea bed
+    if (city.EXT && gy <= 0.01 && Math.max(Math.abs(this.pos.x), Math.abs(this.pos.z)) > city.EXT) gy = city.groundHeight(this.pos.x, this.pos.z);
     let pitch = 0, roll = 0;
     if (gy > 0.01 || this.groundY > 0.01) {
       const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = -fz, rz = fx;
@@ -394,6 +409,14 @@ class Vehicle {
       roll = THREE.MathUtils.clamp(Math.atan(side), -0.6, 0.6);
     }
     this.groundY = gy;
+    // driven into the sea: the water drags the car to a stop, and once it's in over the sills
+    // the engine floods and that's the end of it (no fire, it just sits there under the water)
+    const depth = (city.WATER_Y ?? -9) - gy;
+    if (depth > 0.45 && !this.spec.boat) {
+      this.vel.multiplyScalar(Math.exp(-(depth > 0.9 ? 2.4 : 1.1) * dt));
+      this.angVel *= Math.exp(-3 * dt);
+      if (depth > 0.9 && !this.data.wrecked && (this.flood = (this.flood || 0) + dt) > 2.2) this.drown();
+    } else this.flood = 0;
     const k = Math.min(1, dt * 10);
     this.tPitch += (pitch - this.tPitch) * k;
     this.tRoll += (roll - this.tRoll) * k;

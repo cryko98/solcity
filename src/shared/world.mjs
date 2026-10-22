@@ -68,6 +68,8 @@ export const SHOP_BRANCHES = [
   ['clothes', 'SOL THREADS', 3, 6], ['clothes', 'SOL THREADS', 6, 7], ['clothes', 'SOL THREADS', 7, 5],
   ['mart', '24/7', 0, 2], ['mart', '24/7', 7, 6], ['mart', '24/7', 5, 8], ['food', 'BURGER SOL', 9, 7],
   ['bank', 'SOL CITY RESERVE', 5, 6],
+  // things to do (fun.js)
+  ['barber', 'SOL CUTS', 4, 2], ['tattoo', 'INK SOL', 7, 8], ['gym', 'IRON SOL GYM', 3, 8], ['club', 'CLUB SOLAR', 8, 5], ['arcade', 'PIXEL PALACE', 1, 4],
 ];
 
 // the bank job (Zara's last three missions)

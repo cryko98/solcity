@@ -11,6 +11,7 @@ import * as TX from './textures.js';
 import { checker, planks } from './interiors.js';
 import { ICONS, iconImage } from './icons.js';
 import { chooseOutfit } from './materials.js';
+import { HAIRCUTS, TATTOOS, tattooArt } from './fun.js';
 import { SHOP_BRANCHES } from './shared/world.mjs';
 
 const FADE = 0.45;
@@ -47,6 +48,11 @@ const FRONT_LOOK = {
   clothes: { wall: 0xf4f2ee, trim: 0x2b2b30, inside: '#efe9df', goods: ['#c0392b', '#2c3e70', '#e8d8b0', '#4a7a5a', '#222', '#d98cb3'] },
   bank: { wall: 0xe6dfcd, trim: 0x8a7650, inside: '#e9e1cc', goods: ['#c9a24a', '#5a3a24', '#2e6b3c', '#8e959c'] },
   mart: { wall: 0xf2f4f1, trim: 0x1f7a45, inside: '#e8eef0', goods: ['#d63a3a', '#f2c12e', '#3d6ea8', '#2bb673', '#ef8a3c', '#8a5fb0'] },
+  barber: { wall: 0xe9eef0, trim: 0x2c4f9e, inside: '#eef0ec', goods: ['#b3202a', '#2c4f9e', '#f4f2ee', '#c0c4c8'] },
+  tattoo: { wall: 0x1f1d22, trim: 0x7a1450, inside: '#2a2328', goods: ['#ff3fa8', '#efe7d2', '#d8b23a', '#111'] },
+  gym: { wall: 0x2a2c30, trim: 0xb3202a, metal: true, inside: '#3a3c40', goods: ['#141416', '#8a9096', '#b3202a', '#ffd23f'] },
+  club: { wall: 0x141018, trim: 0x5d2e8c, metal: true, inside: '#1a1020', goods: ['#ff3fa8', '#41d6ff', '#b46bff', '#ffd23f'] },
+  arcade: { wall: 0x161624, trim: 0x2a7ad8, inside: '#141428', goods: ['#ff4fa3', '#41d6ff', '#ffcf3f', '#7dff6a', '#b46bff'] },
 };
 const ROB_TIME = 6; // seconds of holding the clerk at gunpoint to empty the till
 const ROB_COOLDOWN = 5 * 60 * 1000; // before the same till has cash in it again
@@ -56,6 +62,17 @@ const STYLE = {
   food: { sign: '#ffb02e', awning: 0xc8541c },
   clothes: { sign: '#c38bff', awning: 0x5d2e8c },
   mart: { sign: '#55e08a', awning: 0x1f7a45 },
+  barber: { sign: '#ff6b6b', awning: 0x2c4f9e },
+  tattoo: { sign: '#ff3fa8', awning: 0x3a1420 },
+  gym: { sign: '#ffd23f', awning: 0x8e1b1b },
+  club: { sign: '#ff3fa8', awning: 0x2a1240 },
+  arcade: { sign: '#41d6ff', awning: 0x1d2a64 },
+};
+// the counters at the venues: [name, price, health]
+const VENUE_MENUS = {
+  gym: [['Protein shake', 8, 25], ['Energy bar', 4, 10]],
+  club: [['Beer', 6, 5], ['Mojito', 12, 10], ['Solar Shot <small>(strong)</small>', 20, 0]],
+  arcade: [['Soda', 2, 5], ['Nachos', 5, 15]],
 };
 
 // ------------------------------------------------------------------ canvas textures
@@ -114,6 +131,29 @@ const target = () => canvasTex(128, 192, (g, w, h) => {
   g.arc(64, 120, 5, 0, Math.PI * 2);
   g.fill();
 });
+const neonCarpet = () => canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#12102a';
+  g.fillRect(0, 0, w, h);
+  const cols = ['#ff4fa3', '#41d6ff', '#ffcf3f', '#7dff6a'];
+  for (let k = 0; k < 40; k++) {
+    g.strokeStyle = cols[k % 4];
+    g.lineWidth = 3;
+    const x = (k * 71) % w, y = (k * 113) % h;
+    g.beginPath();
+    if (k % 3 === 0) g.arc(x, y, 9, 0, Math.PI * 2);
+    else if (k % 3 === 1) {
+      g.moveTo(x - 10, y + 8);
+      g.lineTo(x, y - 9);
+      g.lineTo(x + 10, y + 8);
+      g.closePath();
+    } else {
+      g.moveTo(x - 12, y);
+      g.quadraticCurveTo(x - 6, y - 10, x, y);
+      g.quadraticCurveTo(x + 6, y + 10, x + 12, y);
+    }
+    g.stroke();
+  }
+}, true);
 function menuBoard(brand, items, color) {
   return canvasTex(512, 256, (g, w, h) => {
     g.fillStyle = '#121214';
@@ -627,6 +667,278 @@ function martInterior(r) {
   return { counter: { x: cx - 1.0, z: cz }, clerk: { x: cx + 0.75, z: cz, yaw: -Math.PI / 2 }, clerkKind: 'male', wear: 'male_casualsuit04' };
 }
 
+// ------------------------------------------------------------------ the venues (see fun.js)
+// Stations are spots you step onto and press E: { kind, x, z, yaw, y?, off?, bar? } in room
+// coordinates (the shop converts them). off: where you step off the machine.
+function barberInterior(r) {
+  const { W, D } = r;
+  const chrome = std({ color: 0xd0d4d8, roughness: 0.15, metalness: 0.95 });
+  const leather = std({ color: 0x8e1b1b, roughness: 0.45 });
+  const dark = std({ color: 0x1d1d20, roughness: 0.6 });
+  const wood = std({ map: planks('#6b4a2c'), roughness: 0.6 });
+  const mirror = std({ color: 0xc8d6e0, roughness: 0.02, metalness: 1 });
+  // the mirror wall with three barber's chairs facing it
+  r.box(wood, 0.5, 0.85, D - 2.5, W / 2 - 0.25, 0, 0.6, 0, true);
+  r.box(std({ color: 0xf2f2ee, roughness: 0.3 }), 0.55, 0.04, D - 2.5, W / 2 - 0.27, 0.85, 0.6);
+  for (let i = 0; i < 3; i++) {
+    const z = -1.4 + i * 2.2;
+    r.plane(mirror, 1.6, 1.2, W / 2 - 0.02, 1.75, z, -Math.PI / 2).userData.keep = true;
+    r.cyl(chrome, 0.28, 0.32, 0.08, W / 2 - 1.7, 0, z, 18);
+    r.cyl(chrome, 0.06, 0.06, 0.38, W / 2 - 1.7, 0.08, z, 10);
+    r.box(leather, 0.62, 0.14, 0.6, W / 2 - 1.7, 0.46, z, 0, true);
+    r.box(leather, 0.12, 0.72, 0.6, W / 2 - 2.0, 0.6, z);
+    r.box(chrome, 0.5, 0.04, 0.08, W / 2 - 1.7, 0.66, z - 0.32);
+    r.box(chrome, 0.5, 0.04, 0.08, W / 2 - 1.7, 0.66, z + 0.32);
+    r.box(chrome, 0.2, 0.04, 0.4, W / 2 - 1.25, 0.12, z); // footrest
+  }
+  // waiting bench and magazine table along the left wall
+  r.box(wood, 0.55, 0.45, 3.6, -W / 2 + 0.4, 0, 1.2, 0, true);
+  r.box(leather, 0.5, 0.1, 3.5, -W / 2 + 0.4, 0.45, 1.2);
+  r.box(dark, 0.6, 0.42, 0.6, -W / 2 + 1.3, 0, 1.2, 0, true);
+  // reception desk by the door with the register
+  const cx = -W / 2 + 2.2, cz = -D / 2 + 2.4;
+  r.box(wood, 1.8, 1.0, 0.6, cx, 0, cz, 0, true);
+  r.box(dark, 0.36, 0.2, 0.3, cx + 0.5, 1.0, cz);
+  // a barber's pole and a price list
+  const pole = canvasTex(64, 256, (g, w, h) => {
+    g.fillStyle = '#f4f2ee';
+    g.fillRect(0, 0, w, h);
+    for (let k = -4; k < 12; k++) {
+      g.fillStyle = k % 2 ? '#b3202a' : '#2c4f9e';
+      g.beginPath();
+      g.moveTo(0, k * 32);
+      g.lineTo(w, k * 32 + 40);
+      g.lineTo(w, k * 32 + 56);
+      g.lineTo(0, k * 32 + 16);
+      g.fill();
+    }
+  });
+  r.cyl(std({ map: pole, roughness: 0.3 }), 0.12, 0.12, 0.9, -W / 2 + 0.3, 1.4, -D / 2 + 0.6, 16);
+  r.plane(std({ map: menuBoard('SOL CUTS', HAIRCUTS.slice(0, 4).map((h) => [h.name, h.price]), '#e8c35a'), roughness: 0.8 }), 1.6, 0.8, -W / 2 + 0.02, 1.9, -1.2, Math.PI / 2);
+  neonSign(r, 'SOL CUTS', '#ff6b6b', 3.4, 0, 2.7, D / 2 - 0.05, Math.PI);
+  for (const [x, z] of [[-2.5, -1.5], [2.5, -1.5], [-2.5, 2], [2.5, 2]]) r.lamp(x, 3.0, z, 'tube');
+  return { counter: { x: cx, z: cz - 0.95 }, clerk: { x: cx, z: cz + 0.75, yaw: Math.PI }, clerkKind: 'male', wear: 'male_casualsuit04' };
+}
+
+function tattooInterior(r) {
+  const { W, D } = r;
+  const dark = std({ color: 0x1b1a1e, roughness: 0.6 });
+  const black = std({ color: 0x0f0f11, roughness: 0.4 });
+  const chrome = std({ color: 0xc8ccd0, roughness: 0.2, metalness: 0.9 });
+  const glass = std({ color: 0xbfd6e6, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.28 });
+  // flash sheets: the designs on the walls
+  const sheet = (id) => std({ map: canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#efe7d2';
+    g.fillRect(0, 0, w, h);
+    const t = tattooArt(id).image;
+    g.drawImage(t, 0, 0, t.width, t.height, 10, 60, w - 20, ((w - 20) * t.height) / t.width);
+    g.strokeStyle = '#222';
+    g.lineWidth = 6;
+    g.strokeRect(3, 3, w - 6, h - 6);
+  }), roughness: 0.9 });
+  const ids = ['skull', 'star', 'script', 'tribal'];
+  for (let i = 0; i < 8; i++) r.plane(sheet(ids[i % 4]), 0.7, 0.7, -W / 2 + 0.02, 1.4 + (i % 2) * 0.8, -2.4 + Math.floor(i / 2) * 1.2, Math.PI / 2);
+  // the artist's station: a reclining chair, a stool, a lamp on an arm, the ink tray
+  const sx = W / 2 - 2.2, sz = 1.2;
+  r.box(black, 0.7, 0.5, 1.9, sx, 0, sz, 0, true);
+  r.box(std({ color: 0x2a2a2e, roughness: 0.35 }), 0.68, 0.12, 1.2, sx, 0.5, sz - 0.3);
+  r.box(std({ color: 0x2a2a2e, roughness: 0.35 }), 0.68, 0.1, 0.8, sx, 0.62, sz + 0.75);
+  r.cyl(chrome, 0.2, 0.22, 0.05, sx - 0.9, 0, sz, 14);
+  r.cyl(black, 0.2, 0.2, 0.08, sx - 0.9, 0.55, sz, 14);
+  r.cyl(chrome, 0.03, 0.03, 0.55, sx - 0.9, 0, sz, 8);
+  r.cyl(chrome, 0.02, 0.02, 1.6, sx + 0.6, 0, sz + 1.0, 8);
+  r.box(chrome, 0.9, 0.03, 0.03, sx + 0.2, 1.6, sz + 1.0);
+  r.lamp(sx, 1.55, sz + 0.4, 'shade');
+  r.box(chrome, 0.5, 0.03, 0.35, sx + 0.7, 0.85, sz - 0.6);
+  r.scatter(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), [0, 1, 2, 3, 4].map((k) => [sx + 0.52 + k * 0.08, 0.92, sz - 0.6, 0.05, 0.12, 0.05, ['#111', '#b3202a', '#1f7a45', '#2c4f9e', '#d8b23a'][k]]));
+  // glass counter by the door with jewellery inside
+  const cx = -W / 2 + 2.6, cz = -D / 2 + 2.4;
+  r.box(dark, 2.4, 0.9, 0.65, cx, 0, cz, 0, true);
+  r.box(glass, 2.4, 0.14, 0.65, cx, 0.9, cz);
+  r.scatter(new THREE.TorusGeometry(0.5, 0.18, 6, 12), [0, 1, 2, 3, 4, 5].map((k) => [cx - 0.9 + k * 0.36, 0.93, cz, 0.05, 0.05, 0.05, '#d8b23a']));
+  r.box(std({ color: 0x3a1420, roughness: 0.9 }), 2.6, 0.015, 1.6, 0, 0, 0); // rug
+  neonSign(r, 'INK SOL', '#ff3fa8', 3.0, 0, 2.6, D / 2 - 0.05, Math.PI);
+  for (const [x, z] of [[-2, -1.6], [2, -1.6], [-2, 2.2]]) r.lamp(x, 2.8, z, 'shade');
+  return { counter: { x: cx, z: cz - 0.95 }, clerk: { x: cx, z: cz + 0.75, yaw: Math.PI }, clerkKind: 'female', wear: 'female_casualsuit01' };
+}
+
+function gymInterior(r) {
+  const { W, D } = r;
+  const steel = std({ color: 0x8a9096, roughness: 0.3, metalness: 0.9 });
+  const black = std({ color: 0x141416, roughness: 0.55 });
+  const red = std({ color: 0xb3202a, roughness: 0.5 });
+  const pad = std({ color: 0x1d2a44, roughness: 0.5 });
+  const mirror = std({ color: 0xc8d6e0, roughness: 0.02, metalness: 1 });
+  r.plane(mirror, W - 2, 1.6, 0, 1.5, D / 2 - 0.02, Math.PI).userData.keep = true;
+  r.plane(std({ map: poster('NO PAIN\nNO GAIN', '#141416', '#ffd23f'), roughness: 0.9 }), 1.0, 1.4, -W / 2 + 0.02, 1.7, -1, Math.PI / 2);
+  // two treadmills on the left, facing the mirror
+  const st = [];
+  for (let i = 0; i < 2; i++) {
+    const x = -W / 2 + 1.6 + i * 1.5, z = D / 2 - 2.6;
+    r.box(black, 0.85, 0.16, 1.9, x, 0, z); // (low enough to step onto)
+    r.box(std({ color: 0x232325, roughness: 0.95 }), 0.6, 0.02, 1.6, x, 0.16, z);
+    for (const s of [-1, 1]) r.box(steel, 0.05, 1.15, 0.05, x + s * 0.38, 0.16, z + 0.85);
+    r.box(black, 0.85, 0.3, 0.2, x, 1.25, z + 0.9);
+    r.box(glowMat(0x41d6ff, 1.2), 0.4, 0.14, 0.02, x, 1.33, z + 0.79);
+    if (i === 0) st.push({ kind: 'treadmill', x, z: z - 0.15, y: 0.18, yaw: 0, off: { x, z: z - 1.4 } });
+  }
+  // the bench press: a padded bench, uprights with hooks, the bar on the hooks
+  const bx = 1.6, bz = D / 2 - 3.2;
+  r.box(pad, 0.36, 0.1, 1.35, bx, 0.35, bz, 0, true);
+  r.box(steel, 0.08, 0.35, 0.08, bx, 0, bz - 0.5);
+  r.box(steel, 0.08, 0.35, 0.08, bx, 0, bz + 0.5);
+  for (const s of [-1, 1]) r.box(steel, 0.07, 1.25, 0.07, bx + s * 0.55, 0, bz + 0.62);
+  const bar = new THREE.Group();
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 1.9, 8).rotateZ(Math.PI / 2), steel);
+  bar.add(rod);
+  for (const s of [-1, 1]) {
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 20).rotateZ(Math.PI / 2), black);
+    plate.position.x = s * 0.72;
+    bar.add(plate);
+  }
+  bar.traverse((o) => (o.castShadow = true));
+  bar.position.set(bx, 1.22, bz + 0.62);
+  // he lies with his hips over the foot end and his head under the bar
+  st.push({ kind: 'bench', x: bx, z: bz - 0.35, yaw: Math.PI, bar, off: { x: bx - 0.9, z: bz - 0.3 } });
+  // dumbbell rack, a heavy bag on a chain, rubber mats
+  r.box(steel, 2.6, 0.06, 0.5, W / 2 - 1.6, 0.55, -0.6, 0, true);
+  r.box(steel, 0.06, 0.55, 0.5, W / 2 - 2.9, 0, -0.6);
+  r.box(steel, 0.06, 0.55, 0.5, W / 2 - 0.3, 0, -0.6);
+  r.scatter(new THREE.CylinderGeometry(0.5, 0.5, 1, 10).rotateX(Math.PI / 2), Array.from({ length: 10 }, (_, k) =>
+    [W / 2 - 2.7 + (k % 5) * 0.55 + (k > 4 ? 0.2 : 0), 0.66, -0.6 + (k > 4 ? 0.1 : -0.1), 0.12 + k * 0.004, 0.12 + k * 0.004, 0.32, '#141416']));
+  r.cyl(red, 0.2, 0.2, 1.1, W / 2 - 1.4, 0.55, 2.2, 16);
+  r.cyl(steel, 0.008, 0.008, 1.5, W / 2 - 1.4, 1.65, 2.2, 4);
+  r.colliders.push({ type: 'circle', x: r.ox + W / 2 - 1.4, z: r.oz + 2.2, r: 0.22, h: 1.7 });
+  r.box(std({ color: 0x232325, roughness: 1 }), W - 1, 0.012, 4, 0, 0, D / 2 - 3);
+  // the front desk
+  const cx = W / 2 - 2.4, cz = -D / 2 + 2.2;
+  r.box(black, 2.2, 1.0, 0.6, cx, 0, cz, 0, true);
+  r.box(red, 2.24, 0.06, 0.64, cx, 1.0, cz);
+  neonSign(r, 'IRON SOL', '#ffd23f', 3.4, 0, 3.4, D / 2 - 0.05, Math.PI);
+  for (const [x, z] of [[-4, -3], [0, -3], [4, -3], [-4, 2], [0, 2], [4, 2]]) r.lamp(x, 3.8, z, 'tube');
+  return { counter: { x: cx, z: cz - 0.95 }, clerk: { x: cx, z: cz + 0.75, yaw: Math.PI }, clerkKind: 'male', wear: 'male_casualsuit05', stations: st };
+}
+
+function clubInterior(r) {
+  const { W, D } = r;
+  const black = std({ color: 0x0c0c10, roughness: 0.5 });
+  const chrome = std({ color: 0xd0d4d8, roughness: 0.15, metalness: 0.95 });
+  const purple = std({ color: 0x2a1240, roughness: 0.6 });
+  // the dance floor: lit tiles that change colour with the beat (shops.update animates them)
+  const fx = 1.5, fz = 2.2, N = 6, S = 1.0;
+  const tiles = new THREE.InstancedMesh(new THREE.BoxGeometry(S - 0.04, 0.05, S - 0.04), new THREE.MeshBasicMaterial({ color: 0xffffff }), N * N); // unlit: the tile colour is its light
+  const m4 = new THREE.Matrix4();
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) tiles.setMatrixAt(i * N + j, m4.makeTranslation(fx + (i - (N - 1) / 2) * S, 0.025, fz + (j - (N - 1) / 2) * S));
+  tiles.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * N * 3).fill(1), 3);
+  r.group.add(tiles);
+  r.loose.push(tiles);
+  // the DJ: a stage at the back with decks and speaker stacks
+  r.box(purple, 6, 0.6, 2.2, fx, 0, D / 2 - 1.1, 0, true);
+  r.box(black, 2.4, 1.0, 0.7, fx, 0.6, D / 2 - 1.3, 0, true);
+  for (const s of [-1, 1]) {
+    r.cyl(chrome, 0.2, 0.2, 0.03, fx + s * 0.6, 1.6, D / 2 - 1.3, 20);
+    r.box(black, 0.9, 2.2, 0.8, fx + s * 2.6, 0.6, D / 2 - 0.9, 0, true);
+    for (const y of [1.0, 2.0]) r.cyl(std({ color: 0x222226, roughness: 0.4 }), 0.28, 0.28, 0.04, fx + s * 2.6, y, D / 2 - 1.31, 18, Math.PI / 2);
+  }
+  // the bar along the left wall: counter, stools, shelves of lit bottles
+  const bx = -W / 2 + 1.6;
+  r.box(black, 0.8, 1.1, 7, bx, 0, 0.5, 0, true);
+  r.box(chrome, 0.9, 0.05, 7.1, bx, 1.1, 0.5);
+  r.box(glowMat(0xff3fa8, 1.6), 0.02, 0.05, 7, bx + 0.41, 1.0, 0.5);
+  for (let k = 0; k < 6; k++) {
+    r.cyl(chrome, 0.03, 0.03, 0.7, bx + 0.9, 0, -2.2 + k * 1.1, 8);
+    r.cyl(std({ color: 0x8e1b1b, roughness: 0.4 }), 0.2, 0.2, 0.08, bx + 0.9, 0.7, -2.2 + k * 1.1, 14);
+  }
+  const bottles = [];
+  for (let s = 0; s < 3; s++) {
+    r.box(glowMat(0xffc27a, 0.5), 0.3, 0.03, 6, -W / 2 + 0.2, 1.2 + s * 0.45, 0.5);
+    for (let k = 0; k < 22; k++) bottles.push([-W / 2 + 0.2, 1.36 + s * 0.45, -2.3 + k * 0.27, 0.07, 0.3, 0.07, ['#2b6b3c', '#8a5032', '#c9d6e0', '#d8b23a', '#5a1a2a'][(k + s) % 5]]);
+  }
+  r.scatter(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), bottles);
+  // the darts corner on the right wall: a board and an oche line
+  const dz = -2.6;
+  const board = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#111';
+    g.beginPath();
+    g.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2);
+    g.fill();
+    for (let i = 0; i < 20; i++) for (const [r0, r1, a, b] of [[0.62, 0.95, '#1a1a1a', '#efe4c8'], [0.1, 0.58, '#1a1a1a', '#efe4c8'], [0.95, 1, '#b3202a', '#1f7a45'], [0.58, 0.62, '#b3202a', '#1f7a45']]) {
+      const a0 = -Math.PI / 2 - Math.PI / 20 + (i * Math.PI) / 10;
+      g.fillStyle = i % 2 ? b : a;
+      g.beginPath();
+      g.arc(w / 2, h / 2, r1 * w * 0.42, a0, a0 + Math.PI / 10);
+      g.arc(w / 2, h / 2, r0 * w * 0.42, a0 + Math.PI / 10, a0, true);
+      g.fill();
+    }
+    g.fillStyle = '#b3202a';
+    g.beginPath();
+    g.arc(w / 2, h / 2, 6, 0, Math.PI * 2);
+    g.fill();
+  });
+  r.box(std({ map: planks('#5a3a24'), roughness: 0.7 }), 0.04, 1.2, 1.2, W / 2 - 0.02, 1.15, dz);
+  r.plane(std({ map: board, roughness: 0.7 }), 0.55, 0.55, W / 2 - 0.05, 1.73, dz, -Math.PI / 2);
+  r.box(glowMat(0xffd23f, 0.8), 0.05, 0.01, 0.8, W / 2 - 2.4, 0, dz);
+  // a disco ball over the floor
+  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 1), std({ color: 0xffffff, roughness: 0.05, metalness: 1, flatShading: true }));
+  ball.position.set(fx, r.H - 0.7, fz);
+  r.group.add(ball);
+  r.loose.push(ball);
+  r.box(chrome, 0.01, 0.35, 0.01, fx, r.H - 0.35, fz);
+  neonSign(r, 'CLUB SOLAR', '#ff3fa8', 4.4, -2.5, 3.9, D / 2 - 0.05, Math.PI);
+  for (const [x, z] of [[-6, -4], [-6, 3], [5, -4], [5, 1]]) r.lamp(x, 4.4, z, 'shade');
+  r.lamp(fx, 4.4, fz, 'shade');
+  return {
+    counter: { x: bx + 1.05, z: -1.6 }, clerk: { x: bx - 0.85, z: -1.6, yaw: Math.PI / 2 }, clerkKind: 'female', wear: 'female_elegantsuit01',
+    stations: [{ kind: 'dance', x: fx, z: fz - 0.6, yaw: Math.PI }, { kind: 'darts', x: W / 2 - 2.45, z: dz, yaw: Math.PI / 2, off: { x: W / 2 - 3.2, z: dz } }],
+    floor: { x: fx, z: fz }, tiles, ball,
+  };
+}
+
+function arcadeInterior(r) {
+  const { W, D } = r;
+  const black = std({ color: 0x101016, roughness: 0.5 });
+  const st = [];
+  const screens = ['SOL INVADERS', 'NEON SNAKE', 'TURBO SOL', 'KUNG-FU 2', 'STREET BRAWL', 'PINBALL', 'GALAXY X', 'RACER'];
+  const cols = ['#ff4fa3', '#41d6ff', '#ffcf3f', '#7dff6a', '#ff7a3a', '#b46bff', '#41d6ff', '#ff4fa3'];
+  // a row of cabinets along each side wall; the first two on the right work
+  for (let i = 0; i < 8; i++) {
+    const side = i < 4 ? 1 : -1, k = i % 4, x = side * (W / 2 - 0.55), z = -1.6 + k * 1.3, yaw = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+    r.box(black, 0.75, 1.75, 0.8, x, 0, z, 0, true);
+    const trim = std({ color: new THREE.Color(cols[i]).multiplyScalar(0.6), roughness: 0.4 });
+    for (const e of [-1, 1]) r.box(trim, 0.8, 1.8, 0.04, x, 0, z + e * 0.41); // side panels
+    r.box(black, 0.45, 0.06, 0.8, x - side * 0.5, 0.95, z); // control deck
+    const scr = canvasTex(128, 112, (g, w, h) => {
+      g.fillStyle = '#05060c';
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = cols[i];
+      g.font = 'bold 15px monospace';
+      g.textAlign = 'center';
+      screens[i].split(' ').forEach((l, n) => g.fillText(l, w / 2, 38 + n * 20));
+      g.fillStyle = '#fff';
+      g.font = '10px monospace';
+      g.fillText('INSERT COIN', w / 2, 96);
+    });
+    r.plane(std({ map: scr, emissiveMap: scr, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.2 }), 0.62, 0.52, x - side * 0.39, 1.25, z, yaw).userData.keep = true;
+    r.plane(glowMat(new THREE.Color(cols[i]).getHex(), 1.6), 0.7, 0.16, x - side * 0.4, 1.86, z, yaw).userData.keep = true;
+    if (i < 2) st.push({ kind: i === 0 ? 'invaders' : 'snake', x: x - side * 1.05, z, yaw: side > 0 ? Math.PI / 2 : -Math.PI / 2 });
+  }
+  // a neon-carpet island of claw machines in the middle
+  for (const s of [-1, 1]) {
+    r.box(black, 0.9, 0.9, 0.9, s * 0.6, 0, 1.6, 0, true);
+    const glass = std({ color: 0xbfe6ff, roughness: 0.05, transparent: true, opacity: 0.25 });
+    r.box(glass, 0.86, 0.9, 0.86, s * 0.6, 0.9, 1.6);
+    r.box(glowMat(s > 0 ? 0xff4fa3 : 0x41d6ff, 1.4), 0.9, 0.12, 0.9, s * 0.6, 1.8, 1.6);
+  }
+  r.scatter(new THREE.SphereGeometry(0.5, 8, 6), Array.from({ length: 18 }, (_, k) => [(k % 2 ? 1 : -1) * 0.6 + ((k * 37) % 7) / 10 - 0.3, 0.98, 1.6 + ((k * 53) % 7) / 10 - 0.3, 0.12, 0.12, 0.12, cols[k % 8]]));
+  // the prize counter by the door
+  const cx = -W / 2 + 2.4, cz = -D / 2 + 2.2;
+  r.box(black, 2.2, 1.0, 0.6, cx, 0, cz, 0, true);
+  r.box(glowMat(0xb46bff, 1.0), 2.24, 0.05, 0.64, cx, 1.0, cz);
+  neonSign(r, 'PIXEL PALACE', '#41d6ff', 4.0, 0, 2.7, D / 2 - 0.05, Math.PI);
+  for (const [x, z] of [[-3, -2], [3, -2], [-3, 2], [3, 2]]) r.lamp(x, 3.2, z, 'shade');
+  return { counter: { x: cx, z: cz - 0.95 }, clerk: { x: cx, z: cz + 0.75, yaw: Math.PI }, clerkKind: 'male', wear: 'male_casualsuit04', stations: st };
+}
+
 // ------------------------------------------------------------------ the shops
 export class Shops {
   constructor(ctx) {
@@ -644,21 +956,27 @@ export class Shops {
     BRANCHES.forEach(([type, name, bi, bj], k) => {
       const b = this.front(type, name, bi, bj);
       if (!b) return;
-      const W = type === 'bank' ? 16 : type === 'mart' ? 12 : type === 'food' ? 14 : 13, D = type === 'bank' ? 12 : type === 'food' ? 11 : 10, H = type === 'bank' ? 4.4 : type === 'mart' ? 3.4 : 3.6;
+      const [W, D, H] = { bank: [16, 12, 4.4], mart: [12, 10, 3.4], food: [14, 11, 3.6], barber: [12, 9, 3.4], tattoo: [11, 9, 3.2], gym: [16, 13, 4.2], club: [18, 15, 5], arcade: [14, 11, 3.6] }[type] || [13, 10, 3.6];
       const floors = {
         gun: std({ map: TX.concrete(), roughness: 0.85, color: 0x9a9a9a }),
         food: std({ map: checker('#ece6d6', '#26262a'), roughness: 0.35 }),
         clothes: std({ map: planks('#b89a6e'), roughness: 0.55 }),
         mart: std({ map: tiles('#eceae4', '#c9c6be'), roughness: 0.4 }),
         bank: std({ map: checker('#ece6da', '#b9b2a2', 6), roughness: 0.2 }),
+        barber: std({ map: checker('#f2f2ee', '#1d1d20'), roughness: 0.3 }),
+        tattoo: std({ map: planks('#3a2a22'), roughness: 0.6 }),
+        gym: std({ map: tiles('#2a2a2e', '#1c1c1f'), roughness: 0.95 }),
+        club: std({ map: checker('#151218', '#0c0a0e', 6), roughness: 0.25 }),
+        arcade: std({ map: neonCarpet(), roughness: 1 }),
       };
       floors[type].map.repeat.set(W / 2, D / 2);
       floors[type].map.wrapS = floors[type].map.wrapT = THREE.RepeatWrapping;
-      const walls = { gun: 0x34373d, food: 0xf1e2c6, clothes: 0xf4f2ee, mart: 0xf0f2f4, bank: 0xe4dcc8 };
+      const walls = { gun: 0x34373d, food: 0xf1e2c6, clothes: 0xf4f2ee, mart: 0xf0f2f4, bank: 0xe4dcc8, barber: 0xcfe4e2, tattoo: 0x231f26, gym: 0x9aa0a8, club: 0x120e16, arcade: 0x14142a };
       const r = new Room(this.scene, IN_X + k * IN_STEP, IN_Z, W, D, H, {
         floor: floors[type], wall: std({ color: walls[type], roughness: 0.85 }), ceiling: std({ color: 0xe8e6e0, roughness: 0.9, side: THREE.DoubleSide }),
       });
-      const spec = type === 'gun' ? gunInterior(r, guns) : type === 'food' ? foodInterior(r, name) : type === 'clothes' ? clothesInterior(r, this.models) : type === 'bank' ? bankInterior(r) : martInterior(r);
+      const spec = type === 'gun' ? gunInterior(r, guns) : type === 'food' ? foodInterior(r, name) : type === 'clothes' ? clothesInterior(r, this.models) : type === 'bank' ? bankInterior(r)
+        : type === 'barber' ? barberInterior(r) : type === 'tattoo' ? tattooInterior(r) : type === 'gym' ? gymInterior(r) : type === 'club' ? clubInterior(r) : type === 'arcade' ? arcadeInterior(r) : martInterior(r);
       r.finish();
       colliders.push(...r.colliders);
       b.room = r;
@@ -672,6 +990,19 @@ export class Shops {
       }
       b.ringIn = this.ring(STYLE[type].sign, b.exitRing.x, b.exitRing.z);
       b.ringCounter = this.ring(STYLE[type].sign, b.counter.x, b.counter.z, 0.55);
+      // the venues' stations (fun.js), in world coordinates, each with a ring to step into
+      for (const st of spec.stations || []) {
+        Object.assign(st, r.world(st.x, st.z));
+        if (st.off) st.off = r.world(st.off.x, st.off.z);
+        if (st.bar) {
+          st.bar.position.x += r.ox;
+          st.bar.position.z += r.oz;
+          this.scene.add(st.bar);
+          st.barRest = st.bar.position.clone();
+        }
+        st.ring = this.ring(STYLE[type].sign, st.x, st.z, 0.5);
+      }
+      if (spec.floor) spec.floor = r.world(spec.floor.x, spec.floor.z);
       this.branches.push(b);
     });
     this.city.addColliders(colliders);
@@ -841,6 +1172,13 @@ export class Shops {
     this.applyOutfit();
   }
 
+  saveOutfit() {
+    try {
+      localStorage.setItem('solcity.outfit', JSON.stringify(this.outfit));
+    } catch {}
+    this.applyOutfit();
+  }
+
   applyOutfit() {
     this.player.model.traverse((o) => {
       if (!o.isMesh) return;
@@ -848,6 +1186,7 @@ export class Shops {
       if (/^Shirt/.test(n) && this.outfit.shirt) o.material.color.set(this.outfit.shirt);
       if (/^Jeans/.test(n) && this.outfit.jeans) o.material.color.set(this.outfit.jeans);
     });
+    this.fun?.applyLook(this.outfit);
   }
 
   // ---------------------------------------------------------------- menus
@@ -859,6 +1198,12 @@ export class Shops {
       });
     }
     if (b.type === 'bank') return [];
+    if (b.type === 'barber') return HAIRCUTS.map((h) => ({ label: h.name + ((this.outfit.hair || 'crop') === h.id ? ' <small>(now)</small>' : ''), price: h.price, cut: h }));
+    if (b.type === 'tattoo') {
+      const have = this.outfit.tattoos || [];
+      return TATTOOS.map((t) => ({ label: t.name + (have.includes(t.id) ? ' <small>(have)</small>' : ''), price: t.price, tat: t }));
+    }
+    if (VENUE_MENUS[b.type]) return VENUE_MENUS[b.type].map(([n, p, hp]) => ({ label: hp ? `${n} <small>+${hp} HP</small>` : n, price: p, hp, drunk: !hp }));
     if (b.type === 'food') return MENUS[b.name].map(([n, p, hp]) => ({ label: `${n} <small>+${hp} HP</small>`, price: p, hp }));
     if (b.type === 'mart') return MART_ITEMS.map(([n, p, hp]) => ({ label: hp ? `${n} <small>+${hp} HP</small>` : n, price: p, hp, lottery: !hp }));
     return CLOTHES.map((c) => ({ label: c.name + (this.outfit[c.part] === c.color ? ' <small>(wearing)</small>' : ''), price: c.price, c }));
@@ -869,7 +1214,8 @@ export class Shops {
     this.el.style.borderLeftColor = color;
     this.el.innerHTML = `<div class="s-title" style="color:${color}">${b.name}</div>` + this.items(b).map((it, i) =>
       `<div class="s-row${money < it.price ? ' poor' : ''}"><kbd>${i + 1}</kbd><span>${it.label}</span><b>$${it.price}</b></div>`).join('') +
-      (b.type === 'bank' ? '<div class="s-row"><span>Accounts by appointment only.</span></div>' : '') + '<div class="s-foot">Walk away to leave</div>';
+      (b.type === 'bank' ? '<div class="s-row"><span>Accounts by appointment only.</span></div>' : '') +
+      (b.type === 'gym' && this.fun ? `<div class="s-row"><span>Strength <b>${this.fun.fit.str}</b>/100 · Stamina <b>${this.fun.fit.sta}</b>/100</span></div>` : '') + '<div class="s-foot">Walk away to leave</div>';
   }
 
   buy(b, i) {
@@ -891,6 +1237,25 @@ export class Shops {
         this.weapons.give(it.it.key, true);
         this.weapons.equip(it.it.key);
       }
+    } else if (it.cut) {
+      if ((this.outfit.hair || 'crop') === it.cut.id) return no('That is how you wear it now.');
+      this.outfit.hair = it.cut.id;
+      this.saveOutfit();
+      this.hud.say(`Fresh cut: <em>${it.cut.name}</em>.`, 2);
+    } else if (it.tat) {
+      const have = this.outfit.tattoos || [];
+      if (it.tat.remove) {
+        if (!have.length) return no('There is nothing to remove.');
+        this.outfit.tattoos = [];
+      } else {
+        if (have.includes(it.tat.id)) return no('You already have that one.');
+        this.outfit.tattoos = [...have, it.tat.id];
+      }
+      this.saveOutfit();
+      this.hud.say(it.tat.remove ? 'Clean skin again. That stung.' : 'Fresh ink. Keep it out of the sun.', 2.5);
+    } else if (it.drunk) {
+      this.fun && (this.fun.drunk = 45);
+      this.hud.say('Whoa. That one has a kick.', 2.5);
     } else if (it.hp) {
       if (P.health >= 100) return no("You're not hungry.");
       P.health = Math.min(100, P.health + it.hp);
@@ -906,10 +1271,7 @@ export class Shops {
     } else {
       if (this.outfit[it.c.part] === it.c.color) return no("You're already wearing that.");
       this.outfit[it.c.part] = it.c.color;
-      try {
-        localStorage.setItem('solcity.outfit', JSON.stringify(this.outfit));
-      } catch {}
-      this.applyOutfit();
+      this.saveOutfit();
       this.hud.say(`New look: <em>${it.c.name}</em>.`, 2);
     }
     this.audio.cash();
@@ -939,6 +1301,7 @@ export class Shops {
       this.follow.ceiling = b.room.H - 0.25;
       this.env.indoor = { lights: b.room.lights, intensity: 24 };
       this.spawnClerk(b);
+      this.fun?.enter(b);
       this.needLeave = true;
     } else {
       this.leave();
@@ -964,6 +1327,7 @@ export class Shops {
       this.wanted.crime('ko_cop', true);
       this.hud.say('The shop alarm called the <em>police</em>!', 3);
     }
+    this.fun?.leave(b);
     this.inside = null;
     this.player.indoors = false;
     this.follow.setMode('foot');
@@ -1021,6 +1385,17 @@ export class Shops {
       this.audio.cash();
     }
     this.hud.say(r.t >= ROB_TIME ? `Got <em>$${cash}</em>. The alarm’s ringing: get out of here!` : `He hit the alarm! You got <em>$${cash}</em>. Get out!`, 4);
+  }
+
+  // the club's floor: tiles change colour on the beat, the mirror ball turns
+  discoLights(spec) {
+    spec.ball.rotation.y += 0.01;
+    const beat = Math.floor(this.t * 2);
+    if (beat === spec.beat) return;
+    spec.beat = beat;
+    const c = new THREE.Color(), pal = [0xff3fa8, 0x41d6ff, 0xb46bff, 0xffd23f, 0x7dff6a, 0x101014];
+    for (let i = 0; i < spec.tiles.count; i++) spec.tiles.setColorAt(i, c.set(pal[(i * 7 + beat * (1 + (i % 3))) % pal.length]));
+    spec.tiles.instanceColor.needsUpdate = true;
   }
 
   closeMenu() {
@@ -1088,6 +1463,20 @@ export class Shops {
 
     const b = this.inside;
     b.ringIn.material.opacity = b.ringCounter.material.opacity = 0.45 + 0.3 * Math.sin(this.t * 4);
+    if (b.spec.tiles) this.discoLights(b.spec);
+    if (this.fun?.active) return;
+    // the venues' stations: step into the ring, E to play / work out
+    for (const st of b.spec.stations || []) {
+      st.ring.material.opacity = 0.45 + 0.3 * Math.sin(this.t * 4);
+      const on = onFoot && Math.hypot(P.x - st.x, P.z - st.z) < 0.6;
+      if (on && !st.on) this.hud.say(this.fun.hint(st), 3);
+      st.on = on;
+      if (on && input.pressed('KeyE')) {
+        input.pressedOnce.delete('KeyE');
+        this.fun.start(st, b);
+        return;
+      }
+    }
     // a gun pointed at the clerk: a hold-up (24/7s and diners; Ammu-Nation shoots back, so no)
     const clerk = this.clerks.get(b);
     if (this.robbery) {

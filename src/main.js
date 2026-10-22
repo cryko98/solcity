@@ -27,6 +27,7 @@ import { Packages } from './packages.js';
 import { Birds } from './birds.js';
 import { PoliceHeli } from './heli.js';
 import { Shops } from './shops.js';
+import { Fun } from './fun.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
 import { DaCity } from './dacity.js';
@@ -116,6 +117,7 @@ let races = null;
 let stunts = null;
 let heli = null;
 let shop = null;
+let fun = null;
 let vigilante = null;
 let story = null;
 let dacity = null;
@@ -143,7 +145,7 @@ addEventListener('resize', () => {
 const loader = new GLTFLoader();
 const manager = { total: 13, done: 0 };
 // bump when the models are rebuilt, so no browser keeps showing an old cached copy
-const ASSET_VERSION = '2026-10-23e';
+const ASSET_VERSION = '2026-10-23f';
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
     loader.load(url + '?v=' + ASSET_VERSION, (g) => {
@@ -197,7 +199,8 @@ Promise.all([
     events = new StreetEvents({ city, peds, vehicles, hud, audio, player, fx });
     bounties = new Bounties({ scene, city, peds, hud, audio, player, weapons });
     homes.onSave = () => saveGame();
-    shop = new Shops({ scene, city, hud, audio, weapons, player, env, follow, peds, wanted, models: { male: npcMale, female: npcFemale } });
+    fun = new Fun({ player, hud, audio, peds });
+    shop = new Shops({ scene, city, hud, audio, weapons, player, env, follow, peds, wanted, fun, models: { male: npcMale, female: npcFemale } });
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
     story.onSave = () => saveGame();
@@ -318,7 +321,7 @@ Promise.all([
     // boxing: auto-aim at whoever is in front, land the punch at the right frame
     player.findTarget = () => peds.target(player.position, player.yaw);
     player.onPunch = () => {
-      if (peds.punch(player.position, player.yaw)) {
+      if (peds.punch(player.position, player.yaw, fun.punch)) {
         audio.punch();
         follow.shake = 0.06;
       } else audio.swing();
@@ -733,6 +736,12 @@ function step(dt) {
     traffic.update(dt, focusPos, driving ? people : [...people, player.position]);
     vehicles.wet = env.wet;
     vehicles.update(dt, driving, ctl, night, camera.position);
+    // drove into the sea: the car floods and you swim out of it
+    if (driving && driving.vehicle.data.drowned) {
+      exitQueued = false;
+      exitVehicle();
+      hud.say('The engine flooded. Swim for it!', 3);
+    }
     stunts.update(dt, vehicles, driving?.vehicle ? driving : null);
     packages.update(dt, driving ? driving.vehicle.pos : player.position);
     birds.update(dt);
@@ -741,10 +750,12 @@ function step(dt) {
     stats.maxWanted = Math.max(stats.maxWanted, wanted.level);
     gunfireCooldown -= dt;
     shop.update(dt, input, !driving && !player.dead && !player.busted);
-    weapons.update(dt, entry.active ? NO_INPUT : input, { onFoot: !driving && !player.dead && !player.busted && !entry.active });
+    // a mini-game at a venue has the controls
+    fun.update(dt, input);
+    weapons.update(dt, entry.active || fun.active ? NO_INPUT : input, { onFoot: !driving && !player.dead && !player.busted && !player.swimming && !entry.active });
     player.aimPitch = follow.viewPitch;
     // walking to a car door: the entry sequence steers the hero
-    player.update(dt, entry.steering ? entry.input : entry.active ? NO_INPUT : input, entry.steering ? entry.yaw : follow.yaw, vehicles, peds);
+    player.update(dt, entry.steering ? entry.input : entry.active || fun.active ? NO_INPUT : input, entry.steering ? entry.yaw : follow.yaw, vehicles, peds);
     // health slowly comes back once you're out of a fight
     if (!player.dead && player.health < 100 && player.guardTimer < -6) {
       player.health = Math.min(100, player.health + 4 * dt);
@@ -847,6 +858,12 @@ function step(dt) {
       headlight.intensity = 0;
     }
     follow.update(dt, input, subject);
+    // one Solar Shot too many: the world sways for a while
+    if (fun.drunk > 0) {
+      const k = Math.min(1, fun.drunk / 12);
+      camera.rotateZ(Math.sin(elapsed * 0.9) * 0.08 * k);
+      camera.rotateX(Math.sin(elapsed * 0.63) * 0.025 * k);
+    }
     if (story.cutscene) {
       story.cameraShot(camera);
       mainInput.consumeMouse(); // no camera jump after the scene

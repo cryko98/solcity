@@ -73,7 +73,7 @@ export class Peds {
     this.spawnTimer = 0;
     this.onCash = null;
     const clip = (n) => heroGltf.animations.find((a) => a.name === n);
-    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'HandsUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
+    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'HandsUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'Dance'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     this.modelClips = {
       male: retargetClips(this.clips, heroGltf.scene, models.male.scene),
       female: retargetClips(this.clips, heroGltf.scene, models.female.scene),
@@ -456,10 +456,10 @@ export class Peds {
   }
 
   // the player's punch lands at this moment; returns true on a hit
-  punch(pos, yaw) {
+  punch(pos, yaw, dmg = 1) {
     const p = this.target(pos, yaw, 1.5);
     if (!p) return false;
-    this.takeHit(p, pos);
+    this.takeHit(p, pos, dmg);
     return true;
   }
 
@@ -487,9 +487,9 @@ export class Peds {
     this.scare(p.x, p.z, p, 30);
   }
 
-  takeHit(p, from) {
+  takeHit(p, from, dmg = 1) {
     if (p.life) this.endLife(p); // off the bench / out of the chat
-    p.hits++;
+    p.hits += dmg; // (the hero hits harder as he gets stronger at the gym)
     this.onCrime?.(p.hits >= KO_HITS ? (p.cop ? 'ko_cop' : 'ko') : p.cop ? 'assault_cop' : 'assault', p);
     const dx = p.x - from.x, dz = p.z - from.z, d = Math.hypot(dx, dz) || 1;
     p.yaw = Math.atan2(-dx, -dz);
@@ -637,12 +637,18 @@ export class Peds {
   move(p, speed, yawTarget, dt, turn = 8) {
     p.yaw += wrap(yawTarget - p.yaw) * (1 - Math.exp(-turn * dt));
     p.cur += (speed - p.cur) * (1 - Math.exp(-5 * dt));
+    const ox = p.x, oz = p.z;
     p.x += Math.sin(p.yaw) * p.cur * dt + p.vel.x * dt;
     p.z += Math.cos(p.yaw) * p.cur * dt + p.vel.z * dt;
     p.vel.multiplyScalar(Math.exp(-6 * dt));
     this.collideWorld(p);
     // cars are solid (a passenger walking to the taxi door is let through on the last step)
     if (p.state !== 'board') this.vehicles.collideCircle(p, RADIUS);
+    // nobody follows you in past waist-deep water (you can swim away from a beating or a cop)
+    if (this.city.waterDepth && this.city.waterDepth(p.x, p.z) > 0.8) {
+      p.x = ox;
+      p.z = oz;
+    }
     const gh = this.city.groundHeight(p.x, p.z);
     p.y += (gh - p.y) * Math.min(1, dt * 15);
   }
@@ -870,6 +876,7 @@ export class Peds {
     else if (p.state === 'riding') a.target = { drive: 1 };
     else if (p.state === 'board') a.target = p.cur > 2.2 ? { run: 1 } : { walk: 1 };
     else if (p.state === 'seated' || p.state === 'talking') a.target = { [p.pose || 'idle']: 1 };
+    else if (p.state === 'contact' && p.pose && a.actions[p.pose]) a.target = { [p.pose]: 1 }; // (dancing at the club)
     else if (p.cur > 2.1) a.target = { run: 1 };
     else {
       const w = Math.min(1, p.cur / 0.6);

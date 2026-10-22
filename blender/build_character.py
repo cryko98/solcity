@@ -2783,6 +2783,96 @@ def drive(t_):
     return p, (0, 0, 0)
 
 
+def swim(t_):
+    """front crawl, body level just under the surface: the arms pull from overhead back to
+    the hip and recover out of the water round the side, a flutter kick, the body rolls a
+    little with each stroke and the head turns to breathe. The game puts the hips at the
+    waterline (the root offset lifts them from standing height)."""
+    s1 = math.sin(2 * math.pi * t_)
+    p = {
+        "hips": rot("hips", (XA, 80)),
+        "spine": rot("spine", (XA, -6), (YA, 6 * s1)),
+        "chest": rot("chest", (XA, -4), (YA, 8 * s1)),
+        "neck": rot("neck", (XA, -34)),
+        "head": rot("head", (XA, -20), (YA, 28 * max(0.0, math.sin(2 * math.pi * t_ - .4)))),
+    }
+    for side, sgn, ph in (("L", 1, 0.0), ("R", -1, 0.5)):
+        a = (t_ + ph) % 1
+        if a < .55:  # the pull: from reaching overhead back to the thigh, elbow nearly straight
+            k = smooth01(0, .55, a)
+            xa, za, el = -175 + 175 * k, -sgn * 6, -18 - 22 * math.sin(math.pi * k)
+        else:  # the recovery: out of the water, round the side, elbow high
+            k = smooth01(.55, 1, a)
+            xa, za, el = -175 * k, -sgn * 48 * math.sin(math.pi * k), -18 - 70 * math.sin(math.pi * k)
+        p["upper_arm." + side] = rot("upper_arm." + side, (XA, xa), (ZA, za))
+        p["forearm." + side] = rot("forearm." + side, (XA, el))
+        p["hand." + side] = rot("hand." + side, (XA, -10))
+        kick = math.sin(4 * math.pi * t_ + (0 if side == "L" else math.pi))
+        p["thigh." + side] = rot("thigh." + side, (XA, 6 * kick), (ZA, sgn * 4))
+        p["shin." + side] = rot("shin." + side, (XA, 8 + 10 * max(0.0, kick)))
+        p["foot." + side] = rot("foot." + side, (XA, 38))
+    hands(p, 8, 10)
+    hip_h = REST["hips"][0].z
+    return p, (0, 0, .25 - hip_h)
+
+
+def dance(t_):
+    """club dance, four beats a cycle: a knee bounce on every beat, the hips sway and twist
+    over the bar, the fists pump in front of the chest (left and right in turn), and for the
+    second half of the bar both hands go up and pump overhead. The head nods on the beat."""
+    b = .5 - .5 * math.cos(8 * math.pi * t_)  # 0 standing tall .. 1 knees bent, four times a cycle
+    sw = math.sin(2 * math.pi * t_)
+    up = smooth01(.42, .56, t_) - smooth01(.9, 1.0, t_)  # hands overhead in the second half
+    p = {}
+    for side, sgn in (("L", 1), ("R", -1)):
+        load = .5 + .5 * sgn * sw  # the weight goes onto this leg as the hips sway over it
+        p["thigh." + side] = rot("thigh." + side, (XA, -10 * b - 4 * load), (YA, -sgn * 3), (ZA, sgn * 7))
+        p["shin." + side] = rot("shin." + side, (XA, 20 * b + 8 * load))
+        p["foot." + side] = rot("foot." + side, (XA, -10 * b - 4 * load), (ZA, sgn * 8))
+    p["hips"] = rot("hips", (YA, 12 * sw), (ZA, 5 * sw))
+    p["spine"] = rot("spine", (XA, 4 + 4 * b), (YA, -6 * sw))
+    p["chest"] = rot("chest", (XA, 2 - 4 * up), (YA, -6 * sw), (ZA, -4 * sw))
+    p["neck"] = rot("neck", (XA, 4 + 6 * b - 6 * up))
+    p["head"] = rot("head", (XA, 3 + 8 * b - 6 * up), (ZA, 5 * sw))
+    for sfx, sgn, ph in ((".L", 1, 0.0), (".R", -1, math.pi)):
+        g = .5 + .5 * math.sin(8 * math.pi * t_ + ph)  # pump, alternating with the other fist
+        low = V((sgn * .2, -.24, BELT_Z + .08))
+        high = V((sgn * .17, -.34, BELT_Z + .42))
+        front = low.lerp(high, g)
+        top = V((sgn * (.2 + .04 * g), -.12, BELT_Z + .78 + .14 * g))
+        wrist = front.lerp(top, up)
+        solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, wrist,
+                    V((sgn * .7, .3, BELT_Z + .1 + .5 * up)), V((sgn * .15, -1, .4 + .6 * up)).normalized(), roll=(0, 0, -sgn * 40))
+    hands(p, 85)
+    return p, (.035 * sw, 0, -.03 * b)
+
+
+def bench_press(t_):
+    """lying on the gym bench, face up, pressing a bar: down to the chest, a short pause,
+    then up until the arms are straight. The game sets him on the bench (the hips are lifted
+    to bench height by the root offset) and moves the bar with his hands."""
+    hip_h = REST["hips"][0].z
+    k = smooth01(.0, .4, t_) - smooth01(.55, 1.0, t_)  # 0 bar on the chest .. 1 arms locked out
+    p = {"hips": rot("hips", (XA, -90))}
+    p["spine"] = rot("spine", (XA, 3))
+    p["neck"] = rot("neck", (XA, 8))
+    p["head"] = rot("head", (XA, 10 + 4 * (1 - k)))
+    for side, sgn in (("L", 1), ("R", -1)):
+        # thighs along the bench, knees over the end, feet flat on the floor either side
+        p["thigh." + side] = rot("thigh." + side, (XA, 4), (ZA, sgn * 16))
+        p["shin." + side] = rot("shin." + side, (XA, 88))
+        p["foot." + side] = rot("foot." + side, (XA, -8))
+    apply_pose(p)
+    for sfx, sgn in ((".L", 1), (".R", -1)):
+        sh = pbones["upper_arm" + sfx].head
+        wrist = V((sh.x + sgn * .16, sh.y - .02, sh.z + .12 + .46 * k))
+        solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, wrist,
+                    V((sh.x + sgn * .8, sh.y - .1, sh.z - .3)), V((0, .15, 1)).normalized(), roll=(0, 0, -sgn * 90))
+    hands(p, 80)
+    # the back on the bench top (0.45 m): the spine sits ~0.13 m above it
+    return p, (0, 0, .58 - hip_h)
+
+
 def jump(t_):
     """in the air: knees drawn up (the leading one higher), arms up and out for balance,
     a slow drift so a long fall doesn't freeze"""
@@ -3156,6 +3246,9 @@ if HERO or PREVIEW:
         make_action("Hit", 16, hit, 1),
         make_action("KnockDown", 42, knockdown, 1),
         make_action("GetUp", 48, get_up, 1),
+        make_action("Swim", 40, swim, 1),
+        make_action("Dance", 60, dance, 1),
+        make_action("BenchPress", 60, bench_press, 2),
         make_action("Ride", 72, ride, 6),
         make_action("HandsUp", 60, hands_up, 6),
         make_action("Roll", 24, roll, 1),

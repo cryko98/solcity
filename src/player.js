@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { prepareCharacter } from './materials.js';
 
 const WALK = 1.65, RUN = 5.3, GRAVITY = 22, JUMP = 6.4, RADIUS = 0.32;
+// in the sea: you swim once the water is chest-deep, and stand up again where it's shallower
+const SWIM_IN = 1.25, SWIM_OUT = 1.0, SWIM = 1.5, SWIM_FAST = 2.7, SWIM_Y = 0.4; // body origin below the surface
 const ONE_SHOTS = ['punchl', 'punchr', 'hit', 'knockdown', 'roll', 'getup'];
 const ROLL_SPEED = 5.6;
 
@@ -41,7 +43,7 @@ export class Player {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp'];
+    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp', 'Swim', 'Dance', 'BenchPress'];
     // Ride / HandsUp may be missing from older exports
     const clips = Object.fromEntries(names.map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     // stride length = ground covered per gait cycle, measured from the foot motion in the clip
@@ -173,7 +175,7 @@ export class Player {
   }
 
   showWeapon() {
-    for (const [n, o] of Object.entries(this.weaponNodes)) o.visible = !!this.weapon && !this.vehicle && !this.posed && n === this.weapon.node;
+    for (const [n, o] of Object.entries(this.weaponNodes)) o.visible = !!this.weapon && !this.vehicle && !this.posed && !this.swimming && n === this.weapon.node;
   }
 
   recoil(k) {
@@ -185,6 +187,7 @@ export class Player {
   }
 
   enterVehicle(v) {
+    this.swimming = false;
     this.vehicle = v;
     this.scene = this.object.parent;
     v.body.add(this.object);
@@ -271,6 +274,7 @@ export class Player {
     this.onHurt?.(dmg);
     if (this.health <= 0) {
       this.dead = true;
+      this.swimming = false;
       this.playOnce('knockdown');
       this.overlay.dur = Infinity;
       this.push.multiplyScalar(1.4);
@@ -292,6 +296,7 @@ export class Player {
   // arrested: hands up, no control
   surrender() {
     this.busted = true;
+    this.swimming = false;
     this.overlay = null;
     this.vel.set(0, 0, 0);
     this.moveSpeed = this.speed = 0;
@@ -355,6 +360,18 @@ export class Player {
       this.comboReset = undefined;
     }
     this.guardTimer -= dt;
+    // into the sea: once it's chest-deep (and we've come down to the surface) we swim
+    const pos = this.object.position;
+    const depth = this.indoors ? 0 : this.city.waterDepth(pos.x, pos.z);
+    if (!this.swimming && depth > SWIM_IN && pos.y <= this.city.WATER_Y + 0.1) {
+      this.swimming = true;
+      this.overlay = null;
+      this.vy = 0;
+      this.grounded = true;
+      this.showWeapon();
+      this.onSplash?.();
+    }
+    if (this.swimming) return this.swim(dt, input, camYaw, depth, vehicles, peds);
     if (input.pressed('Mouse0') && this.grounded && !this.weapon) this.attack();
 
     const ix = (input.down('KeyD', 'ArrowRight') ? 1 : 0) - (input.down('KeyA', 'ArrowLeft') ? 1 : 0);
@@ -372,9 +389,11 @@ export class Player {
       this.roll(hasInput ? Math.atan2(mx, mz) : this.yaw);
     }
     const rolling = this.overlay && this.overlay.name === 'roll';
-    let target = hasInput ? (running ? RUN : WALK) : 0;
+    let target = hasInput ? (running ? RUN * (this.runBoost || 1) : WALK) : 0;
     if (punching) target = Math.min(target, 0.8);
     if (this.guardTimer > 0 && !running) target = Math.min(target, 1.5);
+    // wading: the deeper the water, the slower you go
+    if (depth > 0.3) target *= 1 - 0.45 * Math.min(1, (depth - 0.3) / 0.9);
 
     // turn toward the intent first (fast when slow, wider arcs at speed), then move along the facing
     const prevYaw = this.yaw;
@@ -459,6 +478,42 @@ export class Player {
     this.animate(dt);
   }
 
+  // front crawl: no punching, jumping or guns; Shift swims faster; out where it's shallow
+  swim(dt, input, camYaw, depth, vehicles, peds) {
+    const ix = (input.down('KeyD', 'ArrowRight') ? 1 : 0) - (input.down('KeyA', 'ArrowLeft') ? 1 : 0);
+    const iz = (input.down('KeyW', 'ArrowUp') ? 1 : 0) - (input.down('KeyS', 'ArrowDown') ? 1 : 0);
+    const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
+    const mx = fx * iz - fz * ix, mz = fz * iz + fx * ix;
+    const hasInput = mx !== 0 || mz !== 0;
+    const target = hasInput ? (input.down('ShiftLeft', 'ShiftRight') ? SWIM_FAST : SWIM) : 0;
+    const prevYaw = this.yaw;
+    if (hasInput) this.yaw = dampAngle(this.yaw, Math.atan2(mx, mz), 3.5, dt);
+    this.moveSpeed += (target - this.moveSpeed) * (1 - Math.exp(-(target > this.moveSpeed ? 2.5 : 1.6) * dt));
+    this.yawRate = wrap(this.yaw - prevYaw) / Math.max(dt, 1e-4);
+    this.vel.set(Math.sin(this.yaw) * this.moveSpeed, 0, Math.cos(this.yaw) * this.moveSpeed);
+    const p = this.object.position;
+    p.x += this.vel.x * dt;
+    p.z += this.vel.z * dt;
+    this.slide(dt, vehicles, peds);
+    // bob at the surface
+    this.swimT = (this.swimT || 0) + dt;
+    const y = this.city.WATER_Y - SWIM_Y + Math.sin(this.swimT * 2.2) * 0.03;
+    p.y += (y - p.y) * Math.min(1, dt * 4);
+    this.speed = this.moveSpeed;
+    this.object.rotation.y = this.yaw;
+    this.lean += (THREE.MathUtils.clamp(-this.yawRate * 0.08, -0.25, 0.25) - this.lean) * (1 - Math.exp(-5 * dt));
+    this.pitch *= Math.exp(-6 * dt);
+    this.model.rotation.set(this.pitch, 0, this.lean);
+    // touching bottom: wade out
+    if (this.city.waterDepth(p.x, p.z) < SWIM_OUT) {
+      this.swimming = false;
+      this.grounded = true;
+      this.moveSpeed = Math.min(this.moveSpeed, WALK);
+      this.showWeapon();
+    }
+    this.animate(dt);
+  }
+
   // knock-back impulse + collisions
   slide(dt, vehicles, peds) {
     const p = this.object.position;
@@ -473,7 +528,7 @@ export class Player {
       p.x = THREE.MathUtils.clamp(p.x, -b, b);
       p.z = THREE.MathUtils.clamp(p.z, -b, b);
     }
-    if (this.dead) p.y += (this.city.groundHeight(p.x, p.z) - p.y) * Math.min(1, dt * 10);
+    if (this.dead) p.y += (Math.max(this.city.groundHeight(p.x, p.z), this.city.WATER_Y - SWIM_Y) - p.y) * Math.min(1, dt * 10);
   }
 
   collide(p) {
@@ -515,7 +570,11 @@ export class Player {
     if (this.posed) tw = { [this.actions[this.posed] ? this.posed : 'idle']: 1 };
     else if (this.vehicle) tw = { [this.seatClip]: 1 };
     else if (this.busted) tw = this.actions.handsup ? { handsup: 1 } : { idle: 1 };
-    else if (this.overlay) tw = { [this.overlay.name]: 1 };
+    else if (this.swimming && this.actions.swim) {
+      tw = { swim: 1 };
+      // strokes keep pace with the speed (a slow paddle when treading water)
+      this.actions.swim.timeScale = 0.45 + s / SWIM;
+    } else if (this.overlay) tw = { [this.overlay.name]: 1 };
     else if (!this.grounded) tw = { jump: 1 };
     else if (s < WALK) {
       const rest = this.guardTimer > 0 ? 'guard' : 'idle';
@@ -525,7 +584,7 @@ export class Player {
       tw = { walk: 1 - t, run: t };
     }
     // armed: legs keep their locomotion, the upper body holds / aims the gun
-    const armed = this.weapon && !this.vehicle && !this.posed && !this.busted && !this.dead && this.actions[this.weapon.clip + '_hold'] &&
+    const armed = this.weapon && !this.vehicle && !this.posed && !this.busted && !this.dead && !this.swimming && this.actions[this.weapon.clip + '_hold'] &&
       !(this.overlay && ['hit', 'knockdown', 'roll', 'getup'].includes(this.overlay.name));
     if (armed) {
       const lt = {};
@@ -552,7 +611,7 @@ export class Player {
     }
     this.legTwist += (twist - this.legTwist) * (1 - Math.exp(-10 * dt));
     // walk and run share one gait phase so blending never crosses feet
-    if (this.grounded && !this.vehicle) {
+    if (this.grounded && !this.vehicle && !this.swimming) {
       const runShare = this.weights.run / Math.max(1e-3, this.weights.walk + this.weights.run);
       const stride = THREE.MathUtils.lerp(this.walkStride, this.runStride, runShare);
       const before = this.phase;

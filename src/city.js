@@ -187,13 +187,86 @@ export function buildCity(scene) {
     scene.add(q);
   }
   // the sea
+  // The sea: a swell rolling across it (vertex waves), ripples on top (two layers of the normal
+  // map drifting different ways), the sky reflected in it. Its colour comes from the depth of
+  // the water, which is known exactly (the beach shelves down at 6 cm a metre): clear turquoise
+  // over the sand where you can see the bottom, deep blue further out, and surf where it laps
+  // onto the beach.
   const waterNormal = TX.waterNormal();
-  waterNormal.repeat.set(60, 60);
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(EXT * 8, EXT * 8).rotateX(-HALF_PI),
-    std({ color: 0x1b6a86, roughness: 0.08, metalness: 0.25, normalMap: waterNormal, normalScale: new THREE.Vector2(0.35, 0.35) })
-  );
+  waterNormal.wrapS = waterNormal.wrapT = THREE.RepeatWrapping;
+  waterNormal.repeat.set(90, 90);
+  const seaU = { uTime: { value: 0 }, uExt: { value: EXT } };
+  const seaMat = std({ color: 0xffffff, roughness: 0.04, metalness: 0.32, normalMap: waterNormal, normalScale: new THREE.Vector2(0.45, 0.45), transparent: true });
+  seaMat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, seaU);
+    const waves = `
+      uniform float uTime;
+      uniform float uExt;
+      varying vec2 vSea;
+      varying float vCrest;
+      // three swells from different directions: height and its slope
+      vec3 swell(vec2 p) {
+        vec3 r = vec3(0.0);
+        vec4 W[3];
+        W[0] = vec4(normalize(vec2(1.0, 0.35)), 0.075, 19.0);
+        W[1] = vec4(normalize(vec2(-0.4, 1.0)), 0.05, 11.0);
+        W[2] = vec4(normalize(vec2(0.8, -0.7)), 0.03, 6.5);
+        for (int i = 0; i < 3; i++) {
+          float k = 6.2831 / W[i].w, c = sqrt(9.8 / k);
+          float ph = k * dot(W[i].xy, p) - k * c * uTime * 0.55;
+          r.x += W[i].z * sin(ph);
+          r.yz += W[i].z * k * cos(ph) * W[i].xy;
+        }
+        return r;
+      }
+`;
+    sh.vertexShader = waves + sh.vertexShader
+      .replace('#include <beginnormal_vertex>', `vec3 sw = swell(position.xz);
+        vec3 objectNormal = normalize(vec3(-sw.y, 1.0, -sw.z));
+        #ifdef USE_TANGENT
+          vec3 objectTangent = vec3(tangent.xyz);
+        #endif`)
+      .replace('#include <begin_vertex>', `vec3 transformed = vec3(position);
+        transformed.y += sw.x;
+        vSea = position.xz;
+        vCrest = sw.x;`);
+    sh.fragmentShader = `uniform float uTime;
+      uniform float uExt;
+      varying vec2 vSea;
+      varying float vCrest;
+    ` + sh.fragmentShader
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        // depth of the water here: the same shelf as city.groundHeight
+        float out_ = max(abs(vSea.x), abs(vSea.y)) - uExt;
+        float bed = out_ > 0.0 ? max(-12.0, -0.03 - out_ * 0.06) : -0.03;
+        float depth = max(0.0, -0.55 + vCrest - bed);
+        vec3 shallow = vec3(0.05, 0.72, 0.72), mid = vec3(0.03, 0.5, 0.62), deep = vec3(0.01, 0.16, 0.34);
+        vec3 sea = mix(shallow, mid, smoothstep(0.0, 1.6, depth));
+        sea = mix(sea, deep, smoothstep(1.5, 9.0, depth));
+        // surf: a band of foam where the waves run up the sand, broken up and moving
+        float n = sin(vSea.x * 1.7 + uTime * 1.3) * sin(vSea.y * 1.9 - uTime * 1.1) + sin((vSea.x + vSea.y) * 0.9 + uTime * 2.0);
+        // (a thin line where it laps the sand, and lines of surf rolling in behind it)
+        float edge = 1.0 - smoothstep(0.0, 0.05 + 0.02 * n, depth);
+        float rolls = smoothstep(0.82, 1.0, sin(depth * 22.0 - uTime * 2.2 + n * 0.8)) * (1.0 - smoothstep(0.05, 0.4, depth));
+        float foam = edge * 0.8 + rolls * 0.55;
+        // white crests on the tallest swells out at sea
+        foam += smoothstep(0.1, 0.15, vCrest) * smoothstep(1.0, 4.0, depth) * 0.35 * (0.5 + 0.5 * n);
+        diffuseColor.rgb = mix(sea, vec3(0.95, 0.97, 0.98), clamp(foam, 0.0, 1.0));
+        diffuseColor.a = clamp(mix(0.5, 0.95, smoothstep(0.0, 3.0, depth)) + foam, 0.0, 1.0);`)
+      // shallow water is mostly see-through: less of the pale sky mirrored in it
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor *= mix(0.35, 1.0, smoothstep(0.2, 3.0, depth));`)
+      // a second, finer layer of ripples crossing the first
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        #ifdef USE_NORMALMAP_TANGENTSPACE
+          vec3 n2 = texture2D(normalMap, vSea * 0.11 + vec2(-uTime * 0.021, uTime * 0.013)).xyz * 2.0 - 1.0;
+          n2.xy *= normalScale * 0.8;
+          normal = normalize(normal + tbn * n2 * 0.6);
+        #endif`);
+  };
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(EXT * 8, EXT * 8, 240, 240).rotateX(-HALF_PI), seaMat);
   water.position.y = -0.55;
+  water.renderOrder = 1;
   scene.add(water);
 
   const marks = { white: [], yellow: [] };
@@ -1207,7 +1280,8 @@ export function buildCity(scene) {
   city.districtOf = districtOf;
 
   city.update = (t) => {
-    waterNormal.offset.set(t * 0.004, t * 0.0025);
+    waterNormal.offset.set(t * 0.006, t * 0.0035);
+    seaU.uTime.value = t;
     const cyc = t % 24;
     const state = cyc < 10 ? 0 : cyc < 12 ? 1 : cyc < 22 ? 2 : 3;
     if (state !== lightState) setLights((lightState = state));
@@ -1220,11 +1294,26 @@ export function buildCity(scene) {
   const hero = { x: parkX + 6, z: blockMin(3) + BLOCK + 1.15, yaw: HALF_PI, color: 0xd8622a, model: "coupe", owned: true };
   city.parkedCars = [hero, ...props.car.filter((c) => Math.hypot(c.x - hero.x, c.z - hero.z) > 6)];
   city.spawnYaw = 0;
-  city.bounds = EXT + 4;
+  // you can wade and swim out to sea (and take a boat further); the edge of the world is out there
+  city.bounds = EXT + 170;
   city.EXT = EXT;
-  // quay deck is level with the roads; everything else off the grid is beach at sand level
+  city.WATER_Y = -0.55; // the sea's surface
+  // the beach shelves down under the water past EXT (the same slope as the sand mesh), then deep sea
+  const seabed = (x, z) => {
+    const out = Math.max(Math.abs(x), Math.abs(z)) - EXT;
+    // (the shop and story rooms are built far out past the edge of the world: level floor there)
+    return out > 0 && out < 200 ? Math.max(-12, -0.03 - out * 0.06) : -0.03;
+  };
+  // quay deck is level with the roads; the hill rises out of the sea; elsewhere the beach and the seabed
   const baseGround = city.groundHeight;
-  city.groundHeight = (x, z) => (Math.abs(x) > HALF || Math.abs(z) > HALF ? (onQuay(x, z) ? 0 : Math.max(-0.03, city.terrain(x, z))) : baseGround(x, z));
+  city.groundHeight = (x, z) => {
+    if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) return baseGround(x, z);
+    if (onQuay(x, z)) return 0;
+    const t = city.terrain(x, z);
+    return t > 0 ? Math.max(t, seabed(x, z)) : seabed(x, z);
+  };
+  // how deep the water is here (0 on dry land)
+  city.waterDepth = (x, z) => Math.max(0, city.WATER_Y - city.groundHeight(x, z));
   city.roadC = roadC;
   city.blockMin = blockMin;
 
