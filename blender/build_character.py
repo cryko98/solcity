@@ -2583,13 +2583,16 @@ def guard_pose(bounce=0.0, lead=0.0, cross=0.0, recoil=0.0):
     trunk = -24 + 44 * cross - 12 * lead
     hips_z, spine_z, chest_z = trunk * .45 + 6 * cross, trunk * .3, trunk * .35
     total = hips_z + spine_z + chest_z
-    p["hips"] = rot("hips", (ZA, hips_z), (XA, 5))
-    p["spine"] = rot("spine", (XA, 7 + 5 * cross + 3 * lead), (ZA, spine_z))
-    p["chest"] = rot("chest", (XA, 5 - 12 * recoil), (ZA, chest_z))
+    # weight a little forward, over the lead leg (a boxer never leans back into his guard)
+    p["hips"] = rot("hips", (ZA, hips_z), (XA, 11))
+    p["spine"] = rot("spine", (XA, 12 + 5 * cross + 3 * lead), (ZA, spine_z))
+    p["chest"] = rot("chest", (XA, 8 - 12 * recoil), (ZA, chest_z))
     p["neck"] = rot("neck", (XA, 7 - 15 * recoil), (ZA, -total * .45))
     p["head"] = rot("head", (XA, 6 - 22 * recoil), (ZA, -total * .45))
     face_y = NOSE.y
+    # the hand that isn't punching comes back to the chin (the jab hand on a cross, and the other way)
     lead_w = V((.09, face_y - .27, EYE_Z - .18)).lerp(V((.015, face_y - .55, EYE_Z - .085)), lead)
+    lead_w = lead_w.lerp(V((.07, face_y - .12, EYE_Z - .19)), cross)
     rear_w = V((-.095, face_y - .11, EYE_Z - .2)).lerp(V((.0, face_y - .55, EYE_Z - .085)), cross)
     p.update(arm_ik("L", to_torso(lead_w, total), to_torso(V((.32, -.05, BELT_Z + .05 + .3 * lead)), total), -78 * lead))
     p.update(arm_ik("R", to_torso(rear_w, total), to_torso(V((-.32, .02, BELT_Z + .05 + .3 * cross)), total), 78 * cross))
@@ -2631,6 +2634,22 @@ def hit(t_):
     return p, (off[0], off[1] + .06 * r, off[2])
 
 
+KD_ARM_OUT = 55.0
+
+# how far each joint must stay above the ground (the flesh around it): ankles, wrists, the head
+CLEARANCE = {"foot.L": .06, "foot.R": .06, "hand.L": .03, "hand.R": .03, "head": .1, "hips": .1}
+
+
+def ground_lift(pose, off):
+    """raise a root offset just enough that no joint of the pose sinks into the ground"""
+    apply_pose(pose)
+    pts = [(pbones[b].head.z, c) for b, c in CLEARANCE.items() if b in pbones]
+    if "head" in pbones:
+        pts.append((pbones["head"].tail.z, .04))  # the crown
+    need = max(c - (z + off[2]) for z, c in pts)
+    return (off[0], off[1], off[2] + max(0.0, need))
+
+
 def knockdown(t_):
     """stagger back, legs give way, land flat on the back with the arms thrown out"""
     s_back = smooth01(0, .25, t_)
@@ -2643,15 +2662,69 @@ def knockdown(t_):
     p["neck"] = rot("neck", (XA, -20 * s_back + 22 * fall))
     p["head"] = rot("head", (XA, -25 * s_back + 10 * fall), (ZA, 25 * fall))
     for side, sgn in (("L", 1), ("R", -1)):
-        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * (35 * s_back + 40 * fall)), (XA, -60 * s_back + 40 * fall))
-        p["forearm." + side] = rot("forearm." + side, (XA, -40 * s_back + 25 * fall))
+        p["upper_arm." + side] = rot("upper_arm." + side, (XA, -60 * s_back * (1 - fall)), (ZA, -sgn * (20 * s_back + KD_ARM_OUT * fall)))
+        p["forearm." + side] = rot("forearm." + side, (XA, -40 * s_back * (1 - fall) - 18 * fall))
         lead = side == "L"
         p["thigh." + side] = rot("thigh." + side, (XA, (20 if lead else -15) * s_back * (1 - fall) - 10 * fall * (1 if lead else .3)), (ZA, sgn * 10 * fall))
         p["shin." + side] = rot("shin." + side, (XA, 45 * math.sin(math.pi * min(1, t_ / .65)) + (25 if lead else 5) * fall))
         p["foot." + side] = rot("foot." + side, (XA, 20 * fall), (ZA, sgn * 15))
     hands(p, 30)
     hip_h = REST["hips"][0].z
-    return p, (0, .1 * s_back + .48 * fall, -(hip_h - .13) * fall + bounce)
+    return p, ground_lift(p, (0, .1 * s_back + .48 * fall, -(hip_h - .13) * fall + bounce))
+
+
+GETUP_CACHE = {}
+
+
+def feet_down(pose):
+    """how far to lower the hips so the lower ankle of this pose sits at its standing height"""
+    apply_pose(pose)
+    low = min(pbones["foot.L"].head.z, pbones["foot.R"].head.z)
+    rest = min(REST["foot.L"][0].z, REST["foot.R"][0].z)
+    return rest - low
+
+
+def get_up(t_):
+    """from flat on the back (the end of KnockDown) back onto the feet: sit up with the hands
+    behind on the ground, pull the feet in to a crouch, stand up. Key poses blended in turn."""
+    key = round(t_, 3)
+    if key in GETUP_CACHE:
+        return GETUP_CACHE[key]
+    hip_h = REST["hips"][0].z
+    k0, o0 = knockdown(1.0)
+    k1 = {"hips": rot("hips", (XA, -14)), "spine": rot("spine", (XA, 20)), "chest": rot("chest", (XA, 10)),
+          "neck": rot("neck", (XA, 4)), "head": rot("head", (XA, -4))}
+    k2 = {"hips": rot("hips", (XA, 30)), "spine": rot("spine", (XA, 16)), "chest": rot("chest", (XA, 8)),
+          "neck": rot("neck", (XA, -8)), "head": rot("head", (XA, -10))}
+    for side, sgn in (("L", 1), ("R", -1)):
+        # sitting: legs out in front, knees a little up, hands propped behind
+        k1["thigh." + side] = rot("thigh." + side, (XA, -72 + (12 if side == "R" else 0)), (ZA, sgn * 8))
+        k1["shin." + side] = rot("shin." + side, (XA, 20 + (40 if side == "R" else 0)))
+        k1["foot." + side] = rot("foot." + side, (XA, 12))
+        k1["upper_arm." + side] = rot("upper_arm." + side, (XA, 38), (ZA, -sgn * 22))
+        k1["forearm." + side] = rot("forearm." + side, (XA, -8))
+        # crouch: feet under the hips, arms forward for balance
+        k2["thigh." + side] = rot("thigh." + side, (XA, -100), (ZA, sgn * 12))
+        k2["shin." + side] = rot("shin." + side, (XA, 118))
+        k2["foot." + side] = rot("foot." + side, (XA, -16))
+        k2["upper_arm." + side] = rot("upper_arm." + side, (XA, -40), (ZA, -sgn * 14))
+        k2["forearm." + side] = rot("forearm." + side, (XA, -30))
+    hands(k1, 25)
+    hands(k2, 35)
+    o1 = (0, o0[1], feet_down(k1))
+    o2 = (0, o0[1] * .35, feet_down(k2))
+    k3, o3 = idle(0.0)
+    keys = ((0, k0, o0), (.3, k1, o1), (.66, k2, o2), (1, k3, o3))
+    for (ta, ka, oa), (tb, kb, ob) in zip(keys, keys[1:]):
+        if t_ <= tb:
+            u = smooth01(ta, tb, t_)
+            break
+    p = {}
+    for name in set(ka) | set(kb):
+        p[name] = ka.get(name, Quaternion()).slerp(kb.get(name, Quaternion()), u)
+    off = ground_lift(p, tuple(a + (b - a) * u for a, b in zip(oa, ob)))  # between key poses too
+    GETUP_CACHE[key] = (p, off)
+    return p, off
 
 
 def roll(t_):
@@ -2681,7 +2754,7 @@ def roll(t_):
         if spin <= a1:
             h = h0 + (h1 - h0) * (spin - a0) / (a1 - a0)
             break
-    return p, (0, 0, (h - hip_h) * tuck)
+    return p, ground_lift(p, (0, 0, (h - hip_h) * tuck))
 
 
 def drive(t_):
@@ -2711,15 +2784,18 @@ def drive(t_):
 
 
 def jump(t_):
+    """in the air: knees drawn up (the leading one higher), arms up and out for balance,
+    a slow drift so a long fall doesn't freeze"""
     s = math.sin(2 * math.pi * t_)
     p = {
-        "thigh.L": rot("thigh.L", (XA, -48 - 4 * s), (ZA, 4)), "shin.L": rot("shin.L", (XA, 62 + 4 * s)), "foot.L": rot("foot.L", (XA, 18)),
-        "thigh.R": rot("thigh.R", (XA, 14 + 3 * s), (ZA, -4)), "shin.R": rot("shin.R", (XA, 55)), "foot.R": rot("foot.R", (XA, 25)),
-        "upper_arm.L": rot("upper_arm.L", (YA, -28), (XA, 25 + 4 * s)), "upper_arm.R": rot("upper_arm.R", (YA, 28), (XA, -40 - 4 * s)),
-        "forearm.L": rot("forearm.L", (XA, -40)), "forearm.R": rot("forearm.R", (XA, -55)),
-        "spine": rot("spine", (XA, 8)), "chest": rot("chest", (XA, 4), (ZA, -6)), "head": rot("head", (XA, -8)),
+        "thigh.L": rot("thigh.L", (XA, -62 - 4 * s), (ZA, 6)), "shin.L": rot("shin.L", (XA, 78 + 4 * s)), "foot.L": rot("foot.L", (XA, 20)),
+        "thigh.R": rot("thigh.R", (XA, -28 + 3 * s), (ZA, -6)), "shin.R": rot("shin.R", (XA, 70)), "foot.R": rot("foot.R", (XA, 28)),
+        "upper_arm.L": rot("upper_arm.L", (XA, -62 - 4 * s), (ZA, -44)), "upper_arm.R": rot("upper_arm.R", (XA, -52 + 4 * s), (ZA, 46)),
+        "forearm.L": rot("forearm.L", (XA, -38), (ZA, -10)), "forearm.R": rot("forearm.R", (XA, -44), (ZA, 10)),
+        "hips": rot("hips", (XA, 6)),
+        "spine": rot("spine", (XA, 10)), "chest": rot("chest", (XA, 4)), "neck": rot("neck", (XA, -6)), "head": rot("head", (XA, -8)),
     }
-    hands(p, 35)
+    hands(p, 30)
     return p, (0, 0, 0)
 
 
@@ -3079,6 +3155,7 @@ if HERO or PREVIEW:
         make_action("PunchR", 15, punch_r, 1),
         make_action("Hit", 16, hit, 1),
         make_action("KnockDown", 42, knockdown, 1),
+        make_action("GetUp", 48, get_up, 1),
         make_action("Ride", 72, ride, 6),
         make_action("HandsUp", 60, hands_up, 6),
         make_action("Roll", 24, roll, 1),

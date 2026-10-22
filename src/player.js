@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { prepareCharacter } from './materials.js';
 
 const WALK = 1.65, RUN = 5.3, GRAVITY = 22, JUMP = 6.4, RADIUS = 0.32;
-const ONE_SHOTS = ['punchl', 'punchr', 'hit', 'knockdown', 'roll'];
+const ONE_SHOTS = ['punchl', 'punchr', 'hit', 'knockdown', 'roll', 'getup'];
 const ROLL_SPEED = 5.6;
 
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -41,7 +41,7 @@ export class Player {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull'];
+    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp'];
     // Ride / HandsUp may be missing from older exports
     const clips = Object.fromEntries(names.map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     // stride length = ground covered per gait cycle, measured from the foot motion in the clip
@@ -87,7 +87,8 @@ export class Player {
         this.weaponNodes[n] = o;
       }
     }
-    this.bones = Object.fromEntries(['spine', 'chest', 'neck', 'head'].map((n) => [n, this.model.getObjectByName(n)]));
+    this.bones = Object.fromEntries(['hips', 'spine', 'chest', 'neck', 'head'].map((n) => [n, this.model.getObjectByName(n)]));
+    this.legTwist = 0; // aiming on the move: how far the hips turn toward where he walks
     this.lookYaw = 0; // head turn toward where the camera looks
     this.camYaw = 0;
     this.weapon = null;
@@ -345,6 +346,8 @@ export class Player {
       else if (o.t >= o.dur) {
         this.overlay = null;
         if (o.name.startsWith('punch')) this.comboReset = 0.5;
+        // knocked flat (off a bike): get back up instead of popping upright
+        if (o.name === 'knockdown' && !this.dead && this.actions.getup) this.playOnce('getup');
       }
     }
     if (this.comboReset !== undefined && (this.comboReset -= dt) <= 0 && !this.overlay) {
@@ -523,7 +526,7 @@ export class Player {
     }
     // armed: legs keep their locomotion, the upper body holds / aims the gun
     const armed = this.weapon && !this.vehicle && !this.posed && !this.busted && !this.dead && this.actions[this.weapon.clip + '_hold'] &&
-      !(this.overlay && (this.overlay.name === 'hit' || this.overlay.name === 'knockdown' || this.overlay.name === 'roll'));
+      !(this.overlay && ['hit', 'knockdown', 'roll', 'getup'].includes(this.overlay.name));
     if (armed) {
       const lt = {};
       for (const [n, w] of Object.entries(tw)) lt[LOCO.includes(n) && this.actions[n + '_lo'] ? n + '_lo' : n] = w;
@@ -535,14 +538,28 @@ export class Player {
       this.weights[n] += ((tw[n] || 0) - this.weights[n]) * k;
       this.actions[n].setEffectiveWeight(this.weights[n]);
     }
+    // aiming on the move (strafing, backing off): the legs walk the way he goes, turning the
+    // hips up to ~60 degrees off the aim, and the gait runs backwards when he backs away;
+    // the spine turns the chest back onto the aim (see below)
+    let twist = 0, backward = false;
+    if (this.aiming && this.grounded && !this.vehicle && !this.overlay && s > 0.3) {
+      let rel = wrap(Math.atan2(this.vel.x, this.vel.z) - this.yaw);
+      if (Math.abs(rel) > Math.PI * 0.6) {
+        backward = true;
+        rel = wrap(rel - Math.PI);
+      }
+      twist = THREE.MathUtils.clamp(rel, -1.05, 1.05);
+    }
+    this.legTwist += (twist - this.legTwist) * (1 - Math.exp(-10 * dt));
     // walk and run share one gait phase so blending never crosses feet
     if (this.grounded && !this.vehicle) {
       const runShare = this.weights.run / Math.max(1e-3, this.weights.walk + this.weights.run);
       const stride = THREE.MathUtils.lerp(this.walkStride, this.runStride, runShare);
       const before = this.phase;
-      this.phase = (this.phase + (dt * s) / stride) % 1;
+      this.phase = (this.phase + ((backward ? -1 : 1) * dt * s) / stride + 1) % 1;
       // a foot lands twice per gait cycle
-      if (s > 0.6 && !this.overlay && (this.phase < before || (before < 0.5 && this.phase >= 0.5))) this.onStep?.(s > WALK * 1.5);
+      const crossed = backward ? this.phase > before || (before >= 0.5 && this.phase < 0.5) : this.phase < before || (before < 0.5 && this.phase >= 0.5);
+      if (s > 0.6 && !this.overlay && crossed) this.onStep?.(s > WALK * 1.5);
     }
     this.actions.walk.time = this.phase * this.durations.walk;
     this.actions.run.time = this.phase * this.durations.run;
@@ -557,17 +574,31 @@ export class Player {
       this.aimSaved = null;
     }
     this.mixer.update(dt);
+    // hips toward the walking direction, spine and chest back onto the aim
+    if (Math.abs(this.legTwist) > 1e-3 && this.bones.hips) {
+      this.model.updateMatrixWorld(true);
+      this.aimSaved = this.aimSaved || [];
+      for (const [n, f] of [['hips', 1], ['spine', -0.55], ['chest', -0.45]]) {
+        const b = this.bones[n];
+        if (!b) continue;
+        if (!this.aimSaved.some(([o]) => o === b)) this.aimSaved.push([b, b.quaternion.clone()]);
+        b.parent.getWorldQuaternion(_q2);
+        _q3.setFromAxisAngle(_v2.set(0, 1, 0), this.legTwist * f);
+        b.quaternion.premultiply(_q2.clone().invert().multiply(_q3).multiply(_q2));
+        b.updateMatrixWorld(true);
+      }
+    }
     // vertical aim + recoil: pitch the spine about the character's right axis
     this.recoilKick *= Math.exp(-12 * dt);
     const ang = (armed && this.aiming ? this.aimPitch : 0) - this.recoilKick;
     if (armed && Math.abs(ang) > 1e-3) {
       this.model.updateMatrixWorld(true);
       const axis = _v1.set(1, 0, 0).applyQuaternion(this.object.getWorldQuaternion(_q1));
-      this.aimSaved = [];
+      this.aimSaved = this.aimSaved || [];
       for (const [n, f] of [['spine', 0.3], ['chest', 0.5], ['neck', 0.2]]) {
         const b = this.bones[n];
         if (!b) continue;
-        this.aimSaved.push([b, b.quaternion.clone()]);
+        if (!this.aimSaved.some(([o]) => o === b)) this.aimSaved.push([b, b.quaternion.clone()]);
         b.parent.getWorldQuaternion(_q2);
         _q3.setFromAxisAngle(axis, ang * f);
         // world rotation -> the bone's parent space

@@ -33,7 +33,7 @@ class AnimSet {
     this.weights = {};
     for (const [name, clip] of Object.entries(clips)) {
       const a = this.mixer.clipAction(clip);
-      if (['punchl', 'punchr', 'hit', 'knockdown'].includes(name)) {
+      if (['punchl', 'punchr', 'hit', 'knockdown', 'getup'].includes(name)) {
         a.setLoop(THREE.LoopOnce, 1);
         a.clampWhenFinished = true;
       } else a.time = Math.random() * clip.duration;
@@ -73,7 +73,7 @@ export class Peds {
     this.spawnTimer = 0;
     this.onCash = null;
     const clip = (n) => heroGltf.animations.find((a) => a.name === n);
-    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
+    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     this.modelClips = {
       male: retargetClips(this.clips, heroGltf.scene, models.male.scene),
       female: retargetClips(this.clips, heroGltf.scene, models.female.scene),
@@ -513,6 +513,7 @@ export class Peds {
     p.state = 'down';
     p.timer = 0;
     p.overlay = null;
+    p.rising = false;
     p.anim.once('knockdown');
     p.vel.set(vx, 0, vz);
     p.cashPending = dropCash || Math.random() < 0.5;
@@ -825,9 +826,16 @@ export class Peds {
 
   updateDown(p, dt) {
     p.timer += dt;
-    // a dragged-out driver picks himself up and runs
+    // a dragged-out driver picks himself up (the GetUp clip) and runs
+    if (p.getUpAt && p.timer > p.getUpAt && !p.rising && p.anim.actions.getup) {
+      p.rising = true;
+      p.overlay = { name: 'getup', t: 0, dur: p.anim.once('getup') };
+      p.vel.set(0, 0, 0);
+    }
+    if (p.rising && p.overlay) return;
     if (p.getUpAt && p.timer > p.getUpAt) {
       p.getUpAt = 0;
+      p.rising = false;
       p.state = 'flee';
       p.timer = 6;
       if (!p.fleeFrom) p.fleeFrom = { x: p.x, z: p.z };
@@ -850,10 +858,10 @@ export class Peds {
 
   animate(p, dt, dist) {
     const a = p.anim;
-    if (p.state === 'down') a.target = { knockdown: 1 };
-    else if (p.overlay) a.target = { [p.overlay.name]: 1 };
+    if (p.overlay) a.target = { [p.overlay.name]: 1 };
+    else if (p.state === 'down') a.target = { knockdown: 1 };
     else if (p.state === 'flee') a.target = { run: 1 };
-    else if (p.state === 'fight') a.target = p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
+    else if (p.state === 'fight') a.target = p.cur > 2.1 ? { run: 1 } : p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
     else if ((p.state === 'cop' || p.state === 'contact') && p.aimingGun && a.actions.pistolaim) a.target = { pistolaim: 1 };
     else if (p.state === 'cop') a.target = p.cur > 2.4 ? { run: 1 } : p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
     else if (p.state === 'riding') a.target = { drive: 1 };
