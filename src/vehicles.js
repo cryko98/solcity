@@ -532,7 +532,7 @@ export class Vehicles {
 
   // a traffic car that becomes an active vehicle straight away
   spawn(data) {
-    const c = { ...data, model: this.models[data.model] ? data.model : 'sedan', id: this.cars.length, vehicle: null };
+    const c = { ...data, model: this.models[data.model] ? data.model : 'sedan', id: this.cars.length, vehicle: null, spawned: true };
     this.cars.push(c);
     this.activate(c);
     return c;
@@ -566,6 +566,19 @@ export class Vehicles {
   }
 
   update(dt, driven, ctl, night, cam) {
+    // cars that were left lying about (abandoned traffic, wrecks) go once nobody can see them,
+    // so the fleet does not grow for ever and nothing blocks a lane for good
+    if ((this.sweepTimer = (this.sweepTimer || 0) - dt) <= 0) {
+      this.sweepTimer = 3;
+      for (const c of [...this.cars]) {
+        if (!c.spawned || c.vehicle || c.owned) continue;
+        if ((c.x - cam.x) ** 2 + (c.z - cam.z) ** 2 < 190 * 190) continue;
+        const b = this.batches[c.model];
+        if (b) b.list.splice(b.list.indexOf(c), 1);
+        this.cars.splice(this.cars.indexOf(c), 1);
+        this.dirty = true;
+      }
+    }
     if ((this.refreshTimer -= dt) <= 0 || this.dirty) {
       this.refreshTimer = 0.5;
       this.refreshInstances(cam);
@@ -574,6 +587,7 @@ export class Vehicles {
     this.resolvePairs();
     for (const c of [...this.active]) {
       const v = c.vehicle;
+      if (!v) continue; // removed earlier in this loop (an explosion next to it, a despawn)
       v.impact *= Math.exp(-6 * dt);
       if (c.explodeNow) this.explode(c);
       if (v.crashAt) {
@@ -581,7 +595,7 @@ export class Vehicles {
         v.crashAt = null;
       }
       // damaged cars stay simulated so they keep smoking / burning
-      const busy = c.burning || c.smolder > 0 || c.health < 65 || v.doorOpen > 0.01 || c.entering;
+      const busy = c.burning || c.smolder > 0 || c.health < 65 || v.doorOpen > 0.01 || c.entering || c.roadblock;
       if (c !== driven && !c.ai && !busy && v.speed < 0.05 && Math.abs(v.angVel) < 0.02) {
         if ((v.restTime += dt) > 2) this.deactivate(c);
       } else v.restTime = 0;
@@ -611,12 +625,18 @@ export class Vehicles {
     for (const c of this.active) {
       const v = c.vehicle, s = v.spec;
       const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
-      if (d2 > 110 * 110) continue;
+      if (d2 > 110 * 110) {
+        // out of sight the fire still burns down
+        if (c.burning && (c.health -= dt * 2.4) <= 0) c.explodeNow = true;
+        else if (c.wrecked) c.smolder -= dt;
+        continue;
+      }
       const fxh = Math.sin(v.heading), fzh = Math.cos(v.heading);
       const rx = -fzh, rz = fxh;
       // engine bay (front of the car; bikes: under the tank)
       const ex = v.pos.x + fxh * (s.bike ? 0.1 : s.halfL - 0.75), ez = v.pos.z + fzh * (s.bike ? 0.1 : s.halfL - 0.75);
-      const ey = v.hopY + (s.bike ? 0.7 : 0.95);
+      const gy = v.groundY || 0;
+      const ey = gy + v.hopY + (s.bike ? 0.7 : 0.95);
       if (c.burning) {
         c.health -= dt * 2.4;
         if (c.health <= 0) c.explodeNow = true;
@@ -626,9 +646,9 @@ export class Vehicles {
       } else if (c.wrecked) {
         if ((c.smolder -= dt) > 0) {
           const k = c.smolder / 30;
-          if (c.smolder > 18) for (v.fireAcc += dt * 26 * k; v.fireAcc > 1; v.fireAcc--) fx.flames(v.pos.x + (Math.random() - 0.5) * 2, 0.7, v.pos.z + (Math.random() - 0.5) * 2, 0.9);
-          if (c.smolder > 18) fx.burning(v.pos.x, 0.8, v.pos.z, k);
-          for (v.smokeAcc += dt * 10 * k; v.smokeAcc > 1; v.smokeAcc--) fx.engineSmoke(v.pos.x, 1.2, v.pos.z, 1);
+          if (c.smolder > 18) for (v.fireAcc += dt * 26 * k; v.fireAcc > 1; v.fireAcc--) fx.flames(v.pos.x + (Math.random() - 0.5) * 2, gy + 0.7, v.pos.z + (Math.random() - 0.5) * 2, 0.9);
+          if (c.smolder > 18) fx.burning(v.pos.x, gy + 0.8, v.pos.z, k);
+          for (v.smokeAcc += dt * 10 * k; v.smokeAcc > 1; v.smokeAcc--) fx.engineSmoke(v.pos.x, gy + 1.2, v.pos.z, 1);
         }
       } else if (c.health < 65) {
         const dark = THREE.MathUtils.clamp((40 - c.health) / 25, 0, 1);

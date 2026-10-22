@@ -40,7 +40,7 @@ export function buildCity(scene) {
   const blockMin = (i) => -HALF + ROAD + i * PITCH;
   const PARKS = new Set(['4,3', '1,6']);
 
-  const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [] };
+  const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [], benches: [] };
 
   // ------------------------------------------------------------- materials
   const buckets = new Map();
@@ -611,6 +611,9 @@ export function buildCity(scene) {
       solid(woodMat, back[0], CURB + 0.5, back[1], back[2], 0.45, back[3]);
       solid(metalMat, bx, CURB, bz, sx * 0.9, 0.42, sz * 0.9);
       box(bx - sx / 2, bx + sx / 2, bz - sz / 2, bz + sz / 2, CURB + 0.95);
+      // where people sit: facing into the park, two places along the bench
+      const fx = rot ? Math.sign(cx - bx) : 0, fz = rot ? 0 : Math.sign(cz - bz);
+      city.benches.push({ x: bx - fx * 0.05, z: bz - fz * 0.05, yaw: Math.atan2(fx, fz), ax: rot ? 0 : 1, az: rot ? 1 : 0, y: CURB + 0.46, used: 0 });
     }
   };
 
@@ -1088,6 +1091,12 @@ export function buildCity(scene) {
       mesh.castShadow = mesh.receiveShadow = true;
       scene.add(mesh);
     }
+  }
+
+  // the gun shop booth (src/shop.js) on the pavement of block (4, 4)
+  {
+    const sx = blockMin(4) + 21, sz = blockMin(4) + 2.9;
+    box(sx - 1.75, sx + 1.75, sz - 1.05, sz + 1.1, 3);
   }
 
   // ------------------------------------------------------------- spatial queries

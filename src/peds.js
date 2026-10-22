@@ -123,6 +123,92 @@ export class Peds {
     return { x: sx < 0 ? x0 + w : x0 + BLOCK - w, z: sz < 0 ? z0 + w : z0 + BLOCK - w };
   }
 
+  // ------------------------------------------------------------- street life
+  // a few people stop for a while: two friends chatting on the pavement, someone sitting on
+  // a park bench (talking and listening in turns), then they walk on
+  spawnLife(focus) {
+    const busy = this.list.filter((p) => p.life).length;
+    if (busy >= 6) return;
+    const near = (x, z) => {
+      const d = Math.hypot(x - focus.x, z - focus.z);
+      return d > 22 && d < 85;
+    };
+    if (Math.random() < 0.5) {
+      const free = this.city.benches.filter((b) => b.used < 2 && near(b.x, b.z));
+      if (!free.length) return;
+      const b = free[Math.floor(Math.random() * free.length)];
+      const n = b.used === 0 && Math.random() < 0.6 ? 2 : 1;
+      const group = [];
+      for (let k = 0; k < n && b.used < 2; k++) {
+        const slot = b.used++ ? 0.5 : -0.5;
+        const p = this.add(Math.random() < 0.5 ? 'female' : 'male', b.x + b.ax * slot, b.z + b.az * slot, b.yaw);
+        const hips = p.body.getObjectByName('hips').position.y * p.scale;
+        p.y = b.y + 0.1 - hips;
+        p.state = 'seated';
+        p.life = { t: 0, until: 35 + Math.random() * 50, bench: b, sit: true, turn: 2 + Math.random() * 3, group };
+        group.push(p);
+      }
+      group.forEach((p, i) => (p.pose = this.lifePose(p, i === 0)));
+      return;
+    }
+    // two people meet on the pavement
+    const { N } = this.city;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const bi = Math.floor(Math.random() * N), bj = Math.floor(Math.random() * N);
+      const k = Math.floor(Math.random() * 4);
+      const a = this.cornerPoint(bi, bj, k, 2.4), c = this.cornerPoint(bi, bj, (k + 1) % 4, 2.4);
+      const t = 0.2 + Math.random() * 0.6;
+      const x = a.x + (c.x - a.x) * t, z = a.z + (c.z - a.z) * t;
+      if (!near(x, z)) continue;
+      const ux = (c.x - a.x) / Math.hypot(c.x - a.x, c.z - a.z), uz = (c.z - a.z) / Math.hypot(c.x - a.x, c.z - a.z);
+      const group = [];
+      for (const s of [-1, 1]) {
+        const p = this.add(Math.random() < 0.5 ? 'female' : 'male', x + ux * 0.55 * s, z + uz * 0.55 * s, Math.atan2(-ux * s, -uz * s));
+        p.state = 'talking';
+        p.life = { t: 0, until: 20 + Math.random() * 35, turn: 2 + Math.random() * 3, group };
+        group.push(p);
+      }
+      group.forEach((p, i) => (p.pose = this.lifePose(p, i === 0)));
+      return;
+    }
+  }
+
+  lifePose(p, talking) {
+    const n = (p.state === 'seated' ? 'sit' : 'stand') + (talking ? 'talk' : 'listen');
+    return p.anim.actions[n] ? n : p.state === 'seated' ? 'drive' : 'idle';
+  }
+
+  updateLife(p, dt) {
+    const L = p.life;
+    L.t += dt;
+    // take turns talking (the first one still there keeps the time)
+    const members = L.group.filter((q) => q.life);
+    if (members[0] === p && (L.turn -= dt) <= 0) {
+      L.turn = 2.5 + Math.random() * 4;
+      if (members.length < 2) p.pose = this.lifePose(p, Math.random() < 0.25);
+      else {
+        const k = Math.floor(Math.random() * members.length);
+        members.forEach((q, i) => (q.pose = this.lifePose(q, i === k)));
+      }
+    }
+    if (L.t > L.until) this.endLife(p);
+  }
+
+  endLife(p) {
+    const L = p.life;
+    if (!L) return;
+    p.life = null;
+    if (L.bench) L.bench.used = Math.max(0, L.bench.used - 1);
+    p.pose = null;
+    p.y = this.city.groundHeight(p.x, p.z);
+    if (L.sit) {
+      // stand up a step in front of the bench
+      p.x += Math.sin(p.yaw) * 0.5;
+      p.z += Math.cos(p.yaw) * 0.5;
+    }
+    if (p.state === 'seated' || p.state === 'talking') this.rejoin(p);
+  }
+
   spawn(focus) {
     const { N } = this.city;
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -397,6 +483,7 @@ export class Peds {
   }
 
   takeHit(p, from) {
+    if (p.life) this.endLife(p); // off the bench / out of the chat
     p.hits++;
     this.onCrime?.(p.hits >= KO_HITS ? (p.cop ? 'ko_cop' : 'ko') : p.cop ? 'assault_cop' : 'assault', p);
     const dx = p.x - from.x, dz = p.z - from.z, d = Math.hypot(dx, dz) || 1;
@@ -418,6 +505,7 @@ export class Peds {
   }
 
   knockOut(p, vx, vz, dropCash) {
+    if (p.life) this.endLife(p);
     p.state = 'down';
     p.timer = 0;
     p.overlay = null;
@@ -432,6 +520,7 @@ export class Peds {
       if (o === except || o.state === 'down' || o.state === 'fight' || o.state === 'riding' || o.state === 'cop') continue;
       if (o.keep && o.state !== 'fare') continue;
       if (Math.hypot(o.x - x, o.z - z) > radius) continue;
+      if (o.life) this.endLife(o);
       o.state = 'flee';
       o.timer = 5 + Math.random() * 3;
       o.fleeFrom = { x, z };
@@ -460,6 +549,10 @@ export class Peds {
   // ------------------------------------------------------------- update
   update(dt, focus, player) {
     const onFoot = player && !player.vehicle && !player.dead ? player : null;
+    if ((this.lifeTimer = (this.lifeTimer ?? 2) - dt) <= 0) {
+      this.lifeTimer = 3 + Math.random() * 3;
+      this.spawnLife(focus);
+    }
     if ((this.spawnTimer -= dt) <= 0 && this.list.filter((p) => !p.keep).length < MAX_PEDS) {
       this.spawnTimer = 0.25;
       this.spawn(focus);
@@ -471,6 +564,7 @@ export class Peds {
         continue;
       }
       if (!p.keep && (dist > (p.state === 'cop' ? 260 : DESPAWN) || (p.state === 'down' && p.timer > 40))) {
+        this.endLife(p);
         this.scene.remove(p.body);
         this.list.splice(this.list.indexOf(p), 1);
         continue;
@@ -484,7 +578,10 @@ export class Peds {
       else if (p.state === 'cop') this.updateCop(p, dt, player);
       else if (p.state === 'flee') this.updateFlee(p, dt);
       else if (p.state === 'fare' || p.state === 'contact') this.move(p, 0, p.yaw, dt);
-      else if (p.state === 'seated' || p.state === 'talking') p.cur = 0;
+      else if (p.state === 'seated' || p.state === 'talking') {
+        p.cur = 0;
+        if (p.life) this.updateLife(p, dt);
+      }
       else if (p.state === 'board') this.updateBoard(p, dt);
       else this.updateWalk(p, dt, onFoot);
       if (p.state === 'riding') continue;

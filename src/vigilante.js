@@ -50,7 +50,6 @@ export class Vigilante {
   }
 
   next() {
-    this.level++;
     const v = this.vehicle;
     const { N } = this.city;
     for (let tries = 0; tries < 30; tries++) {
@@ -62,6 +61,7 @@ export class Vigilante {
         const [x, z] = this.vehicles.pose(c);
         return Math.abs(x - p.x) < 8 && Math.abs(z - p.z) < 8;
       })) continue;
+      this.level++; // only once there is a suspect to chase
       const model = MODELS[Math.min(MODELS.length - 1, Math.floor(Math.random() * (2 + this.level)))];
       this.suspect = this.vehicles.spawn({
         x: p.x, z: p.z, yaw: Math.atan2(p.x - v.pos.x, p.z - v.pos.z), color: colorFor(model, 0x8a8f96), model,

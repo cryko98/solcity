@@ -129,6 +129,7 @@ export class Stunts {
       v.pitch = THREE.MathUtils.clamp(-Math.atan2(v.hopV, Math.max(4, v.speed)) * 0.8, -0.5, 0.5);
       if (v.hopY <= 0.01 && f.t > 0.15) {
         this.air.delete(v);
+        if (!v.driven) continue;
         const dist = Math.hypot(v.pos.x - f.x, v.pos.z - f.z) + LEN;
         if (f.t < 0.6 || v.data.wrecked) continue;
         const unique = !f.r.done;

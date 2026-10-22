@@ -8,6 +8,7 @@ const LANE = 1.75, CRUISE = 11, TURN_SPEED = 5, MAX_CARS = 12;
 const SPAWN_MIN = 60, SPAWN_MAX = 150, DESPAWN = 190;
 const COLORS = [0xb3202a, 0x1f4fa8, 0xe8e8e8, 0x1b1b1d, 0x8a8f96, 0xd9a21b, 0x2e6b3c, 0x5b2a86, 0xd8622a, 0x6fb7d9, 0xf0f0f0, 0x303a48];
 
+const vfOf = (v) => Math.abs(v.vf);
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // traffic mix
 const pickModel = () => {
@@ -164,10 +165,24 @@ export class Traffic {
       const ahead = dx * fx + dz * fz, lat = dx * rx + dz * rz;
       if (ahead > 0 && ahead < 24 && Math.abs(lat) < width) target = Math.min(target, Math.max(0, (ahead - keep) * 0.8));
     };
+    let blocker = null;
     for (const o of this.vehicles.cars) {
-      if (o === c) continue;
+      if (o === c || o === ai.dodging) continue;
       const [x, z] = this.vehicles.pose(o);
-      if (Math.abs(x - v.pos.x) < 26 && Math.abs(z - v.pos.z) < 26) gap(x, z, 2.0, 5.5);
+      if (Math.abs(x - v.pos.x) < 26 && Math.abs(z - v.pos.z) < 26) {
+        const before = target;
+        gap(x, z, 2.0, 5.5);
+        // a car standing in the lane with nobody driving it (abandoned, wrecked, parked badly)
+        if (target < before && !o.ai && !(o.vehicle?.speed > 0.5)) blocker = o;
+      }
+    }
+    // wait a moment behind it, then pull out and go round
+    ai.blockT = blocker && vfOf(v) < 1 ? (ai.blockT || 0) + dt : 0;
+    if (blocker && ai.blockT > 2.5) ai.dodging = blocker;
+    if (ai.dodging) {
+      const [x, z] = this.vehicles.pose(ai.dodging);
+      const ahead = (x - v.pos.x) * fx + (z - v.pos.z) * fz;
+      if (ahead < -4 || ahead > 30 || !this.vehicles.cars.includes(ai.dodging)) ai.dodging = null;
     }
     for (const p of people) gap(p.x, p.z, 1.6, 3.5);
 
@@ -182,7 +197,9 @@ export class Traffic {
     if (pull > 0) target = Math.min(target, 3.5);
     // pure-pursuit steering toward the next lane point
     const p0 = ai.points[0];
-    const p = pull > 0 && !p0.turn ? { x: p0.x + rx * 1.7 * pull, z: p0.z + rz * 1.7 * pull } : p0;
+    const p = ai.dodging && !p0.turn ? { x: p0.x - rx * 3.6, z: p0.z - rz * 3.6 }
+      : pull > 0 && !p0.turn ? { x: p0.x + rx * 1.7 * pull, z: p0.z + rz * 1.7 * pull } : p0;
+    if (ai.dodging) target = Math.min(target, 6);
     const desired = Math.atan2(p.x - v.pos.x, p.z - v.pos.z);
     const diff = wrap(desired - v.heading);
     const vf = v.vf;

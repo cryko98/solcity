@@ -52,7 +52,14 @@ Crimes raise heat (stars): punching or knocking someone out, running people over
 carjacking need a witness; anything done to an officer always counts. Patrol cars (one per
 star, max 4) chase you across the road grid with sirens, officers get out and run after you
 on foot. Stay out of every officer's sight until the stars stop blinking and the search ends;
-if officers hold you still, you're BUSTED (fine + respawn). Code: `src/police.js`.
+if officers hold you still, you're BUSTED (fine + respawn). From four stars, two patrol cars
+block the road ahead of you with armed officers behind them. Code: `src/police.js`.
+
+## Hidden packages
+
+Twenty taped-up parcels are hidden around Sol City: along building walls, on the beaches, up
+the slope under the SOL CITY sign and in a park. Each pays $100, every fifth a $500 bonus,
+all twenty $5000. Progress is shown on the big map (M). Code: `src/packages.js`.
 
 ## Weapons
 
@@ -142,6 +149,8 @@ Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove gene
 - AI traffic drives in the right-hand lanes, turns at random at intersections, stops at red lights and for people, keeps its distance from the car ahead and pulls over for sirens (`src/traffic.js`). You can take any traffic car with F.
 - Pedestrians walk around the blocks, cross at the zebra crossings when the lights allow, and get knocked down by cars (`src/peds.js`). They steer around whatever is in their way (you, other people, cars, lamp posts) instead of stopping and queueing behind it.
 - Every pedestrian wears one of several real outfits (shirt and jeans, jacket, tee, suit; tee and shorts, blouse and skirt, sports top and leggings) with matching shoes, and gets their own skin and hair colour.
+- Street life: friends stop for a chat on the pavement and people sit on the park benches, taking turns talking, then walk on (or run off when something happens).
+- Traffic waits behind a car left standing in its lane, then pulls out and drives round it.
 - Both are spawned around the player and removed when far away.
 
 ## Trailer

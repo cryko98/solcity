@@ -208,10 +208,26 @@ export class TaxiMissions {
       }
     } else if (this.state === 'board') {
       this.showMarkers(null, false);
-      // drove off before they got in: they wait again
-      if (!at(this.fare, 14)) {
+      this.boardT = (this.boardT || 0) + dt;
+      if (this.fare.state !== 'board') {
+        // knocked down, scared off: find someone else
+        if (this.fare.state !== 'riding') {
+          this.fare.keep = false;
+          this.fare = null;
+          this.boardT = 0;
+          this.state = 'seek';
+        }
+      } else if (!at(this.fare, 14)) {
+        // drove off before they got in: they wait again
         this.fare.state = 'fare';
+        this.boardT = 0;
         this.state = 'seek';
+      } else if (this.boardT > 8) {
+        // something is in the way of the door: in they get anyway
+        this.boardT = 0;
+        const cb = this.fare.onBoarded;
+        this.peds.seatIn(this.fare, v);
+        cb?.();
       }
     } else if (this.state === 'ride') {
       this.timeLeft -= dt;

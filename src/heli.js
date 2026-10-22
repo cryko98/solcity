@@ -130,8 +130,9 @@ export class PoliceHeli {
       this.vel.z *= Math.exp(-0.5 * dt);
       for (let i = 0; i < 2; i++) this.fx.engineSmoke(this.pos.x, this.pos.y + 1.8, this.pos.z, 1);
       this.fx.flames(this.pos.x, this.pos.y + 1.5, this.pos.z, 1);
-      if (this.pos.y <= 0.5) {
-        this.pos.y = 0;
+      const floor = this.city.groundHeight(this.pos.x, this.pos.z);
+      if (this.pos.y <= floor + 0.5) {
+        this.pos.y = floor;
         this.fx.explosion(this.pos, 1.4);
         this.onDown?.(this.pos.clone());
         this.state = 'off';
@@ -148,6 +149,8 @@ export class PoliceHeli {
         this.orbitA += dt * 0.22;
         want = _v.set(target.x + Math.cos(this.orbitA) * ORBIT, ALT, target.z + Math.sin(this.orbitA) * ORBIT);
       }
+      // stay clear of the hill under it
+      want.y += Math.max(this.city.groundHeight(want.x, want.z), this.city.groundHeight(this.pos.x, this.pos.z));
       const to = want.clone().sub(this.pos);
       const desired = to.clone().clampLength(0, MAX_SPEED).multiplyScalar(Math.min(1, to.length() / 25) || 0);
       this.vel.lerp(desired, 1 - Math.exp(-0.9 * dt));

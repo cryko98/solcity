@@ -23,6 +23,7 @@ import { PaySpray } from './spray.js';
 import { Races } from './races.js';
 import { Radio } from './radio.js';
 import { Stunts } from './stunts.js';
+import { Packages } from './packages.js';
 import { PoliceHeli } from './heli.js';
 import { GunShop } from './shop.js';
 import { Vigilante } from './vigilante.js';
@@ -111,6 +112,7 @@ let heli = null;
 let shop = null;
 let vigilante = null;
 let story = null;
+let packages = null;
 let entry = null;
 let savedStory = null;
 const stats = { km: 0, wrecks: 0, uniqueJumps: 0, races: 0, fares: 0, suspects: 0, maxWanted: 0 };
@@ -173,6 +175,9 @@ Promise.all([
     spray = new PaySpray({ city, hud, audio, wanted });
     races = new Races({ scene, city, hud, audio });
     stunts = new Stunts({ scene, city, hud, audio });
+    packages = new Packages({ scene, city, hud, audio, stunts });
+    packages.onFound = (n) => (stats.packages = n);
+    stats.packages = packages.count;
     shop = new GunShop({ scene, city, hud, audio, weapons, player });
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
@@ -225,7 +230,14 @@ Promise.all([
     hud.setArmor(0);
     loadGame();
     setInterval(saveGame, 10000);
-    addEventListener('visibilitychange', () => document.hidden && saveGame());
+    addEventListener('visibilitychange', () => {
+      if (document.hidden) saveGame();
+      // nothing is updated in the background: don't leave engine, siren or radio droning on
+      if (document.hidden) {
+        audio.ctx?.suspend?.();
+        radio.track?.pause();
+      } else audio.ctx?.resume?.();
+    });
     addEventListener('pagehide', saveGame);
     vehicles.onExplode = explosion;
     vehicles.onFire = (c) => {
@@ -240,7 +252,7 @@ Promise.all([
     };
     vehicles.onCrash = (x, z, speed) => {
       if (Math.hypot(x - camera.position.x, z - camera.position.z) > 60) return;
-      fx.sparks({ x, y: 0.55, z }, speed > 9 ? 12 : 5);
+      fx.sparks({ x, y: city.groundHeight(x, z) + 0.55, z }, speed > 9 ? 12 : 5);
       if (crashCooldown <= 0) {
         crashCooldown = 0.2;
         audio.crash(speed * Math.max(0.2, 1 - Math.hypot(x - camera.position.x, z - camera.position.z) / 60));
@@ -313,7 +325,7 @@ Promise.all([
     overlay.classList.add('ready');
     window.__game = {
       player, city, follow, camera, renderer, scene, input: mainInput, story: () => story, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
-      env, fx, spray: () => spray, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, hud, radio,
+      env, fx, spray: () => spray, packages: () => packages, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, hud, radio,
       state: () => ({ driving }),
       step,
       render: () => composer.render(),
@@ -505,6 +517,7 @@ function loadGame() {
   savedStory = s.story;
   story?.load(s.story);
   stats.uniqueJumps = stunts.doneCount;
+  stats.packages = packages.count;
   hud.say('Welcome back to <em>Sol City</em>.', 3);
 }
 
@@ -598,6 +611,7 @@ let cinematic = null; // trailer mode: (camera) => void, overrides the follow ca
 // a step (until the player picks a quality with P)
 let perfT = 0, perfN = 0, perfWarm = 0;
 function measure(raw) {
+  if (raw > 0.25) return void (perfWarm = perfT = perfN = 0); // tab was in the background
   if (!player || !overlay.classList.contains('hidden') || document.hidden || story?.cutscene) return void (perfWarm = 0);
   if ((perfWarm += raw) < 6) return; // let shaders and textures settle first
   perfT += raw;
@@ -679,6 +693,7 @@ function step(dt) {
     vehicles.wet = env.wet;
     vehicles.update(dt, driving, ctl, night, camera.position);
     stunts.update(dt, vehicles, driving?.vehicle ? driving : null);
+    packages.update(dt, driving ? driving.vehicle.pos : player.position);
     crashCooldown -= dt;
     if (driving) stats.km += (driving.vehicle.speed * dt) / 1000;
     stats.maxWanted = Math.max(stats.maxWanted, wanted.level);
@@ -746,10 +761,9 @@ function step(dt) {
     }
     if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.label !== 'J' && b.label !== 'G' && !b.story), ...stunts.blips(), shop.blip(), ...story.blips.map((b) => ({ ...b, story: true }))];
     hud.setWanted(wanted.level, wanted.flashing, elapsed);
-    audio.siren(police.nearestSiren(focusPos));
+    audio.siren(Math.min(police.nearestSiren(focusPos), ...(traffic.sirens || []).map((v) => Math.hypot(v.pos.x - focusPos.x, v.pos.z - focusPos.z))));
     let near = null, nd = 90;
-    for (const u of police.units) {
-      const v = u.c.vehicle;
+    for (const v of traffic.sirens || []) {
       const d = v && v.siren ? Math.hypot(v.pos.x - focusPos.x, v.pos.z - focusPos.z) : Infinity;
       if (d < nd) [near, nd] = [v, d];
     }

@@ -70,6 +70,72 @@ export class Police {
     this.spawnTimer = 0;
     this.bust = 0;
     this.seen = false;
+    this.blocks = [];
+    this.blockTimer = 6;
+  }
+
+  // ---------------------------------------------------------------- roadblocks (4+ stars)
+  // two patrol cars parked across the road some 70 m ahead of a speeding player, sirens on,
+  // an officer behind each
+  spawnRoadblock(pv) {
+    const { N, HALF } = this.city;
+    const alongX = Math.abs(pv.vel.x) > Math.abs(pv.vel.z);
+    const s = Math.sign(alongX ? pv.vel.x : pv.vel.z) || 1;
+    const nearest = (v) => {
+      let best = 0, bd = Infinity;
+      for (let i = 0; i <= N; i++) {
+        const d = Math.abs(this.city.roadC(i) - v);
+        if (d < bd) [best, bd] = [i, d];
+      }
+      return [this.city.roadC(best), bd];
+    };
+    const [lane, off] = nearest(alongX ? pv.pos.z : pv.pos.x);
+    if (off > 5) return false; // not on a road (crossing a park, the beach)
+    let a = (alongX ? pv.pos.x : pv.pos.z) + s * 70;
+    // never in the middle of an intersection
+    const [cross, dc] = nearest(a);
+    if (dc < 14) a = cross + s * 16;
+    if (Math.abs(a) > HALF - 12) return false;
+    const spots = [-3.4, 3.4].map((o, k) => {
+      const x = alongX ? a + (k ? 1.2 : -1.2) * s : lane + o, z = alongX ? lane + o : a + (k ? 1.2 : -1.2) * s;
+      // across the road, angled into a V
+      const yaw = (alongX ? 0 : Math.PI / 2) + (k ? 0.35 : -0.35);
+      return { x, z, yaw };
+    });
+    if (this.vehicles.cars.some((c) => {
+      const [cx, cz] = this.vehicles.pose(c);
+      return spots.some((p) => Math.hypot(cx - p.x, cz - p.z) < 6);
+    })) return false;
+    const cars = spots.map((p) => {
+      const c = this.vehicles.spawn({ x: p.x, z: p.z, yaw: p.yaw, color: 0x111214, model: 'police', ai: null });
+      c.roadblock = true;
+      c.vehicle.siren = true;
+      return c;
+    });
+    // officers behind the cars, facing the oncoming player
+    for (const [k, p] of spots.entries()) {
+      const bx = alongX ? p.x + s * 3 : p.x + (k ? 1.5 : -1.5), bz = alongX ? p.z + (k ? 1.5 : -1.5) : p.z + s * 3;
+      const cop = this.peds.spawnCop(bx, bz, alongX ? (s > 0 ? -Math.PI / 2 : Math.PI / 2) : (s > 0 ? Math.PI : 0));
+      cop.armed = true;
+    }
+    this.blocks.push({ cars, x: spots[0].x, z: spots[0].z, life: 0 });
+    return true;
+  }
+
+  updateRoadblocks(dt, wanted, pv, target) {
+    if (wanted.level >= 4 && pv && pv.speed > 8 && this.blocks.length < 2 && (this.blockTimer -= dt) <= 0) {
+      this.blockTimer = this.spawnRoadblock(pv) ? 20 : 2;
+    }
+    for (const b of [...this.blocks]) {
+      b.life += dt;
+      const d = Math.hypot(b.x - target.x, b.z - target.z);
+      if (d < 160 && b.life < 120 && (wanted.level || d < 60)) continue;
+      for (const c of b.cars) {
+        if (c.vehicle && !c.vehicle.driven && !c.wrecked && !c.burning) this.vehicles.remove(c);
+        else c.roadblock = false;
+      }
+      this.blocks.splice(this.blocks.indexOf(b), 1);
+    }
   }
 
   // ---------------------------------------------------------------- spawning
@@ -101,6 +167,8 @@ export class Police {
     for (const p of this.peds.cops) p.armed = false;
     for (const u of this.units) this.vehicles.remove(u.c);
     this.units = [];
+    for (const b of this.blocks) for (const c of b.cars) if (c.vehicle && !c.vehicle.driven) this.vehicles.remove(c);
+    this.blocks = [];
     this.peds.standDown();
     this.bust = 0;
   }
@@ -193,12 +261,13 @@ export class Police {
 
     // patrol cars
     const want = wanted.level ? Math.min(3, Math.ceil(wanted.level * 0.7)) : 0;
-    const active = this.units.filter((u) => !u.leaving).length;
+    const active = this.units.filter((u) => !u.leaving && !u.c.vehicle?.officersOut).length;
     if ((this.spawnTimer -= dt) <= 0 && active < want) {
       this.spawnTimer = 2.5;
       this.spawnUnit(target);
     }
     if (!wanted.level) for (const u of this.units) u.leaving = true;
+    this.updateRoadblocks(dt, wanted, pv, target);
 
     this.seen = false;
     for (const u of [...this.units]) {
@@ -223,7 +292,7 @@ export class Police {
         // nobody at the wheel: the car stays where they left it
         Object.assign(u.c.ai.ctl, { throttle: 0, steer: 0, handbrake: true });
       } else this.drive(u, dt, target, targetVel, onFoot);
-      if (!u.leaving && this.visible(v.pos, target)) this.seen = true;
+      if (!u.leaving && !v.officersOut && this.visible(v.pos, target)) this.seen = true;
       // officers step out when the car has stopped near a player on foot (or a stopped car)
       const maxOfficers = wanted.level >= 3 ? 2 : 1;
       if (!u.leaving && u.officers < maxOfficers && v.speed < 2 && d < 18 && (onFoot || pv.speed < 2)) {
@@ -254,7 +323,7 @@ export class Police {
     if (pv && pv.speed < 1.2) {
       for (const u of this.units) {
         const v = u.c.vehicle;
-        if (!u.leaving && Math.hypot(v.pos.x - pv.pos.x, v.pos.z - pv.pos.z) < 5.5) holding = true;
+        if (!u.leaving && !v.officersOut && Math.hypot(v.pos.x - pv.pos.x, v.pos.z - pv.pos.z) < 5.5) holding = true;
       }
     }
     if (!wanted.level) holding = false;

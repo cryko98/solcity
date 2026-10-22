@@ -199,7 +199,7 @@ export class Environment {
 
   // K: next weather (instant fade)
   cycleWeather() {
-    this.setWeather(WEATHER[(WEATHER.indexOf(this.weather) + 1) % WEATHER.length]);
+    this.setWeather(WEATHER[(WEATHER.indexOf(this.weather) + 1) % WEATHER.length], true);
   }
 
   setWeather(w, instant = false) {

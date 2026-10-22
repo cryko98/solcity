@@ -103,6 +103,7 @@ export class Hud {
         ['Distance driven', `${(s.km || 0).toFixed(1)} km`],
         ['Cars destroyed', s.wrecks || 0],
         ['Stunt jumps', `${s.uniqueJumps || 0} / 4`],
+        ['Hidden packages', `${s.packages || 0} / 20`],
         ['Races won', s.races || 0],
         ['Taxi fares', s.fares || 0],
         ['Suspects stopped', s.suspects || 0],

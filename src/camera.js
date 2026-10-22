@@ -75,13 +75,18 @@ export class FollowCamera {
     // speed pulls the camera back a touch in cars
     const want0 = THREE.MathUtils.lerp(this.zoom + (M === MODES.car ? Math.min(3, Math.abs(subject.speed) * 0.06) : 0), 2.1, this.aimK);
     const hit = this.city.raycast(this.target, this.dir, want0 + 0.3) - 0.3;
-    const want = Math.max(0.6, Math.min(want0, hit));
+    const want = Math.max(0.25, Math.min(want0, hit));
     this.distance = want < this.distance ? want : this.distance + (want - this.distance) * Math.min(1, dt * 3);
 
     const cam = this.camera;
     cam.position.copy(this.target).addScaledVector(this.dir, this.distance);
     // shoulder offset (to the right of the view direction)
-    const so = 0.6 * this.aimK;
+    let so = 0.6 * this.aimK;
+    if (so > 0.01) {
+      // not through a wall on the right
+      const side = new THREE.Vector3(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
+      so = Math.min(so, Math.max(0, this.city.raycast(cam.position, side, so + 0.25) - 0.25));
+    }
     cam.position.x += -Math.cos(this.yaw) * so;
     cam.position.z += Math.sin(this.yaw) * so;
     cam.position.y += 0.1 * this.aimK;

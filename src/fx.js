@@ -316,27 +316,28 @@ export class Fx {
 
   explosion(at, power = 1) {
     const { x, z } = at;
+    const gy = this.city?.groundHeight ? this.city.groundHeight(x, z) : 0;
     // fireball: a fast outer burst plus a slower rolling core
     for (let i = 0; i < 60 * power; i++) {
       const core = i % 3 === 0;
       const a = Math.random() * 6.283, s = core ? 1 + Math.random() * 2.5 : 3 + Math.random() * 8, up = (core ? 3 : 2) + Math.random() * 7;
       const h = Math.random();
-      this.fire.emit(x + (Math.random() - 0.5) * 2, 0.8 + Math.random() * 1.5, z + (Math.random() - 0.5) * 2, Math.cos(a) * s, up, Math.sin(a) * s,
+      this.fire.emit(x + (Math.random() - 0.5) * 2, gy + 0.8 + Math.random() * 1.5, z + (Math.random() - 0.5) * 2, Math.cos(a) * s, up, Math.sin(a) * s,
         (core ? 1.0 : 0.6) + Math.random() * 0.7, core ? 4.2 : 3.0, core ? 2.4 : 1.4, 1, 0.22 + h * 0.4, 0.03 + h * 0.07, core ? 0.5 : 0.42, core ? 1.6 : 2.6, core ? 2.5 : 1.2);
     }
     for (let i = 0; i < 28 * power; i++) {
       const a = Math.random() * 6.283, s = 1 + Math.random() * 4.5;
       const g = 0.05 + Math.random() * 0.1;
-      this.smoke.emit(x, 1 + Math.random() * 2, z, Math.cos(a) * s, 2.5 + Math.random() * 5, Math.sin(a) * s,
+      this.smoke.emit(x, gy + 1 + Math.random() * 2, z, Math.cos(a) * s, 2.5 + Math.random() * 5, Math.sin(a) * s,
         3.5 + Math.random() * 3, 2.6, 7.5, g, g, g, 0.85, 0.9, 1.1);
     }
-    this.sparks({ x, y: 1, z }, 26);
+    this.sparks({ x, y: gy + 1, z }, 26);
     // debris
     for (let i = 0; i < 9; i++) {
       const a = Math.random() * 6.283, s = 3 + Math.random() * 8;
       if (this.chunks.length >= 60) this.chunks.shift();
       this.chunks.push({
-        p: new THREE.Vector3(x, 1, z), v: new THREE.Vector3(Math.cos(a) * s, 5 + Math.random() * 8, Math.sin(a) * s),
+        p: new THREE.Vector3(x, gy + 1, z), v: new THREE.Vector3(Math.cos(a) * s, 5 + Math.random() * 8, Math.sin(a) * s),
         r: new THREE.Vector3(Math.random() * 6, Math.random() * 6, Math.random() * 6), w: new THREE.Vector3((Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18),
         life: 6, s: 0.6 + Math.random() * 1.6,
       });

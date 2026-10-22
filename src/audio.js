@@ -53,17 +53,24 @@ export class CarAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     g.connect(this.master);
     if (noise) {
-      const len = Math.ceil(ctx.sampleRate * dur);
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * noise;
+      // one shared 4 s noise buffer, played from a random point (no new buffer per gunshot / step)
+      if (!this.noiseBuf) {
+        const len = ctx.sampleRate * 4;
+        this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = this.noiseBuf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      }
       const src = ctx.createBufferSource();
-      src.buffer = buf;
+      src.buffer = this.noiseBuf;
+      src.loop = true;
+      const ng = ctx.createGain();
+      ng.gain.value = noise;
       const f = ctx.createBiquadFilter();
       f.type = 'lowpass';
       f.frequency.value = cutoff;
-      src.connect(f).connect(g);
-      src.start(t);
+      src.connect(ng).connect(f).connect(g);
+      src.start(t, Math.random() * 3.5);
+      src.stop(t + dur);
     }
     if (tone) {
       const o = ctx.createOscillator();
