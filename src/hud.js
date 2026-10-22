@@ -179,7 +179,8 @@ export class Hud {
   // p: focus position, yaw: heading of player or car, speed: car speed (m/s) or null on foot
   update(dt, p, yaw, camYaw, speed, nearCar) {
     const h = Math.floor(this.minutes / 60), m = Math.floor(this.minutes % 60);
-    this.clockEl.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    // 12-hour clock: 6:40 PM
+    this.clockEl.innerHTML = `${h % 12 || 12}:${String(m).padStart(2, '0')}<small>${h < 12 ? 'AM' : 'PM'}</small>`;
 
     this.speedo.classList.toggle('show', speed !== null);
     if (speed !== null) this.kmh.textContent = Math.round(Math.abs(speed) * 3.6);
