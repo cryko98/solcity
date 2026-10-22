@@ -6,6 +6,8 @@ export function prepareCharacter(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (m.userData.prepared) continue; // a model can be passed twice (police falls back to male)
+      m.userData.prepared = true;
       if (m.name === 'HairCards' || m.name === 'BrowCards') {
         m.alphaTest = 0.45;
         m.transparent = false;
@@ -13,11 +15,14 @@ export function prepareCharacter(root) {
         m.alphaToCoverage = true;
         m.envMapIntensity = 0.5;
       } else if (m.name === 'Skin') {
-        // matte skin: a glossy one mirrors the blue sky and turns dark skin purple
-        m.roughness = Math.max(m.roughness, 0.72);
+        // satin skin: not glossy enough to mirror the blue sky (dark skin turned purple), but
+        // with enough fill that the side away from the sun stays brown instead of going black
+        // (as when you step out of the hospital with the sun behind you, or under the palms)
+        m.roughness = Math.max(m.roughness, 0.6);
         m.metalness = 0;
-        m.envMapIntensity = 0.45;
-        m.emissive?.setRGB(0.035, 0.016, 0.008); // a little warmth in the shade (blood under the skin)
+        m.envMapIntensity = 1.0;
+        m.color.multiplyScalar(1.12);
+        m.emissive?.setRGB(0.05, 0.026, 0.015); // warmth in the shade (blood under the skin)
       } else if (m.name === 'EyeWhite') {
         m.color.multiplyScalar(0.82); // white-hot eyes read as glowing
         m.envMapIntensity = 0.4;
