@@ -224,6 +224,17 @@ export class Environment {
   }
 
   updateLampLights(dt, camera, k) {
+    // indoors (story cutscenes) the same lights become the room's bulbs
+    if (this.indoor) {
+      this.lampLights.forEach((l, i) => {
+        const p = this.indoor.lights[i];
+        if (p && i < this.lampCount) {
+          l.position.copy(p);
+          l.intensity = this.indoor.intensity;
+        } else l.intensity = 0;
+      });
+      return;
+    }
     const heads = this.city.lampHeads;
     if (!heads) return;
     // look a little ahead of the camera, where the player is
@@ -346,7 +357,7 @@ export class Environment {
     }
 
     // rain streaks follow the camera
-    this.rainLines.visible = rn > 0.02;
+    this.rainLines.visible = rn > 0.02 && !this.indoor;
     if (this.rainLines.visible) {
       this.rainMat.uniforms.t.value += dt;
       this.rainMat.uniforms.cam.value.copy(camera.position);
@@ -354,7 +365,7 @@ export class Environment {
       this.rainMat.uniforms.light.value = THREE.MathUtils.lerp(1, 0.35, nk) + this.flash;
       this.rainLines.geometry.setDrawRange(0, Math.floor(this.rainN * 2 * Math.min(1, rn * 1.2)));
     }
-    this.audio?.rain?.(rn);
+    this.audio?.rain?.(this.indoor ? rn * 0.25 : rn);
 
     // reflections: rebuild the environment map when the sky changed noticeably
     const sig = `${Math.round(nk * 20)}|${Math.round(cl * 10)}|${Math.round(this.hour * 2)}|${this.flash > 0.5 ? 1 : 0}`;

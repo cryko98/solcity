@@ -1866,6 +1866,124 @@ def hands_up(t_):
 HANDSUP_ROLL = 0.0
 
 
+# ---------------------------------------------------------------- conversation (story cutscenes)
+# Seated clips: hips joint ~0.1 m above a 0.47 m chair seat, table top 0.91 m (0.34 above the hips).
+# The game places the body; these clips only bend it. Hands are solved with IK onto the table.
+TALK_CACHE = {}
+
+
+def seated_base(p, lean):
+    for side, sgn in (("L", 1), ("R", -1)):
+        p["thigh." + side] = rot("thigh." + side, (XA, -86), (ZA, sgn * 7), (YA, -sgn * 3))
+        p["shin." + side] = rot("shin." + side, (XA, 84))
+        p["foot." + side] = rot("foot." + side, (XA, -4), (ZA, sgn * 6))
+    p["hips"] = rot("hips", (XA, -4))
+    p["spine"] = rot("spine", (XA, 6 + lean * .5))
+    p["chest"] = rot("chest", (XA, 4 + lean * .5))
+
+
+def table_hand(p, sfx, sgn, lift, out, palm_up):
+    """IK the hand onto the table top (lift 0) or up into a gesture (lift 1)"""
+    rest = HIPS0 + V((sgn * .16, -.44, .31))
+    gest = HIPS0 + V((sgn * (.2 + .05 * out), -.44, .5))
+    wrist = rest.lerp(gest, lift)
+    hand_dir = V((sgn * .15, -1, -.35 + .5 * lift)).normalized()
+    solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, wrist,
+                HIPS0 + V((sgn * .55, .25, .1)), hand_dir, roll=(0, 0, -sgn * (20 + 70 * palm_up)))
+
+
+def sit_talk(t_):
+    """talking at a table: leans in, the right hand comes up to make a point, then the left"""
+    key = round(t_, 3)
+    if key in TALK_CACHE.get("st", {}):
+        return TALK_CACHE["st"][key]
+    a = math.sin(2 * math.pi * t_)
+    gR = bump(t_, .3, .14)  # right-hand gesture
+    gL = bump(t_, .72, .12)  # left-hand gesture
+    p = {}
+    seated_base(p, 8 + 4 * max(gR, gL))
+    p["chest"] = p["chest"] @ rot("chest", (ZA, 6 * gR - 6 * gL))
+    p["neck"] = rot("neck", (XA, 4 + 3 * a), (ZA, -4 * gR + 4 * gL))
+    p["head"] = rot("head", (XA, 3 + 5 * math.sin(4 * math.pi * t_)), (ZA, 5 * math.sin(2 * math.pi * t_ + .6)))
+    table_hand(p, ".L", 1, gL, .5, gL)
+    table_hand(p, ".R", -1, gR, .8, gR)
+    hands(p, 30 - 20 * max(gR, gL))
+    TALK_CACHE.setdefault("st", {})[key] = (p, (0, 0, 0))
+    return p, (0, 0, 0)
+
+
+def sit_listen(t_):
+    """listening at a table: forearms on the table, hands loosely together, slow nods"""
+    key = round(t_, 3)
+    if key in TALK_CACHE.get("sl", {}):
+        return TALK_CACHE["sl"][key]
+    nod = bump(t_, .25, .06) + bump(t_, .33, .05) + .6 * bump(t_, .75, .07)
+    p = {}
+    seated_base(p, 5 + 1.5 * math.sin(2 * math.pi * t_))
+    p["neck"] = rot("neck", (XA, 3 + 7 * nod))
+    p["head"] = rot("head", (XA, 2 + 8 * nod), (ZA, 4 * math.sin(2 * math.pi * t_)))
+    table_hand(p, ".L", 1, 0, 0, 0)
+    table_hand(p, ".R", -1, 0, 0, 0)
+    hands(p, 35)
+    TALK_CACHE.setdefault("sl", {})[key] = (p, (0, 0, 0))
+    return p, (0, 0, 0)
+
+
+def stand_talk(t_):
+    """standing, talking with the hands: weight shifts, both hands work in front of the chest"""
+    key = round(t_, 3)
+    if key in TALK_CACHE.get("tt", {}):
+        return TALK_CACHE["tt"][key]
+    s = math.sin(2 * math.pi * t_)
+    gR, gL = bump(t_, .25, .15), bump(t_, .65, .15)
+    p = {}
+    for side, sgn in (("L", 1), ("R", -1)):
+        p["thigh." + side] = rot("thigh." + side, (YA, -sgn * 1.5), (ZA, sgn * 6), (XA, -2 * s * sgn))
+        p["shin." + side] = rot("shin." + side, (XA, 4 + 2 * s * sgn))
+        p["foot." + side] = rot("foot." + side, (XA, -3), (ZA, sgn * 7))
+    p["hips"] = rot("hips", (YA, 2 * s), (ZA, 3 * s))
+    p["spine"] = rot("spine", (XA, 2 + 3 * max(gR, gL)))
+    p["chest"] = rot("chest", (XA, -2), (ZA, 7 * gR - 7 * gL))
+    p["neck"] = rot("neck", (XA, 3), (ZA, -5 * gR + 5 * gL))
+    p["head"] = rot("head", (XA, 2 + 4 * math.sin(4 * math.pi * t_)), (ZA, 4 * s))
+    for sfx, sgn, g in ((".L", 1, gL), (".R", -1, gR)):
+        low = V((sgn * .2, -.12, BELT_Z - .12))
+        high = V((sgn * (.22 + .1 * g), -.36, BELT_Z + .3))
+        wrist = low.lerp(high, .25 + .75 * g)
+        solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, wrist,
+                    V((sgn * .6, .3, BELT_Z + .2)), V((sgn * .3, -1, .1 + .6 * g)).normalized(), roll=(0, 0, -sgn * (30 + 50 * g)))
+    hands(p, 30 - 22 * max(gR, gL))
+    TALK_CACHE.setdefault("tt", {})[key] = (p, (.004 * s, 0, -.01))
+    return p, (.004 * s, 0, -.01)
+
+
+def stand_listen(t_):
+    """standing and listening: arms folded across the chest, weight on one leg, nodding"""
+    key = round(t_, 3)
+    if key in TALK_CACHE.get("tl", {}):
+        return TALK_CACHE["tl"][key]
+    s = math.sin(2 * math.pi * t_)
+    nod = bump(t_, .3, .06) + .7 * bump(t_, .7, .07)
+    p = {}
+    for side, sgn in (("L", 1), ("R", -1)):
+        p["thigh." + side] = rot("thigh." + side, (YA, -sgn * 1.5), (ZA, sgn * (8 if side == "L" else 3)))
+        p["shin." + side] = rot("shin." + side, (XA, 3 if side == "L" else 9))
+        p["foot." + side] = rot("foot." + side, (XA, -3), (ZA, sgn * 7))
+    p["hips"] = rot("hips", (ZA, 4), (YA, 3 + s))
+    p["spine"] = rot("spine", (XA, -2), (YA, -2))
+    p["chest"] = rot("chest", (XA, -4 + .8 * s))
+    p["neck"] = rot("neck", (XA, 2 + 7 * nod))
+    p["head"] = rot("head", (XA, 2 + 8 * nod), (ZA, -5))
+    # hands loosely clasped in front of the belt
+    for sfx, sgn in ((".L", 1), (".R", -1)):
+        wrist = V((sgn * .07, -.2, BELT_Z - .16 + .005 * s))
+        solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, wrist,
+                    V((sgn * .5, .2, BELT_Z + .1)), V((-sgn * .6, -.5, -.6)).normalized(), roll=(0, 0, -sgn * 10))
+    hands(p, 40)
+    TALK_CACHE.setdefault("tl", {})[key] = (p, (0, 0, -.01))
+    return p, (0, 0, -.01)
+
+
 def make_action(name, frames, fn, step=1):
     act = bpy.data.actions.new(name)
     act.use_fake_user = True
@@ -1907,6 +2025,10 @@ if HERO or PREVIEW:
         make_action("Ride", 72, ride, 6),
         make_action("HandsUp", 60, hands_up, 6),
         make_action("Roll", 24, roll, 1),
+        make_action("SitTalk", 120, sit_talk, 3),
+        make_action("SitListen", 120, sit_listen, 4),
+        make_action("StandTalk", 120, stand_talk, 3),
+        make_action("StandListen", 120, stand_listen, 4),
     ]
     # PistolHold/Aim, SMGHold/Aim, ShotgunHold/Aim for the guns this variant carries
     actions += [make_action(*a) for a in BW.define_actions(WH, globals())]
@@ -1983,6 +2105,9 @@ if PREVIEW:
         shoot("ko_end.png", "KnockDown", 42, (3.5, -1.5, 1.4), (0, .4, .2))
         for fr in (4, 8, 11, 14, 18, 22):
             shoot(f"roll_{fr:02d}.png", "Roll", fr, (3.6, -.4, 1.0), (0, 0, .55))
+        for clip_, fr in (("SitTalk", 36), ("SitTalk", 87), ("SitListen", 30), ("StandTalk", 30), ("StandListen", 36)):
+            shoot(f"{clip_.lower()}_{fr}_34.png", clip_, fr, (2.2, -2.6, 1.5), (0, -.2, .95))
+            shoot(f"{clip_.lower()}_{fr}_side.png", clip_, fr, (3.0, -.3, 1.2), (0, -.2, .9))
         shoot("drive.png", "Drive", 0, (3.4, -3.0, 1.3), (0, 0, .8))
         shoot("handsup.png", "HandsUp", 0, (0.6, -3.2, 1.4), (0, 0, 1.2))
         shoot("handsup_34.png", "HandsUp", 0, (2.2, -2.2, 1.6), (0, 0, 1.35))

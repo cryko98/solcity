@@ -41,7 +41,7 @@ export class Player {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll'];
+    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'];
     // Ride / HandsUp may be missing from older exports
     const clips = Object.fromEntries(names.map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     // stride length = ground covered per gait cycle, measured from the foot motion in the clip
@@ -296,6 +296,12 @@ export class Player {
   // ---------------------------------------------------------------- update
   update(dt, input, camYaw, vehicles, peds) {
     this.camYaw = camYaw;
+    // posed by a cutscene (sitting / standing still): animation only
+    if (this.posed) {
+      this.camYaw = this.yaw;
+      this.animate(dt);
+      return;
+    }
     if (this.vehicle) {
       this.animate(dt);
       return;
@@ -476,7 +482,8 @@ export class Player {
   animate(dt) {
     const s = this.speed;
     let tw;
-    if (this.vehicle) tw = { [this.seatClip]: 1 };
+    if (this.posed) tw = { [this.actions[this.posed] ? this.posed : 'idle']: 1 };
+    else if (this.vehicle) tw = { [this.seatClip]: 1 };
     else if (this.busted) tw = this.actions.handsup ? { handsup: 1 } : { idle: 1 };
     else if (this.overlay) tw = { [this.overlay.name]: 1 };
     else if (!this.grounded) tw = { jump: 1 };

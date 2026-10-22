@@ -21,7 +21,9 @@ export class Wanted {
   }
 
   // civilian crimes need a witness, crimes against officers never do
-  crime(type) {
+  // frozen: on a story mission ordinary offences don't raise the stars (force: the mission itself does)
+  crime(type, force = false) {
+    if (this.frozen && !force) return;
     this.heat += HEAT[type] || 1;
     let lvl = 0;
     STAR_AT.forEach((h, i) => {

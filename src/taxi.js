@@ -98,6 +98,7 @@ export class TaxiMissions {
   }
 
   route(from, to) {
+    if (this.city.gpsRoute) return this.city.gpsRoute({ x: from.x, z: from.z }, { x: to.x, z: to.z });
     const a = this.nodeOf(from.x, from.z), b = this.nodeOf(to.x, to.z);
     // leave along the road the car is on, turn once, arrive along the destination's road
     const pts = [{ x: from.x, z: from.z }];

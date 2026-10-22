@@ -170,7 +170,7 @@ export class Races {
         b.visible = true;
         b.position.set(r.startPos.x, 0, r.startPos.z);
       });
-      this.hud.poiBlips = [...RACES.map((r) => ({ x: r.startPos.x, z: r.startPos.z, color: '#f4f4f4', r: 6, label: 'R' })),
+      this.hud.poiBlips = [...RACES.map((r) => ({ x: r.startPos.x, z: r.startPos.z, color: '#f4f4f4', r: 6, label: '\u25BA' })),
         ...(this.city.spray ? [{ x: this.city.spray.x, z: this.city.spray.z, color: '#e0407e', r: 6, label: '$' }] : [])];
       if (!v || blocked) return;
       const r = RACES.find((q) => Math.hypot(v.pos.x - q.startPos.x, v.pos.z - q.startPos.z) < 5);

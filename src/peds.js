@@ -70,7 +70,7 @@ export class Peds {
     this.spawnTimer = 0;
     this.onCash = null;
     const clip = (n) => heroGltf.animations.find((a) => a.name === n);
-    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Drive', 'Ride', 'PistolAim'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
+    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     this.modelClips = {
       male: retargetClips(this.clips, heroGltf.scene, models.male.scene),
       female: retargetClips(this.clips, heroGltf.scene, models.female.scene),
@@ -355,7 +355,7 @@ export class Peds {
   target(pos, yaw, range = 2.6) {
     let best = null, bd = range;
     for (const p of this.list) {
-      if (p.state === 'down' || p.state === 'riding') continue;
+      if (p.state === 'down' || p.state === 'riding' || p.invulnerable) continue;
       const dx = p.x - pos.x, dz = p.z - pos.z, d = Math.hypot(dx, dz);
       if (d > bd) continue;
       if (Math.abs(wrap(Math.atan2(dx, dz) - yaw)) > 1.1) continue;
@@ -459,7 +459,7 @@ export class Peds {
   // ------------------------------------------------------------- update
   update(dt, focus, player) {
     const onFoot = player && !player.vehicle && !player.dead ? player : null;
-    if ((this.spawnTimer -= dt) <= 0 && this.list.length < MAX_PEDS) {
+    if ((this.spawnTimer -= dt) <= 0 && this.list.filter((p) => !p.keep).length < MAX_PEDS) {
       this.spawnTimer = 0.25;
       this.spawn(focus);
     }
@@ -482,12 +482,13 @@ export class Peds {
       else if (p.state === 'fight') this.updateFight(p, dt, onFoot);
       else if (p.state === 'cop') this.updateCop(p, dt, player);
       else if (p.state === 'flee') this.updateFlee(p, dt);
-      else if (p.state === 'fare') this.move(p, 0, p.yaw, dt);
+      else if (p.state === 'fare' || p.state === 'contact') this.move(p, 0, p.yaw, dt);
+      else if (p.state === 'seated' || p.state === 'talking') p.cur = 0;
       else if (p.state === 'board') this.updateBoard(p, dt);
       else this.updateWalk(p, dt, onFoot);
       if (p.state === 'riding') continue;
 
-      if (p.state !== 'down') this.carHits(p);
+      if (p.state !== 'down' && !p.invulnerable) this.carHits(p);
       for (const m of p.body.userData.meshes) m.castShadow = dist < 40;
       p.body.position.set(p.x, p.y, p.z);
       p.body.rotation.y = p.yaw;
@@ -679,6 +680,7 @@ export class Peds {
     else if (p.state === 'cop') a.target = p.cur > 2.4 ? { run: 1 } : p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
     else if (p.state === 'riding') a.target = { drive: 1 };
     else if (p.state === 'board') a.target = p.cur > 2.2 ? { run: 1 } : { walk: 1 };
+    else if (p.state === 'seated' || p.state === 'talking') a.target = { [p.pose || 'idle']: 1 };
     else if (p.cur > 2.1) a.target = { run: 1 };
     else {
       const w = Math.min(1, p.cur / 0.6);

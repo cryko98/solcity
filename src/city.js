@@ -1049,6 +1049,55 @@ export function buildCity(scene) {
   city.groundHeight = (x, z) => (Math.abs(x) > HALF || Math.abs(z) > HALF ? (onQuay(x, z) ? 0 : -0.03) : baseGround(x, z));
   city.roadC = roadC;
   city.blockMin = blockMin;
+
+  // GPS: shortest path over the road grid (Dijkstra on the intersections). A point on a road
+  // joins the graph at both ends of its road segment; anything off the roads joins at the
+  // nearest intersection. Returns a polyline from -> to that follows the streets.
+  city.gpsRoute = (from, to) => {
+    const idx = (v) => THREE.MathUtils.clamp((v + HALF - ROAD / 2) / PITCH, 0, N);
+    const key = (i, j) => i * (N + 1) + j;
+    const node = (k) => ({ x: roadC(Math.floor(k / (N + 1))), z: roadC(k % (N + 1)) });
+    const ends = (p) => {
+      const fi = idx(p.x), fj = idx(p.z);
+      const ri = Math.round(fi), rj = Math.round(fj);
+      const offCol = Math.abs(p.x - roadC(ri)), offRow = Math.abs(p.z - roadC(rj));
+      const inside = Math.abs(p.x) <= HALF && Math.abs(p.z) <= HALF;
+      if (inside && offRow <= ROAD / 2 + 0.5 && offRow <= offCol) return [key(Math.floor(fi), rj), key(Math.ceil(fi), rj)]; // on an east-west road
+      if (inside && offCol <= ROAD / 2 + 0.5) return [key(ri, Math.floor(fj)), key(ri, Math.ceil(fj))]; // north-south road
+      return [key(ri, rj)];
+    };
+    const d2 = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
+    const S = ends(from), T = ends(to);
+    // same road segment: straight there
+    if (S.length === 2 && T.length === 2 && S[0] === T[0] && S[1] === T[1]) return [from, to];
+    const count = (N + 1) * (N + 1);
+    const dist = new Float64Array(count).fill(Infinity), prev = new Int32Array(count).fill(-1), done = new Uint8Array(count);
+    for (const k of S) dist[k] = Math.min(dist[k], d2(from, node(k)));
+    for (;;) {
+      let u = -1;
+      for (let k = 0; k < count; k++) if (!done[k] && dist[k] < Infinity && (u < 0 || dist[k] < dist[u])) u = k;
+      if (u < 0) break;
+      done[u] = 1;
+      const i = Math.floor(u / (N + 1)), j = u % (N + 1);
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + a, nj = j + b;
+        if (ni < 0 || nj < 0 || ni > N || nj > N) continue;
+        const v = key(ni, nj);
+        if (dist[u] + PITCH < dist[v]) {
+          dist[v] = dist[u] + PITCH;
+          prev[v] = u;
+        }
+      }
+    }
+    let best = T[0], bd = Infinity;
+    for (const k of T) {
+      const d = dist[k] + d2(node(k), to);
+      if (d < bd) [best, bd] = [k, d];
+    }
+    const path = [];
+    for (let k = best; k >= 0; k = prev[k]) path.unshift(node(k));
+    return [from, ...path, to];
+  };
   city.lightState = 0;
   city.map = { canvas: mapCanvas, px: MAP_PX, half: MAP_EXT };
   return city;

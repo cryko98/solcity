@@ -26,6 +26,7 @@ import { Stunts } from './stunts.js';
 import { PoliceHeli } from './heli.js';
 import { GunShop } from './shop.js';
 import { Vigilante } from './vigilante.js';
+import { Story } from './story.js';
 
 const loadingBar = document.getElementById('loading-bar');
 const loadingText = document.getElementById('loading-text');
@@ -90,7 +91,9 @@ fx.setViewport(viewH());
 let night = env.night;
 
 // ------------------------------------------------------------------ game objects
-const input = new Input(renderer.domElement);
+const mainInput = new Input(renderer.domElement);
+// while a cutscene plays the game sees no input at all
+const NO_INPUT = { down: () => false, pressed: () => false, mouse: () => false, consumeMouse: () => ({ dx: 0, dy: 0, wheel: 0 }), pressedOnce: new Set(), keys: new Set() };
 const follow = new FollowCamera(camera, city);
 let player = null;
 let vehicles = null;
@@ -106,6 +109,8 @@ let stunts = null;
 let heli = null;
 let shop = null;
 let vigilante = null;
+let story = null;
+let savedStory = null;
 const stats = { km: 0, wrecks: 0, uniqueJumps: 0, races: 0, fares: 0, suspects: 0, maxWanted: 0 };
 let gunfireCooldown = 0;
 let crashCooldown = 0;
@@ -168,6 +173,9 @@ Promise.all([
     stunts = new Stunts({ scene, city, hud, audio });
     shop = new GunShop({ scene, city, hud, audio, weapons, player });
     vigilante = new Vigilante({ city, vehicles, hud, audio });
+    story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
+    story.onSave = () => saveGame();
+    story.load(savedStory);
     hud.stats = stats;
     stunts.onStunt = () => (stats.uniqueJumps = stunts.doneCount);
     races.onFinish = () => stats.races++;
@@ -274,7 +282,7 @@ Promise.all([
     loadingText.textContent = 'Click to play';
     overlay.classList.add('ready');
     window.__game = {
-      player, city, follow, camera, renderer, scene, input, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
+      player, city, follow, camera, renderer, scene, input: mainInput, story: () => story, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
       env, fx, spray: () => spray, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, hud, radio,
       state: () => ({ driving }),
       step,
@@ -420,7 +428,7 @@ const SAVE_KEY = 'solcity.save';
 function saveGame() {
   if (!player || window.__trailer) return;
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, money: hud.money, inv: weapons.inv, current: weapons.current, armor: player.armor, time: env.minutes, stats }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, money: hud.money, inv: weapons.inv, current: weapons.current, armor: player.armor, time: env.minutes, stats, story: story?.progress }));
   } catch {}
 }
 function loadGame() {
@@ -439,6 +447,7 @@ function loadGame() {
   hud.setArmor(player.armor);
   if (s.time != null) env.minutes = s.time;
   if (s.stats) Object.assign(stats, s.stats);
+  savedStory = s.story;
   stats.uniqueJumps = stunts.doneCount;
   hud.say('Welcome back to <em>Sol City</em>.', 3);
 }
@@ -539,6 +548,7 @@ function frame() {
 // WASTED / BUSTED: the world slows down and the camera pulls up and away
 let slowmo = 0;
 function step(dt) {
+  const input = story && story.cutscene ? NO_INPUT : mainInput;
   if (slowmo > 0) {
     slowmo -= dt;
     dt *= 0.3;
@@ -628,11 +638,13 @@ function step(dt) {
       wanted.update(dt, police.seen || (heli && heli.seen));
     }
     if (heli) heli.update(dt, { level: wanted.level, target: driving ? driving.vehicle.pos : player.position, nightK: env.nightK, camera });
-    if (!races.active) taxiJobs.update(dt, { player, driving, input, wanted });
+    if (!races.active && !story.active) taxiJobs.update(dt, { player, driving, input, wanted });
     races.dim = env.nightK;
-    races.update(dt, { driving, input, wanted, blocked: taxiJobs.state !== 'off' || vigilante.state !== 'off', dead: player.dead || player.busted });
+    races.update(dt, { driving, input, wanted, blocked: taxiJobs.state !== 'off' || vigilante.state !== 'off' || story.active, dead: player.dead || player.busted });
     spray.update(dt, driving);
-    if (!races.active) vigilante.update(dt, { driving, input, dead: player.dead || player.busted });
+    if (!races.active && !story.active) vigilante.update(dt, { driving, input, dead: player.dead || player.busted });
+    wanted.frozen = !!story.mission;
+    story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
     radio.update(dt, !!driving && !player.dead, input);
     // horn: people in front of the car jump out of the way
     const honk = !!driving && input.down('KeyG');
@@ -641,7 +653,7 @@ function step(dt) {
       const v = driving.vehicle;
       peds.scare(v.pos.x + Math.sin(v.heading) * 6, v.pos.z + Math.cos(v.heading) * 6, null, 9);
     }
-    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.label !== 'J' && b.label !== 'G'), ...stunts.blips(), shop.blip()];
+    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.label !== 'J' && b.label !== 'G' && !b.story), ...stunts.blips(), shop.blip(), ...story.blips.map((b) => ({ ...b, story: true }))];
     hud.setWanted(wanted.level, wanted.flashing, elapsed);
     audio.siren(police.nearestSiren(focusPos));
     let near = null, nd = 90;
@@ -677,6 +689,10 @@ function step(dt) {
       headlight.intensity = 0;
     }
     follow.update(dt, input, subject);
+    if (story.cutscene) {
+      story.cameraShot(camera);
+      mainInput.consumeMouse(); // no camera jump after the scene
+    }
     if (cinematic) cinematic(camera, dt);
     env.update(dt, focus, camera);
     night = env.lightsOn;
@@ -698,7 +714,7 @@ function step(dt) {
     camera.lookAt(0, 10, 0);
     env.update(dt, camera.position, camera);
   }
-  input.endFrame();
+  mainInput.endFrame();
 }
 
 frame();

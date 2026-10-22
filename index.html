@@ -87,6 +87,31 @@
     #shop .s-row b { font: 18px Anton, Impact, sans-serif; color: #7ad65b; letter-spacing: 1px; }
     #shop .s-row.poor b { color: #a55; }
     #shop .s-foot { margin-top: 6px; font: 600 11px Inter, sans-serif; letter-spacing: 2px; color: #999; text-transform: uppercase; }
+    /* cutscenes: letterbox bars, dialogue, HUD hidden */
+    #cutscene { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s; }
+    #cutscene.show { opacity: 1; }
+    #cutscene::before, #cutscene::after { content: ''; position: absolute; left: 0; right: 0; height: 12vh; background: #000; }
+    #cutscene::before { top: 0; }
+    #cutscene::after { bottom: 0; }
+    #dialogue { position: absolute; left: 50%; bottom: calc(12vh + 18px); transform: translateX(-50%); width: min(820px, 90vw); text-align: center;
+      font: 600 21px Inter, sans-serif; line-height: 1.45; text-shadow: 0 2px 0 #000, 0 0 10px rgba(0,0,0,.9); z-index: 2; }
+    #dialogue b { display: block; font: 18px Anton, Impact, sans-serif; letter-spacing: 3px; margin-bottom: 2px; }
+    #cutscene .skip { position: absolute; right: 22px; bottom: 3.5vh; font: 700 11px Inter, sans-serif; letter-spacing: 2px; color: #888; z-index: 2; }
+    body.cutscene #stats, body.cutscene #radar, body.cutscene #street, body.cutscene #speedo, body.cutscene #hint,
+    body.cutscene #mission, body.cutscene #subtitle-line, body.cutscene #help, body.cutscene #crosshair, body.cutscene #radio,
+    body.cutscene #mission-result, body.cutscene #mission-title { visibility: hidden; }
+    #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .42s; }
+    #fade.show { opacity: 1; }
+    #mission-title { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); font: 52px Anton, Impact, sans-serif; letter-spacing: 4px; color: #ffd23f;
+      text-shadow: 0 3px 0 #000, 0 0 20px rgba(0,0,0,.7); opacity: 0; pointer-events: none; white-space: nowrap; }
+    #mission-title.show { animation: mtitle 3.4s ease-out; }
+    @keyframes mtitle { 0% { opacity: 0; transform: translateX(-50%) scale(1.15); } 12% { opacity: 1; transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+    #mission-result { position: fixed; left: 50%; top: 34%; transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none; }
+    #mission-result.show { animation: mtitle 4.5s ease-out; }
+    #mission-result .r-title { font: 64px Anton, Impact, sans-serif; letter-spacing: 3px; text-shadow: 0 4px 0 #000, 0 0 24px rgba(0,0,0,.6); white-space: nowrap; }
+    #mission-result .r-title.pass { color: #ffd23f; }
+    #mission-result .r-title.fail { color: #d6333a; }
+    #mission-result .r-sub { font: 34px Anton, Impact, sans-serif; color: #fff; text-shadow: 0 3px 0 #000; }
     #bigmap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
       background: rgba(5,8,14,.78); pointer-events: none; }
     #bigmap.show { display: flex; }
@@ -150,10 +175,14 @@
   <div id="subtitle-line"></div>
   <div id="radio"></div>
   <div id="shop"></div>
+  <div id="cutscene"><div id="dialogue"></div><div class="skip">SPACE / CLICK: NEXT</div></div>
+  <div id="fade"></div>
+  <div id="mission-title"></div>
+  <div id="mission-result"></div>
   <div id="mission"></div>
   <div id="wasted-screen"><span>WASTED</span></div>
   <div id="bigmap"><div class="map-row"><canvas></canvas><div class="stats"></div></div>
-    <div class="legend"><span><i style="background:#f4f4f4"></i>Street race</span><span><i style="background:#e0407e"></i>Pay 'n' Spray</span>
+    <div class="legend"><span><i style="background:#ffd23f"></i>Mission contact</span><span><i style="background:#f4f4f4"></i>Street race</span><span><i style="background:#e0407e"></i>Pay 'n' Spray</span>
       <span><i style="background:#7ad65b"></i>Weapon</span><span><i style="background:#ff5a5a"></i>Health</span><span><i style="background:#4b9fff"></i>Armor</span><span><i style="background:#f2c12e"></i>Stunt jump</span><span><i style="background:#e04040"></i>Ammu-Nation</span><span>M close</span></div>
   </div>
 

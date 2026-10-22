@@ -270,7 +270,7 @@ export class Weapons {
   trace(o, d, range, ignore) {
     let best = { t: range };
     for (const p of this.peds.list) {
-      if (p === ignore || p.state === 'riding' || p.state === 'down') continue;
+      if (p === ignore || p.state === 'riding' || p.state === 'down' || p.invulnerable) continue;
       if (Math.abs(p.x - o.x) > range || Math.abs(p.z - o.z) > range) continue;
       const t = rayCylinder(o, d, p.x, p.z, PED_R, p.y, p.y + PED_H);
       if (t < best.t) best = { t, ped: p };
