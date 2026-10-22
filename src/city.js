@@ -781,7 +781,7 @@ export function buildCity(scene) {
     box(gx0, gx0 + T, gz0, gz1, H);
     box(gx1 - T, gx1, gz0, gz1, H);
     box(gx0, gx1, gz1 - T, gz1, H);
-    const sm = signMat("PAY 'N' SPRAY", '#ff4fa0');
+    const sm = signMat("SPRAY & CUSTOMS", '#ff4fa0');
     const sign = new THREE.Mesh(new THREE.BoxGeometry(GW - 0.4, 1.3, 0.25), [signBody, signBody, signBody, signBody, sm, signBody]);
     sign.position.set(gcx, CURB + H + 0.95, gz0 - 0.05);
     sign.rotation.y = Math.PI;

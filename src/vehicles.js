@@ -17,6 +17,16 @@ export const SPECS = {
 };
 const specOf = (c) => SPECS[c.model] || SPECS.sedan;
 
+// Sol Customs upgrades (c.tune): engine / brakes / grip levels 0-3, nitro, tint, rims
+export const RIMS = { stock: null, chrome: 0xe8eaec, black: 0x18191b, gold: 0xc9a227 };
+const tunedSpec = (c) => {
+  const b = specOf(c), t = c.tune;
+  if (!t) return b;
+  const e = t.engine || 0;
+  return { ...b, engine: b.engine * (1 + 0.13 * e), vmax: b.vmax * (1 + 0.06 * e), brake: b.brake * (1 + 0.16 * (t.brakes || 0)), grip: b.grip * (1 + 0.11 * (t.grip || 0)) };
+};
+const NITRO_SECS = 3.5; // a full bottle
+
 // paint colours per model (taxis are always cab yellow)
 const PALETTES = {
   taxi: [0xf2c12e],
@@ -81,7 +91,9 @@ function headlightAssets() {
 class Vehicle {
   constructor(data, gltf, scene) {
     this.data = data;
-    this.spec = specOf(data);
+    this.spec = tunedSpec(data);
+    this.nitro = NITRO_SECS;
+    this.boosting = false;
     this.root = gltf.scene.clone(true);
     this.root.traverse((o) => {
       if (!o.isMesh) return;
@@ -183,6 +195,7 @@ class Vehicle {
     this.smokeAcc = this.fireAcc = this.tyreAcc = 0;
     if (data.health == null) data.health = 100;
     if (data.wrecked) this.burnOut();
+    else if (data.tune) this.applyTune();
     this.sync();
   }
 
@@ -198,6 +211,29 @@ class Vehicle {
       this.onFire?.();
     }
     if (d.health <= 0) d.explodeNow = true;
+  }
+
+  // after a visit to Sol Customs: new handling numbers, tinted glass, painted rims
+  applyTune() {
+    this.spec = tunedSpec(this.data);
+    const t = this.data.tune || {};
+    this.root.traverse((o) => {
+      if (!o.isMesh) return;
+      const n = o.material.name;
+      if (n === 'Glass') {
+        if (!o.userData.glass) o.userData.glass = { color: o.material.color.clone(), opacity: o.material.opacity, transmission: o.material.transmission || 0 };
+        o.material = o.material.clone();
+        o.material.name = 'Glass';
+        o.material.color.copy(t.tint ? new THREE.Color(0x050608) : o.userData.glass.color);
+        o.material.opacity = t.tint ? 0.92 : o.userData.glass.opacity;
+        if ('transmission' in o.material) o.material.transmission = t.tint ? 0 : o.userData.glass.transmission; // see-through glass ignores opacity
+      } else if (n === 'Rim') {
+        if (!o.userData.rim) o.userData.rim = o.material.color.clone();
+        o.material = o.material.clone();
+        o.material.name = 'Rim';
+        o.material.color.copy(RIMS[t.rims] != null ? new THREE.Color(RIMS[t.rims]) : o.userData.rim);
+      }
+    });
   }
 
   repaint(color) {
@@ -278,6 +314,12 @@ class Vehicle {
       vf -= Math.sign(vf) * Math.min(Math.abs(vf), 6 * dt);
       this.braking = true;
     }
+    // nitro (fitted at Sol Customs): a hard push while held, the bottle refills slowly
+    this.boosting = !!(ctl?.nitro && this.data.tune?.nitro && thr > 0 && !air && this.nitro > 0);
+    if (this.boosting) {
+      vf += 13 * dt * Math.max(0, 1 - vf / (s.vmax * 1.25));
+      this.nitro = Math.max(0, this.nitro - dt);
+    } else this.nitro = Math.min(NITRO_SECS, this.nitro + dt * 0.28);
     vf -= vf * Math.abs(vf) * 0.0007 * dt;
     this.throttle = Math.max(0, thr);
 
@@ -604,7 +646,8 @@ export class Vehicles {
       // damaged cars stay simulated so they keep smoking / burning
       const busy = c.burning || c.smolder > 0 || c.health < 65 || v.doorOpen > 0.01 || c.entering || c.roadblock;
       if (c !== driven && !c.ai && !busy && v.speed < 0.05 && Math.abs(v.angVel) < 0.02) {
-        if ((v.restTime += dt) > 2) this.deactivate(c);
+        // tuned cars stay full models: the instanced fleet can't show tinted glass or painted rims
+        if ((v.restTime += dt) > 2 && !c.tune) this.deactivate(c);
       } else v.restTime = 0;
     }
     if (this.fx) this.effects(dt, cam);

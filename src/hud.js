@@ -198,6 +198,21 @@ export class Hud {
     this.minutes = h * 60 + m;
   }
 
+  // nitro bottle under the speedometer (frac 0..1, or null when the car has none)
+  setNitro(frac, on) {
+    if (!this.nitroEl) {
+      this.nitroEl = document.createElement('div');
+      this.nitroEl.style.cssText = 'margin-top:6px;height:7px;width:110px;margin-left:auto;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.35);border-radius:4px;overflow:hidden';
+      this.nitroEl.innerHTML = '<div style="height:100%;width:100%;background:linear-gradient(90deg,#2aa8ff,#9fe8ff)"></div>';
+      this.speedo.appendChild(this.nitroEl);
+    }
+    this.nitroEl.style.display = frac === null ? 'none' : 'block';
+    if (frac !== null) {
+      this.nitroEl.firstChild.style.width = Math.round(frac * 100) + '%';
+      this.nitroEl.firstChild.style.filter = on ? 'brightness(1.6)' : '';
+    }
+  }
+
   // p: focus position, yaw: heading of player or car, speed: car speed (m/s) or null on foot
   update(dt, p, yaw, camYaw, speed, nearCar) {
     const h = Math.floor(this.minutes / 60), m = Math.floor(this.minutes % 60);

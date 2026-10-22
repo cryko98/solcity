@@ -30,6 +30,7 @@ import { Shops } from './shops.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
 import { DaCity } from './dacity.js';
+import { Safehouses } from './safehouses.js';
 import { CarEntry } from './carentry.js';
 
 const loadingBar = document.getElementById('loading-bar');
@@ -115,6 +116,7 @@ let shop = null;
 let vigilante = null;
 let story = null;
 let dacity = null;
+let homes = null;
 let packages = null;
 let birds = null;
 let entry = null;
@@ -185,6 +187,8 @@ Promise.all([
     birds = new Birds({ scene, city, env });
     packages.onFound = (n) => (stats.packages = n);
     stats.packages = packages.count;
+    homes = new Safehouses({ scene, city, hud, audio, vehicles, player, env, wanted });
+    homes.onSave = () => saveGame();
     shop = new Shops({ scene, city, hud, audio, weapons, player, env, follow, peds, wanted, models: { male: npcMale, female: npcFemale } });
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
@@ -708,6 +712,7 @@ function step(dt) {
           throttle: (input.down('KeyW', 'ArrowUp') ? 1 : 0) - (input.down('KeyS', 'ArrowDown') ? 1 : 0),
           steer: (input.down('KeyA', 'ArrowLeft') ? 1 : 0) - (input.down('KeyD', 'ArrowRight') ? 1 : 0),
           handbrake: input.down('Space'),
+          nitro: input.down('ShiftLeft', 'ShiftRight'), // Sol Customs nitro, if fitted
         }
       : null;
     // in a contact's room (far outside the map) the street outside stays populated
@@ -772,7 +777,9 @@ function step(dt) {
     if (!races.active && !story.active) taxiJobs.update(dt, { player, driving, input, wanted });
     races.dim = env.nightK;
     races.update(dt, { driving, input, wanted, blocked: taxiJobs.state !== 'off' || vigilante.state !== 'off' || story.active, dead: player.dead || player.busted });
-    spray.update(dt, driving);
+    spray.update(dt, driving, input);
+    if (!shop.inside) homes.update(dt, input, driving);
+    hud.setNitro(driving && driving.tune?.nitro && !driving.vehicle.spec.bike ? driving.vehicle.nitro / 3.5 : null, driving?.vehicle.boosting);
     if (!races.active && !story.active) vigilante.update(dt, { driving, input, dead: player.dead || player.busted });
     wanted.frozen = !!story.mission || !!shop.inside;
     story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
@@ -785,7 +792,7 @@ function step(dt) {
       const v = driving.vehicle;
       peds.scare(v.pos.x + Math.sin(v.heading) * 6, v.pos.z + Math.cos(v.heading) * 6, null, 9);
     }
-    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.kind !== 'stunt' && b.kind !== 'shop' && !b.story), ...stunts.blips(), ...shop.blips(), ...story.blips.map((b) => ({ ...b, story: true }))];
+    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.kind !== 'stunt' && b.kind !== 'shop' && b.kind !== 'home' && !b.story), ...stunts.blips(), ...shop.blips(), ...homes.blips(), ...story.blips.map((b) => ({ ...b, story: true }))];
     hud.setWanted(wanted.level, wanted.flashing, elapsed);
     audio.siren(Math.min(police.nearestSiren(focusPos), ...(traffic.sirens || []).map((v) => Math.hypot(v.pos.x - focusPos.x, v.pos.z - focusPos.z))));
     let near = null, nd = 90;

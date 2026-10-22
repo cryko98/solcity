@@ -47,6 +47,8 @@ const FRONT_LOOK = {
   clothes: { wall: 0xf4f2ee, trim: 0x2b2b30, inside: '#efe9df', goods: ['#c0392b', '#2c3e70', '#e8d8b0', '#4a7a5a', '#222', '#d98cb3'] },
   mart: { wall: 0xf2f4f1, trim: 0x1f7a45, inside: '#e8eef0', goods: ['#d63a3a', '#f2c12e', '#3d6ea8', '#2bb673', '#ef8a3c', '#8a5fb0'] },
 };
+const ROB_TIME = 6; // seconds of holding the clerk at gunpoint to empty the till
+const ROB_COOLDOWN = 5 * 60 * 1000; // before the same till has cash in it again
 const STYLE = {
   gun: { sign: '#ff4040', awning: 0x8e1b1b },
   food: { sign: '#ffb02e', awning: 0xc8541c },
@@ -850,6 +852,18 @@ export class Shops {
   }
 
   leave() {
+    const b = this.inside;
+    if (b && this.clerks.get(b)) this.clerks.get(b).cower = false;
+    if (this.robbery) {
+      this.robbery = null;
+      this.hud.mission(null);
+    }
+    // walking out of a robbed shop: the police are already on the way
+    if (this.alarm) {
+      this.alarm = false;
+      this.wanted.crime('ko_cop', true);
+      this.hud.say('The shop alarm called the <em>police</em>!', 3);
+    }
     this.inside = null;
     this.player.indoors = false;
     this.follow.setMode('foot');
@@ -867,6 +881,46 @@ export class Shops {
     p.invulnerable = true;
     chooseOutfit(p.body, s.wear);
     this.clerks.set(b, p);
+  }
+
+  // is the gun pointed at this person (through the crosshair)?
+  aimedAt(p) {
+    const cam = this.weapons.camera, d = new THREE.Vector3();
+    cam.getWorldDirection(d);
+    const to = new THREE.Vector3(p.x - cam.position.x, p.y + 1.3 - cam.position.y, p.z - cam.position.z);
+    return to.length() < 10 && to.angleTo(d) < 0.3;
+  }
+
+  startRobbery(b, clerk) {
+    this.closeMenu();
+    const till = b.type === 'mart' ? 350 + Math.random() * 450 : 250 + Math.random() * 350;
+    this.robbery = { b, t: 0, slack: 0, till: Math.round(till / 10) * 10 };
+    clerk.cower = true;
+    this.hud.say('<em>Clerk:</em> "OK, OK! Don’t shoot! Take it!"', 2.5);
+  }
+
+  // keep him covered and the till comes out; look away too long and he hits the alarm
+  updateRobbery(dt, b, clerk) {
+    const r = this.robbery, P = this.player.position;
+    if (clerk) clerk.yaw = Math.atan2(P.x - clerk.x, P.z - clerk.z);
+    const covered = this.weapons.aiming && clerk && this.aimedAt(clerk);
+    if (covered) {
+      r.t += dt;
+      r.slack = 0;
+    } else r.slack += dt;
+    const cash = Math.round((r.till * Math.min(1, r.t / ROB_TIME)) / 10) * 10;
+    this.hud.mission({ title: 'HOLD-UP', time: null, rows: [['TILL', `$${cash} / $${r.till}`], ['', covered ? 'Keep him covered' : 'Aim at the clerk!']] });
+    if (r.t < ROB_TIME && r.slack < 1.6) return;
+    // done, or he slammed the alarm button while you looked away: either way the alarm is on
+    this.robbery = null;
+    this.hud.mission(null);
+    b.robbedAt = performance.now();
+    this.alarm = true;
+    if (cash > 0) {
+      this.hud.addMoney(cash);
+      this.audio.cash();
+    }
+    this.hud.say(r.t >= ROB_TIME ? `Got <em>$${cash}</em>. The alarm’s ringing: get out of here!` : `He hit the alarm! You got <em>$${cash}</em>. Get out!`, 4);
   }
 
   closeMenu() {
@@ -934,6 +988,24 @@ export class Shops {
 
     const b = this.inside;
     b.ringIn.material.opacity = b.ringCounter.material.opacity = 0.45 + 0.3 * Math.sin(this.t * 4);
+    // a gun pointed at the clerk: a hold-up (24/7s and diners; Ammu-Nation shoots back, so no)
+    const clerk = this.clerks.get(b);
+    if (this.robbery) {
+      this.updateRobbery(dt, b, clerk);
+      if (this.robbery) return;
+    } else if (clerk && onFoot && this.weapons.aiming && this.aimedAt(clerk)) {
+      if (b.type === 'gun') {
+        if (!this.rebuffed) this.hud.say('<em>Clerk:</em> "In <em>here</em>? Put it away before I use one of mine."', 3.5);
+        this.rebuffed = true;
+      } else if (b.type === 'clothes') {
+        if (!this.rebuffed) this.hud.say('<em>Clerk:</em> "We take cards only, genius. There’s no cash here."', 3.5);
+        this.rebuffed = true;
+      } else if (b.robbedAt && performance.now() - b.robbedAt < ROB_COOLDOWN) {
+        if (!this.rebuffed) this.hud.say('<em>Clerk:</em> "Again?! You already emptied the till!"', 3.5);
+        this.rebuffed = true;
+      } else this.startRobbery(b, clerk);
+      if (this.robbery) return;
+    } else this.rebuffed = false;
     // out through the door
     const dOut = Math.hypot(P.x - b.exitRing.x, P.z - b.exitRing.z);
     if (this.needLeave) {

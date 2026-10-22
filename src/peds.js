@@ -73,7 +73,7 @@ export class Peds {
     this.spawnTimer = 0;
     this.onCash = null;
     const clip = (n) => heroGltf.animations.find((a) => a.name === n);
-    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
+    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'HandsUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     this.modelClips = {
       male: retargetClips(this.clips, heroGltf.scene, models.male.scene),
       female: retargetClips(this.clips, heroGltf.scene, models.female.scene),
@@ -860,6 +860,7 @@ export class Peds {
     const a = p.anim;
     if (p.overlay) a.target = { [p.overlay.name]: 1 };
     else if (p.state === 'down') a.target = { knockdown: 1 };
+    else if (p.cower && a.actions.handsup) a.target = { handsup: 1 }; // held up at gunpoint
     else if (p.state === 'flee') a.target = { run: 1 };
     else if (p.state === 'fight') a.target = p.cur > 2.1 ? { run: 1 } : p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
     else if ((p.state === 'cop' || p.state === 'contact') && p.aimingGun && a.actions.pistolaim) a.target = { pistolaim: 1 };

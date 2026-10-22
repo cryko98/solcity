@@ -16,6 +16,8 @@ const GLYPHS = {
   race: '<path d="M7 5v15" stroke="#fff" stroke-width="1.6"/><path d="M8 5.6h10v7.6H8z" fill="#fff"/><path d="M8 5.6h2.5v2.5H8zm5 0h2.5v2.5H13zM10.5 8.1H13v2.5h-2.5zm5 0H18v2.5h-2.5zM8 10.6h2.5v2.6H8zm5 0h2.5v2.6H13z" fill="#222"/>',
   // ramp with a jump arc
   stunt: '<path d="M4.5 18.5h15L4.5 12.5z"/><path d="M8 10c2.5-4.5 7.5-5 11-1.2" fill="none" stroke="#fff" stroke-width="1.6" stroke-dasharray="1.6 1.4"/><path d="m19.8 6.6-.4 3.2-3-.9z"/>',
+  // house (safehouse)
+  house: '<path d="M12 4.6 4.4 11h2.2v8h4.2v-4.6h2.4V19h4.2v-8h2.2z"/>',
   // person (mission contact)
   contact: '<circle cx="12" cy="8.6" r="3.2"/><path d="M5.8 19.2c.5-3.8 3-5.6 6.2-5.6s5.7 1.8 6.2 5.6z"/>',
 };
@@ -25,10 +27,11 @@ export const ICONS = {
   food: { color: '#f08a24', name: 'Restaurant' },
   clothes: { color: '#9b5de5', name: 'Clothes store' },
   mart: { color: '#2bb673', name: '24/7 store' },
-  spray: { color: '#e0407e', name: "Pay 'n' Spray" },
+  spray: { color: '#e0407e', name: "Pay 'n' Spray & Sol Customs" },
   race: { color: '#3a3f47', name: 'Street race' },
   stunt: { color: '#e0a81e', name: 'Stunt jump' },
   contact: { color: '#d4a514', name: 'Mission contact' },
+  house: { color: '#3aa0d8', name: 'Safehouse (grey: for sale)' },
 };
 
 export function iconSvg(key, size = 24) {
