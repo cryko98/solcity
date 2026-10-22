@@ -165,7 +165,7 @@ export class Story {
     this.arrow.visible = false;
     this.scene.add(this.arrow);
     // small yellow rings in front of each contact
-    this.contactRings = CONTACTS.map(() => beam(0xffd23f, 0.9));
+    this.contactRings = CONTACTS.map(() => beam(0xffd23f, 1.7));
   }
 
   dress(p, outfit) {
@@ -640,22 +640,31 @@ export class Story {
       return;
     }
 
-    // start a mission: on foot, in the ring
-    if (driving || busy || P.dead || P.busted) return;
+    // start a mission: walk (or drive and stop) into the yellow ring at the door
+    if (P.dead || P.busted) return;
+    const me = driving ? driving.vehicle.pos : P.position;
+    const dist = (c) => Math.hypot(me.x - c.stand.x, me.z - c.stand.z);
     if (this.needLeave) {
-      if (CONTACTS.every((c) => Math.hypot(P.position.x - c.stand.x, P.position.z - c.stand.z) > 3)) this.needLeave = false;
+      if (CONTACTS.every((c) => dist(c) > 4)) this.needLeave = false;
       return;
     }
     for (const c of CONTACTS) {
       if (this.progress[c.id] >= c.missions.length) continue;
-      if (Math.hypot(P.position.x - c.stand.x, P.position.z - c.stand.z) > 1.2) {
+      if (dist(c) > (driving ? 4 : 2)) {
         if (this.hinted === c) this.hinted = null;
         continue;
       }
-      if (this.wanted.level) {
-        if (this.hinted !== c) this.hud.say(`${c.name}: "Not with the cops on your tail. Lose them first."`, 3);
+      // say once per visit why the scene can't start yet
+      const why = this.wanted.level ? 'Not with the cops on your tail. Lose them first.' : busy ? 'Finish what you are doing first.' : null;
+      if (why) {
+        if (this.hinted !== c) this.hud.say(`<em>${c.name}:</em> "${why}"`, 3);
         this.hinted = c;
         continue;
+      }
+      if (driving) {
+        // stop in the ring and the hero gets out by himself
+        if (driving.vehicle.speed > 2) continue;
+        this.exitCar?.();
       }
       this.startCutscene(c);
       return;

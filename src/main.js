@@ -175,6 +175,11 @@ Promise.all([
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
     story.onSave = () => saveGame();
+    story.exitCar = () => {
+      if (!driving) return;
+      exitQueued = false;
+      exitVehicle();
+    };
     story.load(savedStory);
     hud.stats = stats;
     stunts.onStunt = () => (stats.uniqueJumps = stunts.doneCount);

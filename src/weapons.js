@@ -40,9 +40,9 @@ export class Weapons {
     this.onShot = null; // (pos) => void  (gunfire is a crime when heard)
     this.makeFx();
     this.makePickups(heroScene);
-    // start the game with a pistol in hand
+    // start with bare fists; the pistol is in the pocket (key 2)
     this.inv.pistol = { mag: WEAPONS.pistol.mag, reserve: WEAPONS.pistol.start - WEAPONS.pistol.mag };
-    this.equip('pistol');
+    this.equip(null);
   }
 
   // ---------------------------------------------------------------- effects
