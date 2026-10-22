@@ -89,6 +89,30 @@ back out. You can't go in while the cops are after you.
 The minimap and the big map (M) show every shop and place of interest with its own SVG icon
 (`src/icons.js`); the big map has a legend.
 
+**Hold-ups:** point a gun at the clerk of a 24/7 or a diner. He puts his hands up and the till
+empties while you keep him covered (6 s); look away too long and he hits the alarm. Walking out of a
+robbed shop brings two stars, and the till needs a few minutes to fill up again. Ammu-Nation, the
+clothes stores and the bank turn you down.
+
+**Sol City Reserve:** the bank downtown (`bank` in the shop list), a marble hall with a teller counter
+and the vault door at the back. Nothing to buy; it's where Zara's bank job happens.
+
+## Sol Customs
+
+The Pay 'n' Spray garage in Little Havana doubles as a tuning shop (`src/spray.js`). Drive in with no
+cops after you and the door comes down on a menu: respray, engine, brakes and suspension (three levels
+each), nitro (hold Shift while driving; the bar under the speedometer refills slowly), tinted windows,
+rims (chrome / black / gold) and repair. Upgrades change the car's handling (`tunedSpec` in
+`src/vehicles.js`) and look. With the cops after you, the old quick respray still loses them ($100).
+
+## Safehouses
+
+A free flat in Little Havana, a Downtown loft ($12,000) and a South Beach villa ($30,000), blue house
+icons on the map (grey while for sale; `src/safehouses.js`). The ring at the door saves the game;
+E buys the place, or sleeps 8 hours with your health back. Two marked parking bays at the kerb out
+front: a car left standing in one is kept, colour and Sol Customs upgrades included, and is back in
+its bay next session.
+
 ## Hidden packages
 
 Twenty taped-up parcels are hidden around Sol City: along building walls, on the beaches, up
@@ -108,7 +132,7 @@ Dying costs a $100 hospital bill.
 
 ## Story missions
 
-One story in twelve missions: Nico helps Little Havana, the docks and a crooked cop against the Russo brothers,
+One story in fifteen missions: Nico helps Little Havana, the docks and a crooked cop against the Russo brothers,
 and ends up working for **Zara**, the woman behind DaCity, the city's new money. Four contacts give the jobs
 (yellow letter blips, only the ones with work for you right now): **Rosa** (R, her cafe in Little Havana),
 **Vince** (V, his office in an Old Harbor warehouse), **Lt. Diaz** (D, an interview room at the Downtown precinct)
@@ -120,7 +144,10 @@ Three missions per contact, in story order: beat up a racketeer, a timed deliver
 supercar without a scratch, stop a snitch's getaway car, grab evidence and shake off the cops, a coffee run to
 four cafes against the clock, clear a Russo crew off the pier, pick up five cash bags before the patrols do,
 steal the Russos' armored van, a bike run through five drops, and the finale: the crew at the Russo club, then
-Marco Russo's getaway car. MISSION PASSED pays out and the progress is saved. During a mission the GPS line follows the streets and ordinary crimes don't raise
+Marco Russo's getaway car. After that Zara plans the **bank job**: photograph the Sol City Reserve from
+three sides, steal a black saloon for the getaway and park it behind the bank, then the heist itself:
+three armed guards, twenty seconds of drilling at the vault door, out on the street with three stars and
+a getaway to Zara's garage. MISSION PASSED pays out and the progress is saved. During a mission the GPS line follows the streets and ordinary crimes don't raise
 your wanted level. Talking / listening clips (sitting and standing) are made in `blender/build_character.py`.
 
 ## Police helicopter

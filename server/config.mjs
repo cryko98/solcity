@@ -78,6 +78,7 @@ export const config = {
   storyRewards: json('STORY_REWARDS', {
     rosa1: 10, rosa2: 12, vince1: 15, vince2: 18, diaz1: 20, diaz2: 22,
     rosa3: 25, vince3: 28, diaz3: 30, zara1: 35, zara2: 40, zara3: 60,
+    zara4: 30, zara5: 40, zara6: 100,
   }),
   raceReward: num('RACE_REWARD', 3), // per finished race (gold pays double)
   raceDailyPerRace: num('RACE_DAILY_PER_RACE', 2), // paid finishes per race per wallet per day

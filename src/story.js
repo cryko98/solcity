@@ -13,13 +13,15 @@ import * as THREE from 'three';
 import { Vigilante } from './vigilante.js';
 import { buildInteriors, SEAT_Y } from './interiors.js';
 import { chooseOutfit } from './materials.js';
-import { STORY, CONTACT_PLACES, missionSpots } from './shared/world.mjs';
+import { STORY, CONTACT_PLACES, missionSpots, getawaySpot } from './shared/world.mjs';
 
 const FLOOR = -0.03;
 const FADE = 0.45;
 
 const PLAYER = 'NICO';
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const GUARD = { Shirt: '#24324d', Denim: '#1a2133', Hair: '#120d0a', Sneaker: '#0d0d0d', wear: 'male_elegantsuit01' };
+const DRILL = 20; // seconds at the vault door
 const GOON = { Shirt: '#1a1a1e', Denim: '#141417', Hair: '#0a0a0a', Sneaker: '#101010', wear: 'male_elegantsuit01' };
 
 // ------------------------------------------------------------------ dialogue
@@ -164,6 +166,37 @@ const SCRIPT = {
       [PLAYER, 'See you at the top, Zara.'],
     ],
     text: 'Take out the <em>Russo crew</em> at their club.', armed: 4,
+  },
+  zara4: {
+    title: 'THE RESERVE', pay: 2000, pose: 'sit',
+    lines: [
+      ['ZARA', 'The Russos are gone. Their money is not. It sits in the vault of the Sol City Reserve, downtown.'],
+      [PLAYER, 'You want to rob a bank.'],
+      ['ZARA', 'I want back what they bled out of this city. Every dollar of it goes into DaCity.'],
+      ['ZARA', 'First, eyes on the place. Photograph the front, the side street and the loading bay out back.'],
+      [PLAYER, 'A tourist with a camera. Easy.'],
+    ],
+    text: 'Take <em>photos</em> of the bank: stand still at each marker.',
+  },
+  zara5: {
+    title: 'WHEELS OUT', pay: 3000, pose: 'stand',
+    lines: [
+      ['ZARA', 'Good photos. The street behind the Reserve is our way out.'],
+      ['ZARA', 'We need a getaway car nobody looks at twice and nothing catches. A black saloon, up in Vinewood Hills.'],
+      ['ZARA', 'Leave it on the street behind the bank. Clean: no cops, no scratches.'],
+    ],
+    stealText: 'Steal the <em>black saloon</em> in Vinewood Hills.',
+    dropText: 'Park it on the street <em>behind the bank</em>.',
+  },
+  zara6: {
+    title: 'THE BIG SCORE', pay: 25000, pose: 'sit',
+    lines: [
+      ['ZARA', 'Tonight. Three guards inside, armed. The cameras are mine.'],
+      ['ZARA', 'Take them out, drill the vault, grab the bags. The alarm goes the moment you walk out with them.'],
+      [PLAYER, 'And then every cop in Sol City.'],
+      ['ZARA', 'Then you lose them, like you always do, and bring the money here. The car is waiting behind the bank.'],
+      ['ZARA', 'Do this, Nico, and you never have to work for anyone again.'],
+    ],
   },
 };
 
@@ -618,7 +651,7 @@ export class Story {
     } else if (m.type === 'steal') {
       const [spot, drop] = spots;
       const van = m.vehicle === 'van';
-      const car = v.spawn({ x: spot.x, z: spot.z, yaw: spot.yaw, color: van ? 0x2c3036 : 0xf5c400, model: m.vehicle || 'super' });
+      const car = v.spawn({ x: spot.x, z: spot.z, yaw: spot.yaw, color: van ? 0x2c3036 : m.vehicle === 'lux' ? 0x111114 : 0xf5c400, model: m.vehicle || 'super' });
       const minHealth = van ? 30 : 55;
       ms.data.car = car;
       ms.steps = [
@@ -768,6 +801,92 @@ export class Story {
       ms.cleanup = () => bags.forEach((b) => {
         this.scene.remove(b.g, b.beam);
       });
+    } else if (m.type === 'scout') {
+      // photos of the bank: stand (or stop the car) at each marker for a moment
+      const names = ['the front', 'the side street', 'the loading bay'];
+      let k = 0, still = 0;
+      ms.steps = [S(m.text, (dt) => {
+        const p = spots[k], here = me(), d = this.getDriving();
+        this.goalOn(p, 3);
+        this.hud.blips = spots.slice(k).map((q, i) => ({ x: q.x, z: q.z, color: i ? '#9a8a40' : '#ffd23f' }));
+        this.routeTo(here, p);
+        ms.rows = [['PHOTOS', k + ' / ' + spots.length]];
+        const slow = d ? d.vehicle.speed < 1 : this.player.speed < 0.3;
+        still = Math.hypot(here.x - p.x, here.z - p.z) < 3.5 && slow ? still + dt : 0;
+        if (still < 1.5) return null;
+        still = 0;
+        k++;
+        this.audio.blip({ noise: 0.5, cutoff: 3000, dur: 0.06, gain: 0.3 }); // shutter
+        this.dacity?.mark();
+        this.hud.say('Photo of ' + names[k - 1] + '.', 2);
+        return k >= spots.length ? 'next' : null;
+      })];
+    } else if (m.type === 'heist') {
+      // in through the front, the guards, the vault, out with the money, lose the police
+      const bank = this.shop?.branches.find((q) => q.type === 'bank');
+      const drop = spots[1], ga = getawaySpot();
+      const getaway = v.spawn({ x: ga.x, z: ga.z, yaw: ga.yaw, color: 0x111114, model: 'lux' });
+      const inBank = () => !!bank && this.shop.inside === bank;
+      let guards = [], drill = 0;
+      ms.steps = [
+        S('Go into the <em>Sol City Reserve</em>.', () => {
+          if (!bank || inBank()) return 'next';
+          this.arrowOn(bank.door.x, 3.2, bank.door.z);
+          this.hud.blips = [{ x: bank.door.x, z: bank.door.z, color: '#ffd23f' }];
+          this.routeTo(me(), bank.door);
+          return null;
+        }),
+        S('Take out the <em>guards</em>.', (dt) => {
+          if (!inBank()) return 'fail:You left the bank.';
+          return fightCrew(guards, dt) ? 'next' : null;
+        }, () => {
+          guards = (bank?.guardSpots || []).map((p) => {
+            const g = ped.add('male', p.x, p.z, Math.PI);
+            g.state = 'contact';
+            g.keep = g.hostile = g.gunman = true;
+            this.arm(g);
+            this.dress(g, GUARD);
+            return g;
+          });
+        }),
+        S('Drill the <em>vault</em>: stay at the vault door.', (dt) => {
+          if (!inBank()) return 'fail:You left the bank.';
+          this.goalOn(bank.vault, 1.2);
+          this.hud.blips = [];
+          if (at(bank.vault, 1.5)) {
+            const before = Math.floor(drill * 3);
+            drill += dt;
+            if (Math.floor(drill * 3) !== before) this.audio.blip({ noise: 0.7, cutoff: 900, dur: 0.25, gain: 0.18 }); // the drill
+          }
+          ms.rows = [['DRILL', Math.min(100, Math.round((drill / DRILL) * 100)) + '%']];
+          if (drill < DRILL) return null;
+          this.audio.cash();
+          return 'next';
+        }),
+        S('The vault is open: grab the money and <em>get out</em>!', () => {
+          if (inBank()) {
+            this.goalOn(bank.exitRing, 1);
+            return null;
+          }
+          // out on the street with the bags: the alarm has every patrol on its way
+          this.wanted.crime('ko_cop', true);
+          this.wanted.crime('ko_cop', true);
+          return 'next';
+        }),
+        S('Lose the cops and bring the money to <em>Zara</em>. The getaway car is behind the bank.', () => {
+          this.goalOn(drop);
+          this.routeTo(me(), drop);
+          const blips = [{ x: drop.x, z: drop.z, color: '#ffd23f' }];
+          if (!getaway.wrecked && this.getDriving() !== getaway && !ms.gone(getaway)) {
+            const p = posOf(getaway);
+            blips.push({ x: p.x, z: p.z, color: '#4fa3ff' });
+          }
+          this.hud.blips = blips;
+          ms.rows = this.wanted.level ? [['COPS', 'Lose them first']] : null;
+          return !this.wanted.level && at(drop, 5) ? 'next' : null;
+        }),
+      ];
+      ms.cleanup = () => this.disarm(guards);
     } else if (m.type === 'finale') {
       // the crew outside the club, then Marco Russo makes a run for it
       const goons = crew(spots[0], m.goons);
@@ -886,6 +1005,11 @@ export class Story {
   }
 
   routeTo(from, to) {
+    // no GPS line from inside a building
+    if (this.shop?.inside) {
+      this.hud.route = null;
+      return;
+    }
     this.hud.route = this.city.gpsRoute({ x: from.x, z: from.z }, { x: to.x, z: to.z });
     this.hud.routeColor = '#ffd23f';
   }

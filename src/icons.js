@@ -16,6 +16,8 @@ const GLYPHS = {
   race: '<path d="M7 5v15" stroke="#fff" stroke-width="1.6"/><path d="M8 5.6h10v7.6H8z" fill="#fff"/><path d="M8 5.6h2.5v2.5H8zm5 0h2.5v2.5H13zM10.5 8.1H13v2.5h-2.5zm5 0H18v2.5h-2.5zM8 10.6h2.5v2.6H8zm5 0h2.5v2.6H13z" fill="#222"/>',
   // ramp with a jump arc
   stunt: '<path d="M4.5 18.5h15L4.5 12.5z"/><path d="M8 10c2.5-4.5 7.5-5 11-1.2" fill="none" stroke="#fff" stroke-width="1.6" stroke-dasharray="1.6 1.4"/><path d="m19.8 6.6-.4 3.2-3-.9z"/>',
+  // bank: columns under a pediment
+  bank: '<path d="M12 4.4 4.6 8.6h14.8z"/><rect x="5" y="17.4" width="14" height="1.8"/><path d="M6.6 10h1.8v6.6H6.6zm4.5 0h1.8v6.6h-1.8zm4.5 0h1.8v6.6h-1.8z"/>',
   // house (safehouse)
   house: '<path d="M12 4.6 4.4 11h2.2v8h4.2v-4.6h2.4V19h4.2v-8h2.2z"/>',
   // person (mission contact)
@@ -32,6 +34,7 @@ export const ICONS = {
   stunt: { color: '#e0a81e', name: 'Stunt jump' },
   contact: { color: '#d4a514', name: 'Mission contact' },
   house: { color: '#3aa0d8', name: 'Safehouse (grey: for sale)' },
+  bank: { color: '#1d2a44', name: 'Sol City Reserve (bank)' },
 };
 
 export function iconSvg(key, size = 24) {

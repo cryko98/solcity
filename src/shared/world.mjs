@@ -67,7 +67,15 @@ export const SHOP_BRANCHES = [
   ['food', 'BURGER SOL', 2, 6], ['food', 'TACO LOCO', 0, 4], ['food', 'PIZZA SOL', 5, 4],
   ['clothes', 'SOL THREADS', 3, 6], ['clothes', 'SOL THREADS', 6, 7], ['clothes', 'SOL THREADS', 7, 5],
   ['mart', '24/7', 0, 2], ['mart', '24/7', 7, 6], ['mart', '24/7', 5, 8], ['food', 'BURGER SOL', 9, 7],
+  ['bank', 'SOL CITY RESERVE', 5, 6],
 ];
+
+// the bank job (Zara's last three missions)
+export const BANK_BLOCK = [5, 6];
+// the bank's street face, middle (its door is somewhere along it, depending on the building)
+export const bankFront = () => ({ x: blockMin(BANK_BLOCK[0]) + BLOCK / 2, z: blockMin(BANK_BLOCK[1]) - 1.5 });
+// the getaway car waits on the street behind the bank
+export const getawaySpot = () => roadside(BANK_BLOCK[0], BANK_BLOCK[1] + 1, 30);
 
 // ------------------------------------------------------------------ story
 // contacts stand at a door on the south side of their block
@@ -99,6 +107,9 @@ export const STORY = [
   { id: 'zara1', contact: 'zara', type: 'steal', where: [2, 0], vehicle: 'van', after: 'diaz3' },
   { id: 'zara2', contact: 'zara', type: 'route', vehicle: 'bike', stops: [[9, 3], [6, 0], [2, 3], [5, 9], [8, 8]], after: 'zara1' },
   { id: 'zara3', contact: 'zara', type: 'finale', where: [7, 7], goons: 7, after: 'zara2' },
+  { id: 'zara4', contact: 'zara', type: 'scout', after: 'zara3' },
+  { id: 'zara5', contact: 'zara', type: 'steal', where: [7, 2], vehicle: 'lux', drop: 'getaway', after: 'zara4' },
+  { id: 'zara6', contact: 'zara', type: 'heist', after: 'zara5' },
 ];
 export const storyById = Object.fromEntries(STORY.map((m) => [m.id, m]));
 
@@ -115,7 +126,15 @@ export function missionSpots(m) {
     case 'destroy':
       return [{ ...roadside(m.where[0], m.where[1], 25), r: 45 }];
     case 'steal':
-      return [{ ...roadside(m.where[0], m.where[1], 22), r: 15 }, { ...roadside(c.block[0], c.block[1], c.t + 8), r: 14 }];
+      return [{ ...roadside(m.where[0], m.where[1], 22), r: 15 }, m.drop === 'getaway' ? { ...getawaySpot(), r: 14 } : { ...roadside(c.block[0], c.block[1], c.t + 8), r: 14 }];
+    case 'scout': {
+      // photos of the bank: the front from across the street, the side street, the back
+      const [bi, bj] = BANK_BLOCK, x0 = blockMin(bi), z0 = blockMin(bj);
+      return [{ x: x0 + BLOCK / 2, z: roadC(bj) - ROAD / 2 - 1.5, r: 12 }, { x: roadC(bi + 1), z: z0 + BLOCK / 2, r: 12 }, { x: x0 + BLOCK / 2, z: roadC(bj + 1), r: 12 }];
+    }
+    case 'heist':
+      // in through the front door, then the money to Zara's garage
+      return [{ ...bankFront(), r: 30 }, { ...roadside(c.block[0], c.block[1], c.t + 8), r: 14 }];
     case 'chase':
       return [];
     case 'evidence':
@@ -138,7 +157,7 @@ export function missionMinSeconds(m) {
   const pts = [contactStand(m.contact), ...missionSpots(m)];
   let d = 0;
   for (let k = 1; k < pts.length; k++) d += Math.max(0, Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z) - pts[k].r);
-  const extra = { beat: 8, deliver: 6, destroy: 6, steal: 8, chase: 12, evidence: 15, route: 10, gang: 25, collect: 10, finale: 45 }[m.type] || 10;
+  const extra = { beat: 8, deliver: 6, destroy: 6, steal: 8, chase: 12, evidence: 15, route: 10, gang: 25, collect: 10, finale: 45, scout: 12, heist: 90 }[m.type] || 10;
   return Math.max(15, d / 55 + extra);
 }
 

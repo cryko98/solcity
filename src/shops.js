@@ -45,11 +45,13 @@ const FRONT_LOOK = {
   gun: { wall: 0x2e3136, trim: 0x585e66, metal: true, inside: '#3b3d40', goods: ['#1d1d1f', '#4a4d52', '#7a6a50', '#2b2f35', '#8a8f96'] },
   food: { wall: 0xf1e3c8, trim: 0xb8452a, inside: '#f4e7cb', goods: ['#d2452c', '#f2c12e', '#7cbf4a', '#e98b2e', '#8a5032'] },
   clothes: { wall: 0xf4f2ee, trim: 0x2b2b30, inside: '#efe9df', goods: ['#c0392b', '#2c3e70', '#e8d8b0', '#4a7a5a', '#222', '#d98cb3'] },
+  bank: { wall: 0xe6dfcd, trim: 0x8a7650, inside: '#e9e1cc', goods: ['#c9a24a', '#5a3a24', '#2e6b3c', '#8e959c'] },
   mart: { wall: 0xf2f4f1, trim: 0x1f7a45, inside: '#e8eef0', goods: ['#d63a3a', '#f2c12e', '#3d6ea8', '#2bb673', '#ef8a3c', '#8a5fb0'] },
 };
 const ROB_TIME = 6; // seconds of holding the clerk at gunpoint to empty the till
 const ROB_COOLDOWN = 5 * 60 * 1000; // before the same till has cash in it again
 const STYLE = {
+  bank: { sign: '#d9b44a', awning: 0x1d2a44 },
   gun: { sign: '#ff4040', awning: 0x8e1b1b },
   food: { sign: '#ffb02e', awning: 0xc8541c },
   clothes: { sign: '#c38bff', awning: 0x5d2e8c },
@@ -518,6 +520,71 @@ function clothesInterior(r, models) {
   return { counter: { x: -3.6, z: cz - 0.95 }, clerk: { x: -3.6, z: cz + 0.75, yaw: Math.PI }, clerkKind: 'female', wear: 'female_elegantsuit01' };
 }
 
+// the Sol City Reserve: marble hall, a teller counter with glass screens across the
+// middle (a gate at the right end), benches and plants, and the round vault door at the back
+function bankInterior(r) {
+  const { W, D } = r;
+  const stone = std({ color: 0xe9e2d0, roughness: 0.45 });
+  const wood = std({ map: planks('#5a3a24'), roughness: 0.5 });
+  const brass = std({ color: 0xc9a24a, roughness: 0.3, metalness: 0.9 });
+  const steel = std({ color: 0x8e959c, roughness: 0.3, metalness: 0.85 });
+  const dark = std({ color: 0x2a2c30, roughness: 0.5, metalness: 0.5 });
+  const screen = std({ color: 0xbfd6e2, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.35 });
+  const green = std({ color: 0x2e6b3c, roughness: 0.8 });
+  // columns along the side walls
+  for (const x of [-W / 2 + 0.6, W / 2 - 0.6]) for (const z of [-D / 2 + 2.5, 0, D / 2 - 2.5]) r.cyl(stone, 0.32, 0.36, r.H, x, 0, z, 18);
+  // the teller counter across the room (gate at the right end), glass screens and brass rails on top
+  const cz = 0.6, gate = 1.6, cw = W - 2.4 - gate;
+  const cx0 = -W / 2 + 1.2 + cw / 2;
+  r.box(wood, cw, 1.1, 0.7, cx0, 0, cz, 0, true);
+  r.box(stone, cw + 0.1, 0.06, 0.8, cx0, 1.1, cz);
+  r.box(screen, cw, 1.0, 0.03, cx0, 1.16, cz + 0.1);
+  r.box(brass, cw, 0.04, 0.05, cx0, 2.17, cz + 0.1);
+  for (let x = -W / 2 + 1.4; x < -W / 2 + 1.2 + cw; x += 2.2) r.box(brass, 0.05, 1.0, 0.05, x, 1.16, cz + 0.1);
+  r.box(wood, 0.12, 1.1, 0.7, W / 2 - 1.2 - gate / 2 + gate / 2, 0, cz); // gate post
+  // teller stations behind the glass: chairs, monitors
+  for (let x = cx0 - cw / 2 + 1.2; x < cx0 + cw / 2 - 0.6; x += 2.2) {
+    r.box(dark, 0.42, 0.3, 0.06, x, 1.16, cz + 0.32);
+    r.chair(dark, x, cz + 1.0, Math.PI);
+  }
+  // waiting benches and plants in the front half
+  for (const x of [-3.5, 3.5]) {
+    r.box(wood, 2.4, 0.08, 0.5, x, 0.45, -D / 2 + 2.6, 0, true);
+    r.box(dark, 2.2, 0.45, 0.06, x, 0, -D / 2 + 2.6);
+  }
+  for (const [x, z] of [[-W / 2 + 1.4, -D / 2 + 1.2], [W / 2 - 1.4, -D / 2 + 1.2]]) {
+    r.cyl(dark, 0.3, 0.24, 0.5, x, 0, z, 14);
+    r.cyl(green, 0.05, 0.45, 1.2, x, 0.5, z, 8);
+  }
+  // the vault door: a thick round steel door in a steel frame, bolts, the wheel
+  const vz = D / 2 - 0.2;
+  r.box(steel, 3.4, 3.2, 0.4, 0, 0, vz, 0, true);
+  const door = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, 0.35, 40).rotateX(Math.PI / 2), steel);
+  door.position.set(0, 1.55, vz - 0.32);
+  r.group.add(door);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.06, 8, 40), brass);
+  ring.position.set(0, 1.55, vz - 0.52);
+  r.group.add(ring);
+  for (let k = 0; k < 3; k++) {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.07, 0.07), brass);
+    spoke.position.set(0, 1.55, vz - 0.6);
+    spoke.rotation.z = (k * Math.PI) / 3;
+    r.group.add(spoke);
+  }
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    r.cyl(dark, 0.06, 0.06, 0.12, Math.cos(a) * 1.15, 1.55 + Math.sin(a) * 1.15 - 0.06, vz - 0.52, 8);
+  }
+  neonSign(r, 'SOL CITY RESERVE', '#d9b44a', 4.4, 0, 3.6, D / 2 - 0.25, Math.PI);
+  for (const [x, z] of [[-4, -3], [0, -3], [4, -3], [-4, 2.5], [0, 2.5], [4, 2.5]]) r.lamp(x, 3.6, z, 'tube');
+  return {
+    counter: { x: -2, z: cz - 0.75 }, clerk: { x: -2, z: cz + 0.95, yaw: Math.PI }, clerkKind: 'female', wear: 'female_elegantsuit01',
+    vault: { x: 0, z: vz - 1.4 },
+    // where the night guards stand
+    guards: [{ x: -4.5, z: -1.5 }, { x: 4.6, z: -0.8 }, { x: 2.0, z: D / 2 - 2.2 }],
+  };
+}
+
 function martInterior(r) {
   const { W, D } = r;
   const white = std({ color: 0xeef0f2, roughness: 0.5 });
@@ -577,20 +644,21 @@ export class Shops {
     BRANCHES.forEach(([type, name, bi, bj], k) => {
       const b = this.front(type, name, bi, bj);
       if (!b) return;
-      const W = type === 'mart' ? 12 : type === 'food' ? 14 : 13, D = type === 'food' ? 11 : 10, H = type === 'mart' ? 3.4 : 3.6;
+      const W = type === 'bank' ? 16 : type === 'mart' ? 12 : type === 'food' ? 14 : 13, D = type === 'bank' ? 12 : type === 'food' ? 11 : 10, H = type === 'bank' ? 4.4 : type === 'mart' ? 3.4 : 3.6;
       const floors = {
         gun: std({ map: TX.concrete(), roughness: 0.85, color: 0x9a9a9a }),
         food: std({ map: checker('#ece6d6', '#26262a'), roughness: 0.35 }),
         clothes: std({ map: planks('#b89a6e'), roughness: 0.55 }),
         mart: std({ map: tiles('#eceae4', '#c9c6be'), roughness: 0.4 }),
+        bank: std({ map: checker('#ece6da', '#b9b2a2', 6), roughness: 0.2 }),
       };
       floors[type].map.repeat.set(W / 2, D / 2);
       floors[type].map.wrapS = floors[type].map.wrapT = THREE.RepeatWrapping;
-      const walls = { gun: 0x34373d, food: 0xf1e2c6, clothes: 0xf4f2ee, mart: 0xf0f2f4 };
+      const walls = { gun: 0x34373d, food: 0xf1e2c6, clothes: 0xf4f2ee, mart: 0xf0f2f4, bank: 0xe4dcc8 };
       const r = new Room(this.scene, IN_X + k * IN_STEP, IN_Z, W, D, H, {
         floor: floors[type], wall: std({ color: walls[type], roughness: 0.85 }), ceiling: std({ color: 0xe8e6e0, roughness: 0.9, side: THREE.DoubleSide }),
       });
-      const spec = type === 'gun' ? gunInterior(r, guns) : type === 'food' ? foodInterior(r, name) : type === 'clothes' ? clothesInterior(r, this.models) : martInterior(r);
+      const spec = type === 'gun' ? gunInterior(r, guns) : type === 'food' ? foodInterior(r, name) : type === 'clothes' ? clothesInterior(r, this.models) : type === 'bank' ? bankInterior(r) : martInterior(r);
       r.finish();
       colliders.push(...r.colliders);
       b.room = r;
@@ -598,6 +666,10 @@ export class Shops {
       b.entry = r.world(0, -D / 2 + 1.9);
       b.exitRing = r.world(0, -D / 2 + 0.9);
       b.counter = r.world(spec.counter.x, spec.counter.z);
+      if (spec.vault) {
+        b.vault = r.world(spec.vault.x, spec.vault.z);
+        b.guardSpots = spec.guards.map((p) => r.world(p.x, p.z));
+      }
       b.ringIn = this.ring(STYLE[type].sign, b.exitRing.x, b.exitRing.z);
       b.ringCounter = this.ring(STYLE[type].sign, b.counter.x, b.counter.z, 0.55);
       this.branches.push(b);
@@ -759,6 +831,7 @@ export class Shops {
         return { label: it.name + (own ? ' ammo' : ''), price: own ? Math.round(it.price * 0.4) : it.price, it };
       });
     }
+    if (b.type === 'bank') return [];
     if (b.type === 'food') return MENUS[b.name].map(([n, p, hp]) => ({ label: `${n} <small>+${hp} HP</small>`, price: p, hp }));
     if (b.type === 'mart') return MART_ITEMS.map(([n, p, hp]) => ({ label: hp ? `${n} <small>+${hp} HP</small>` : n, price: p, hp, lottery: !hp }));
     return CLOTHES.map((c) => ({ label: c.name + (this.outfit[c.part] === c.color ? ' <small>(wearing)</small>' : ''), price: c.price, c }));
@@ -769,7 +842,7 @@ export class Shops {
     this.el.style.borderLeftColor = color;
     this.el.innerHTML = `<div class="s-title" style="color:${color}">${b.name}</div>` + this.items(b).map((it, i) =>
       `<div class="s-row${money < it.price ? ' poor' : ''}"><kbd>${i + 1}</kbd><span>${it.label}</span><b>$${it.price}</b></div>`).join('') +
-      '<div class="s-foot">Walk away to leave</div>';
+      (b.type === 'bank' ? '<div class="s-row"><span>Accounts by appointment only.</span></div>' : '') + '<div class="s-foot">Walk away to leave</div>';
   }
 
   buy(b, i) {
@@ -996,6 +1069,9 @@ export class Shops {
     } else if (clerk && onFoot && this.weapons.aiming && this.aimedAt(clerk)) {
       if (b.type === 'gun') {
         if (!this.rebuffed) this.hud.say('<em>Clerk:</em> "In <em>here</em>? Put it away before I use one of mine."', 3.5);
+        this.rebuffed = true;
+      } else if (b.type === 'bank') {
+        if (!this.rebuffed) this.hud.say('<em>Teller:</em> "The tills are time-locked. The real money is in the vault, and you’d need a crew for that."', 4);
         this.rebuffed = true;
       } else if (b.type === 'clothes') {
         if (!this.rebuffed) this.hud.say('<em>Clerk:</em> "We take cards only, genius. There’s no cash here."', 3.5);

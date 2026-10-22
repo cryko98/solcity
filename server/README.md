@@ -42,7 +42,7 @@ protection of the pot**. Tune them to what you are willing to pay per wallet per
 against farms of many wallets the $SOLCITY holding requirement (`MIN_HOLDING`) is the
 strongest tool: every extra wallet costs 10 000 tokens. Turnstile helps against bots.
 
-Default numbers: the story pays 315 DaCity in total per wallet, races 3 (gold 6), at most
+Default numbers: the story (15 missions, the bank job last) pays 485 DaCity in total per wallet, races 3 (gold 6), at most
 120 per wallet per day, 2000 per wallet ever, 5000 for the whole game per day. A wallet's
 first payout is sent once it has earned `MIN_PAYOUT` (20), because creating its token
 account costs the payout wallet about 0.002 SOL.
