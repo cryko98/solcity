@@ -31,6 +31,7 @@ export class Races {
     Object.assign(this, { scene, city, hud, audio });
     this.state = 'idle';
     this.race = null;
+    this.list = RACES;
     for (const r of RACES) {
       r.route = this.makeRoute(r);
       const [a, b] = r.route;

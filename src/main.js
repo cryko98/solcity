@@ -315,6 +315,8 @@ Promise.all([
         env.setWeather('clear', true);
       },
       toggleVehicle,
+      seat: (c) => seatPlayer(c),
+      exit: () => exitVehicle(),
       setCinematic: (fn) => (cinematic = fn),
       resize: (w, h) => {
         camera.aspect = w / h;

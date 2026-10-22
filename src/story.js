@@ -134,6 +134,7 @@ export class Story {
     this.dlg = document.getElementById('dialogue');
     this.rooms = buildInteriors(this.scene);
     this.fadeEl = document.getElementById('fade');
+    this.contacts = CONTACTS;
     this.makeMarkers();
     for (const c of CONTACTS) this.placeContact(c);
   }

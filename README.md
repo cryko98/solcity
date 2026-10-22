@@ -146,8 +146,10 @@ Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove gene
 
 ## Trailer
 
-`SolCity_Trailer.mp4` is recorded from the game itself: open http://localhost:8080/?trailer
-(frames are saved to `captures/trailer/`), then encode with music:
+`SolCity_Trailer.mp4` (60 s) is recorded from the game itself: open http://localhost:8080/?trailer
+(frames are saved to `captures/trailer/`), then encode with music. Every shot is a whole number of beats of
+the 123 BPM track, so the cuts land on the beat. `?trailer&from=8&to=8` re-records only those shots (the
+others are simulated without saving, so the frame numbers stay the same).
 
 ```bash
 blender -b --factory-startup -P blender/encode_trailer.py -- . vendor/music/cyberpunk_beat_disquantic_cc0.mp3 SolCity_Trailer.mp4
