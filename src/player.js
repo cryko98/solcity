@@ -513,6 +513,18 @@ export class Player {
     this.lean += (THREE.MathUtils.clamp(-this.yawRate * 0.08, -0.25, 0.25) - this.lean) * (1 - Math.exp(-5 * dt));
     this.pitch *= Math.exp(-6 * dt);
     this.model.rotation.set(this.pitch, 0, this.lean);
+    // swimming into the quay or a jetty: climb out onto it
+    if (hasInput) {
+      const ax = p.x + Math.sin(this.yaw) * 0.7, az = p.z + Math.cos(this.yaw) * 0.7, gh = this.city.groundHeight(ax, az);
+      if (gh > this.city.WATER_Y + 0.25 && gh < this.city.WATER_Y + 1.4) {
+        p.set(ax, gh, az);
+        this.swimming = false;
+        this.grounded = true;
+        this.moveSpeed = 0;
+        this.showWeapon();
+        return this.animate(dt);
+      }
+    }
     // touching bottom: wade out
     if (this.city.waterDepth(p.x, p.z) < SWIM_OUT) {
       this.swimming = false;

@@ -275,6 +275,18 @@ export class Fx {
     }
   }
 
+  // white water: thrown up at the bow (spray) or left behind on the surface (wake)
+  wake(x, y, z, sx, vx, vz, spray) {
+    this.smoke.emit(x, y + 0.05, z, sx + vx + (Math.random() - 0.5) * 0.6, spray ? 1.2 + Math.random() : 0.15, vz + (Math.random() - 0.5) * 0.6,
+      spray ? 0.5 + Math.random() * 0.3 : 1.4 + Math.random() * 1.2, spray ? 0.2 : 0.5, spray ? 0.6 : 2.2, 0.92, 0.96, 1.0, spray ? 0.55 : 0.4, spray ? 1.5 : 2.5, spray ? -8 : 0);
+  }
+
+  // the fire truck's water cannon: drops along a falling arc
+  jet(x, y, z, vx, vy, vz) {
+    const j = () => (Math.random() - 0.5) * 1.2;
+    this.smoke.emit(x, y, z, vx + j(), vy + j(), vz + j(), 0.9 + Math.random() * 0.4, 0.12, 0.5, 0.8, 0.88, 0.98, 0.6, 0.2, -9.8);
+  }
+
   // gun smoke drifting from the muzzle
   muzzleSmoke(at) {
     this.smoke.emit(at.x, at.y, at.z, (Math.random() - 0.5) * 0.3, 0.3 + Math.random() * 0.3, (Math.random() - 0.5) * 0.3,

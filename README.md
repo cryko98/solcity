@@ -189,6 +189,49 @@ The weather cycles between clear, cloudy, rain and thunderstorms: rain, wet glos
 lightning and thunder. After dark the street lamps nearest to you are real lights (they light up walls,
 cars and people; HIGH / MEDIUM / LOW quality uses 6 / 4 / 2 of them) and car headlights light up the road.
 
+## Side jobs
+
+Every working vehicle waits at its depot (map icons); get in and press `T`. A fresh one turns up at the depot
+once you have driven off with it.
+
+- **Paramedic** (ambulance, Sol General Hospital): the injured lie on the pavement (red blips). Stop next to
+  them and the crew loads them (three fit), then get them to the hospital before time runs out. One more patient each level.
+- **Firefighter** (fire truck, Fire Station 3): cars on fire around town. Hold the mouse button to work the
+  roof cannon, which sprays where you look; a fire goes out after a couple of seconds of water (and people in the jet go over).
+- **Bus driver** (Sol Transit depot, Downtown): six stops round Downtown, Little Havana and South Beach. Stop in the yellow
+  beam, the waiting passengers walk to the door; pay per passenger, a bonus for being on time and for each full round.
+- **Trucker** (Port of Sol, west end of the container quay): back the truck up to the trailer to hitch it,
+  deliver it across town against the clock; dents come off the pay. The trailer swings out behind on the turns.
+- **Tow truck** (City Impound): back up to the broken-down car to hook it (front or back), haul it to the lot.
+
+## Swimming, boats and jetskis
+
+The beach shelves gently into the sea: wade in and he swims once it is chest-deep (front crawl, `Shift`
+faster; treading water when you stop). No guns in the water, and nobody follows you in. Swim into a quay or a jetty
+to climb out. A car driven into the sea floods. Speedboats and jetskis are tied up along the harbour quay and at the
+beach jetty: `F` from the quay or the water to climb aboard. They ride the swell, lift the bow under power,
+lean into turns and leave a wake; they can't go up the beach or over the quay.
+The sea itself: rolling swell, ripples, clear turquoise over the sand, deep blue further out, surf on the beach.
+
+## Things to do
+
+- **Iron Sol Gym** (Little Havana): treadmill (tap `Space` to hold the pace: stamina, a faster sprint) and
+  bench press (hammer `Space`: strength, harder punches). Both are kept between sessions.
+- **Club Solar** (South Beach): a rhythm game on the dance floor (arrows / WASD to the beat, tips for a good
+  dance) with a dancing crowd, darts against Eddie ($50 to play, $150 if you win), drinks at the bar.
+- **Pixel Palace** (Old Harbor): two playable cabinets, SOL INVADERS and NEON SNAKE; a new high score over 300 pays out.
+- **Sol Cuts** (barber): haircuts and dyes. **Ink Sol** (tattoo parlour): four designs fitted to the arms, or laser removal.
+
+## Bounty hunting, street events, DaCity ATMs
+
+- The notice board next to Lt. Diaz's door (Downtown precinct) has a wanted man: the yellow area is where he
+  was last seen. He runs or shoots; bring him in alive (knock him down, `E` to cuff) for the full bounty, dead for half.
+- Random street events: a bag snatcher, a getaway car, a broken-down driver who needs a push (hold `E`), a
+  mugging in progress. Help out for a reward.
+- DaCity ATMs stand outside the bank and the 24/7 stores: `E` shows your DaCity balance and payouts
+  (only when the game runs on the Sol City server).
+- Phones and tablets get touch controls: a joystick under the left thumb, drag to look, buttons for the rest.
+
 ## Vigilante missions
 
 In a police cruiser press `T`: a getaway car (red blip) flees across the city. Ram it until the engine
@@ -207,7 +250,8 @@ Downtown (glass towers), South Beach (art deco + neon), Little Havana (colourful
 shophouses with balconies), Old Harbor (warehouses, container yards), Vinewood Hills
 (villas with pools), all on an island of 10 x 10 blocks with three parks, a beach and the Port of Sol container terminal.
 Vehicles: sedan, coupe, taxi (lit roof sign at night), supercar, luxury saloon, delivery van, police cruiser and a motorbike (`blender/build_car.py`,
-`blender/build_bike.py`), plus the police helicopter (`blender/build_heli.py`).
+`blender/build_bike.py`), the police helicopter (`blender/build_heli.py`), and the working vehicles and boats
+(`blender/build_heavy.py`): ambulance, fire truck, city bus, semi truck and trailer, tow truck, speedboat, jetski.
 Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove generated live with WebAudio.
 
 ## World
@@ -252,6 +296,7 @@ blender -b --factory-startup -P blender/build_character.py -- .
 blender -b --factory-startup -P blender/build_car.py -- .
 blender -b --factory-startup -P blender/build_bike.py -- .
 blender -b --factory-startup -P blender/build_heli.py -- .
+blender -b --factory-startup -P blender/build_heavy.py -- .
 ```
 
 Each script writes the GLB to `assets/models/` and a `.blend` file to `blender/`.

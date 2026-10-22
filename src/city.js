@@ -157,6 +157,15 @@ export function buildCity(scene) {
   ground.receiveShadow = true;
   city.wetMats.push(ground.material, sidewalkMat);
   scene.add(ground);
+  // the sea bed: the beach flat to EXT, then shelving down under the water; along the quays of
+  // the port (north-west) the water is deep right off the edge, so boats can tie up there
+  const seaBed = (x, z) => {
+    const out = Math.max(Math.abs(x), Math.abs(z)) - EXT;
+    const beach = out > 0 ? Math.max(-12, -0.03 - out * 0.06) : -0.03;
+    const hw = x < -EXT ? THREE.MathUtils.clamp((-40 - z) / 25, 0, 1) : 0;
+    const hn = z < -EXT ? THREE.MathUtils.clamp(-x / 25, 0, 1) : 0;
+    return THREE.MathUtils.lerp(beach, Math.min(beach, -6), Math.max(hw, hn));
+  };
   // beach: flat to EXT, then slopes down under the water
   const sandTex = TX.sand();
   const SAND = EXT + 40;
@@ -164,8 +173,7 @@ export function buildCity(scene) {
   const sandGeo = new THREE.PlaneGeometry(SAND * 2, SAND * 2, 64, 64).rotateX(-HALF_PI);
   const sp = sandGeo.attributes.position;
   for (let i = 0; i < sp.count; i++) {
-    const out = Math.max(Math.abs(sp.getX(i)), Math.abs(sp.getZ(i))) - EXT;
-    sp.setY(i, out > 0 ? -0.03 - out * 0.06 : -0.03);
+    sp.setY(i, seaBed(sp.getX(i), sp.getZ(i)));
   }
   sandGeo.computeVertexNormals();
   const sandMesh = new THREE.Mesh(sandGeo, std({ map: sandTex, roughness: 1 }));
@@ -239,6 +247,9 @@ export function buildCity(scene) {
         // depth of the water here: the same shelf as city.groundHeight
         float out_ = max(abs(vSea.x), abs(vSea.y)) - uExt;
         float bed = out_ > 0.0 ? max(-12.0, -0.03 - out_ * 0.06) : -0.03;
+        float hw = vSea.x < -uExt ? clamp((-40.0 - vSea.y) / 25.0, 0.0, 1.0) : 0.0;
+        float hn = vSea.y < -uExt ? clamp(-vSea.x / 25.0, 0.0, 1.0) : 0.0;
+        bed = mix(bed, min(bed, -6.0), max(hw, hn));
         float depth = max(0.0, -0.55 + vCrest - bed);
         vec3 shallow = vec3(0.05, 0.72, 0.72), mid = vec3(0.03, 0.5, 0.62), deep = vec3(0.01, 0.16, 0.34);
         vec3 sea = mix(shallow, mid, smoothstep(0.0, 1.6, depth));
@@ -800,6 +811,7 @@ export function buildCity(scene) {
   }
   // ------------------------------------------------------------- beach: palms, umbrellas, lifeguard towers
   const onQuay = (x, z) => quayParts.some(([ax, bx, az, bz]) => x > ax - 4 && x < bx + 4 && z > az - 4 && z < bz + 4);
+  const onQuayDeck = (x, z) => quayParts.some(([ax, bx, az, bz]) => x > ax - 0.2 && x < bx + 0.2 && z > az - 0.2 && z < bz + 0.2);
   for (let a = -EXT + 10; a < EXT - 10; a += 16) {
     for (const [x, z] of [[a, HALF + 7], [a, -HALF - 7], [HALF + 7, a], [-HALF - 7, a]]) {
       if (onQuay(x, z) || rand() < 0.3) continue;
@@ -1299,16 +1311,16 @@ export function buildCity(scene) {
   city.EXT = EXT;
   city.WATER_Y = -0.55; // the sea's surface
   // the beach shelves down under the water past EXT (the same slope as the sand mesh), then deep sea
-  const seabed = (x, z) => {
-    const out = Math.max(Math.abs(x), Math.abs(z)) - EXT;
-    // (the shop and story rooms are built far out past the edge of the world: level floor there)
-    return out > 0 && out < 200 ? Math.max(-12, -0.03 - out * 0.06) : -0.03;
-  };
+  // (the shop and story rooms are built far out past the edge of the world: level floor there)
+  const seabed = (x, z) => (Math.max(Math.abs(x), Math.abs(z)) - EXT < 200 ? seaBed(x, z) : -0.03);
+  // wooden jetties and pontoons you can walk out on: { minX, maxX, minZ, maxZ, y }
+  city.decks = [];
   // quay deck is level with the roads; the hill rises out of the sea; elsewhere the beach and the seabed
   const baseGround = city.groundHeight;
   city.groundHeight = (x, z) => {
     if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) return baseGround(x, z);
-    if (onQuay(x, z)) return 0;
+    for (const d of city.decks) if (x > d.minX && x < d.maxX && z > d.minZ && z < d.maxZ) return d.y;
+    if (onQuayDeck(x, z)) return 0;
     const t = city.terrain(x, z);
     return t > 0 ? Math.max(t, seabed(x, z)) : seabed(x, z);
   };

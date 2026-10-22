@@ -14,7 +14,20 @@ export const SPECS = {
   super: { engine: 21, vmax: 78, reverse: 10, brake: 34, steer: 0.6, grip: 12.5, wheelbase: 2.74, radius: 0.36, halfW: 1.02, halfL: 2.28, circles: [-1.35, 0, 1.35], r: 1.0, recline: 0.55 },
   lux: { engine: 11.5, vmax: 54, reverse: 9, brake: 26, steer: 0.55, grip: 9, wheelbase: 3.63, radius: 0.37, halfW: 1.0, halfL: 2.7, circles: [-1.9, 0, 1.9], r: 0.99 },
   bike: { engine: 15, vmax: 54, reverse: 3, brake: 22, steer: 0.5, grip: 9, wheelbase: 1.45, radius: 0.31, halfW: 0.42, halfL: 1.05, circles: [-0.55, 0.55], r: 0.45, bike: true },
+  // the working vehicles of the side jobs (see jobs.js)
+  ambulance: { engine: 8.5, vmax: 42, reverse: 8, brake: 19, steer: 0.55, grip: 7.5, wheelbase: 3.87, radius: 0.4, halfW: 1.15, halfL: 3.3, circles: [-2.2, -0.75, 0.75, 2.2], r: 1.12 },
+  firetruck: { engine: 7, vmax: 38, reverse: 7, brake: 17, steer: 0.5, grip: 7, wheelbase: 5.47, radius: 0.52, halfW: 1.27, halfL: 4.75, circles: [-3.5, -1.15, 1.15, 3.5], r: 1.25 },
+  bus: { engine: 5.5, vmax: 30, reverse: 6, brake: 15, steer: 0.5, grip: 6.5, wheelbase: 5.7, radius: 0.5, halfW: 1.3, halfL: 5.85, circles: [-4.6, -2.76, -0.92, 0.92, 2.76, 4.6], r: 1.25 },
+  truck: { engine: 7.5, vmax: 40, reverse: 6, brake: 16, steer: 0.5, grip: 7, wheelbase: 5.1, radius: 0.52, halfW: 1.2, halfL: 3.65, circles: [-2.4, -0.8, 0.8, 2.4], r: 1.2 },
+  // a trailer has no engine: it rolls behind the truck (towUpdate)
+  trailer: { engine: 0, vmax: 1, reverse: 1, brake: 10, steer: 0, grip: 9, wheelbase: 9.675, radius: 0.52, halfW: 1.3, halfL: 6.1, circles: [-4.9, -2.45, 0, 2.45, 4.9], r: 1.25, axle: -4.475 },
+  towtruck: { engine: 9, vmax: 44, reverse: 8, brake: 21, steer: 0.58, grip: 8, wheelbase: 3.67, radius: 0.42, halfW: 1.05, halfL: 3.05, circles: [-1.95, -0.65, 0.65, 1.95], r: 1.05 },
+  // boats: thrust and rudder on the water (updateBoat); draft: how deep they sit
+  boat: { engine: 9, vmax: 26, reverse: 5, brake: 6, steer: 0.5, grip: 1.6, wheelbase: 3.0, radius: 0.3, halfW: 1.18, halfL: 3.1, circles: [-1.9, 0, 1.9], r: 1.18, boat: true, draft: 0.5 },
+  jetski: { engine: 14, vmax: 30, reverse: 3, brake: 5, steer: 0.55, grip: 2.2, wheelbase: 1.4, radius: 0.3, halfW: 0.58, halfL: 1.6, circles: [-0.8, 0.8], r: 0.6, bike: true, boat: true, draft: 0.25 },
 };
+// the longest reach of any vehicle from its centre (collision search windows)
+const MAX_HALF_L = Math.max(...Object.values(SPECS).map((s) => s.halfL));
 const specOf = (c) => SPECS[c.model] || SPECS.sedan;
 
 // Sol Customs upgrades (c.tune): engine / brakes / grip levels 0-3, nitro, tint, rims
@@ -33,6 +46,8 @@ const PALETTES = {
   super: [0xc8102e, 0xf5c400, 0x7ad11f, 0xff6a13, 0xf2f2f2, 0x111214, 0x1f5fd6],
   lux: [0x0d0e10, 0x2b2d31, 0xb9bdc2, 0xf1efe9, 0x4a1420, 0x14213d],
   police: [0x111214],
+  ambulance: [0xf4f4f0], firetruck: [0xb3141c], bus: [0xf2c12e], truck: [0xf2f2ee, 0x1f4f9e, 0xb3202a, 0x2a2c30], towtruck: [0xe8a21a],
+  boat: [0xf4f4f0, 0x1f4f9e, 0xb3202a], jetski: [0xff4fa3, 0x41d6ff, 0xffd23f, 0x7dff6a],
 };
 export const colorFor = (model, fallback) => {
   const p = PALETTES[model];
@@ -114,10 +129,10 @@ class Vehicle {
       }
     });
     this.body = this.root.getObjectByName('Body');
-    // wheels: wheel_FL / FR / RL / RR on cars, wheel_F / wheel_R on the bike
+    // wheels: wheel_FL / FR / RL / RR on cars (RL2 / RR2: a second rear axle), wheel_F / wheel_R on the bike
     this.wheels = [];
     this.root.traverse((o) => {
-      if (!/^wheel_(FL|FR|RL|RR|F|R)$/.test(o.name)) return;
+      if (!/^wheel_(FL|FR|RL2?|RR2?|F|R)$/.test(o.name)) return;
       o.rotation.order = 'YXZ';
       this.wheels.push({ o, front: o.name[6] === 'F', rest: o.quaternion.clone(), at: o.position.clone() });
     });
@@ -134,9 +149,10 @@ class Vehicle {
     if (this.fork) this.forkRest = this.fork.quaternion.clone();
     this.sirenMats = [];
     this.root.traverse((o) => {
-      if (o.isMesh && (o.material.name === 'SirenRed' || o.material.name === 'SirenBlue')) {
+      if (o.isMesh && (o.material.name === 'SirenRed' || o.material.name === 'SirenBlue' || o.material.name === 'Beacon')) {
+        const n = o.material.name;
         o.material = o.material.clone();
-        o.material.emissive.set(o.material.name === 'SirenRed' ? 0xff1a1a : 0x2a5bff);
+        o.material.emissive.set(n === 'SirenRed' ? 0xff1a1a : n === 'SirenBlue' ? 0x2a5bff : 0xffa31a);
         this.sirenMats.push(o.material);
       }
     });
@@ -154,8 +170,16 @@ class Vehicle {
       }
     });
     this.sirenT = Math.random();
-    this.seat = this.root.getObjectByName('seat_driver').position.clone();
-    this.door = this.root.getObjectByName('door_driver').position.clone();
+    // (a trailer has neither seat nor door)
+    this.seat = this.root.getObjectByName('seat_driver')?.position.clone() || new THREE.Vector3();
+    this.door = this.root.getObjectByName('door_driver')?.position.clone() || new THREE.Vector3(1.6, 0, 0);
+    // towing: where a trailer / towed car hangs on (truck: the fifth wheel; tow truck: the boom
+    // at the back) and where a trailer / car is held (the kingpin; a car: its front bumper)
+    this.hitch = this.root.getObjectByName('Hitch')?.position.clone() || new THREE.Vector3(0, 0.6, -this.spec.halfL - 0.2);
+    this.pivot = this.root.getObjectByName('Kingpin')?.position.clone() || new THREE.Vector3(0, 0.5, this.spec.halfL);
+    this.towedBy = null;
+    this.towing = null;
+    this.wave = Math.random() * 10;
     this.object = new THREE.Group();
     this.object.add(this.root);
     scene.add(this.object);
@@ -294,6 +318,8 @@ class Vehicle {
 
   update(dt, ctl, city, night, wet = 0) {
     const s = this.spec;
+    if (this.towedBy) return this.towUpdate(dt, city);
+    if (s.boat) return this.updateBoat(dt, ctl, city, night);
     const wreck = this.data.wrecked;
     if (this.doorSwing && !this.data.entering) {
       this.doorOpen = Math.max(0, this.doorOpen + this.doorSwing * dt);
@@ -388,6 +414,97 @@ class Vehicle {
     this.lightPool.visible = this.lightCone.visible = lit && !!this.headMat && this.hopY < 0.3;
     if (this.tailMat) this.tailMat.emissiveIntensity = this.braking ? 5 : lit ? 1.2 : 0;
     this.sync();
+  }
+
+  // boats and the jetski: thrust and a rudder that bites harder with speed, the water's drag,
+  // sliding through turns; they ride the swell, lift the bow under power and lean into turns.
+  // They can't go where the water is shallower than they sit (the beach, the quay).
+  updateBoat(dt, ctl, city, night) {
+    const s = this.spec;
+    if (this.data.wrecked) ctl = null;
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = -fz, rz = fx;
+    let vf = this.vel.x * fx + this.vel.z * fz, vl = this.vel.x * rx + this.vel.z * rz;
+    const thr = ctl ? ctl.throttle : 0, steerIn = ctl ? ctl.steer : 0;
+    this.braking = false;
+    if (thr > 0) vf += s.engine * thr * Math.max(0, 1 - vf / s.vmax) * dt;
+    else if (thr < 0) {
+      this.braking = vf > 0.5;
+      vf -= s.engine * 0.6 * Math.max(0, 1 + vf / s.reverse) * dt;
+    }
+    vf -= vf * (thr ? 0.12 : 0.45) * dt; // water drag: it coasts to a stop with the throttle off
+    this.throttle = Math.max(0, thr);
+    this.steer += (steerIn * s.steer - this.steer) * (1 - Math.exp(-5 * dt));
+    const bite = 0.3 + Math.min(1, Math.abs(vf) / 9);
+    this.angVel += (this.steer * bite * 1.5 * (vf < -0.2 ? -1 : 1) - this.angVel) * (1 - Math.exp(-2.6 * dt));
+    vl *= Math.exp(-s.grip * dt);
+    this.slip = Math.abs(vl);
+    this.vel.set(fx * vf + rx * vl, 0, fz * vf + rz * vl);
+    this.vf = vf;
+    this.heading += this.angVel * dt;
+    const px = this.pos.x, pz = this.pos.z;
+    this.pos.addScaledVector(this.vel, dt);
+    // aground: back off the shallows / the quay wall
+    if (city.waterDepth(this.pos.x, this.pos.z) < s.draft || city.waterDepth(this.pos.x + fx * s.halfL * 0.8, this.pos.z + fz * s.halfL * 0.8) < s.draft * 0.6) {
+      this.pos.x = px;
+      this.pos.z = pz;
+      const sp = this.speed;
+      this.impact = Math.max(this.impact, sp);
+      if (sp > 9) this.damage((sp - 9) * 1.2);
+      this.vel.multiplyScalar(-0.3);
+      this.angVel *= 0.5;
+    }
+    this.collideStatic(city);
+    // the swell (roughly the sea shader's) under the hull
+    this.wave += dt;
+    const t = this.wave;
+    this.groundY = city.WATER_Y + 0.07 * Math.sin(t * 1.5 + this.pos.x * 0.21) + 0.045 * Math.sin(t * 2.2 + this.pos.z * 0.33);
+    const tP = -Math.min(0.14, Math.max(0, vf) * 0.007) + 0.03 * Math.sin(t * 1.3 + this.pos.z * 0.2);
+    const tR = THREE.MathUtils.clamp(-this.angVel * Math.max(0, vf) * (s.bike ? 0.05 : 0.02), -0.4, 0.4) + 0.03 * Math.sin(t * 1.1 + this.pos.x * 0.25);
+    const k = 1 - Math.exp(-4 * dt);
+    this.tPitch += (tP - this.tPitch) * k;
+    this.tRoll += (tR - this.tRoll) * k;
+    this.pitch = this.roll = 0;
+    this.hopY = 0;
+    const lit = (this.driven || this.data.ai) && night;
+    if (this.headMat) this.headMat.emissiveIntensity = lit ? 3 : 0;
+    if (this.tailMat) this.tailMat.emissiveIntensity = lit ? 1.2 : 0;
+    this.lightPool.visible = false;
+    this.lightCone.visible = lit && !!this.headMat;
+    this.sync();
+  }
+
+  // hanging on behind a truck / the tow truck: the hitch drags the pivot along, the axle
+  // follows it round corners (a towed car rides on its back wheels, nose up on the boom)
+  towUpdate(dt, city) {
+    const t = this.towedBy, s = this.spec;
+    const tf = [Math.sin(t.heading), Math.cos(t.heading)];
+    const hx = t.pos.x + tf[1] * t.hitch.x + tf[0] * t.hitch.z, hz = t.pos.z - tf[0] * t.hitch.x + tf[1] * t.hitch.z;
+    const axle = s.axle ?? -s.wheelbase / 2; // where it rolls (local z)
+    const f = [Math.sin(this.heading), Math.cos(this.heading)];
+    const ax = this.pos.x + f[0] * axle, az = this.pos.z + f[1] * axle;
+    let dx = hx - ax, dz = hz - az;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d;
+    dz /= d;
+    // no folding up: the tow can't swing round more than ~100 degrees
+    let h = Math.atan2(dx, dz);
+    const rel = Math.atan2(Math.sin(h - t.heading), Math.cos(h - t.heading));
+    if (Math.abs(rel) > 1.75) h = t.heading + Math.sign(rel) * 1.75;
+    const nx = hx - Math.sin(h) * this.pivot.z, nz = hz - Math.cos(h) * this.pivot.z;
+    this.vel.set((nx - this.pos.x) / Math.max(dt, 1e-4), 0, (nz - this.pos.z) / Math.max(dt, 1e-4));
+    this.angVel = Math.atan2(Math.sin(h - this.heading), Math.cos(h - this.heading)) / Math.max(dt, 1e-4);
+    this.pos.set(nx, 0, nz);
+    this.heading = h;
+    this.vf = this.vel.x * Math.sin(h) + this.vel.z * Math.cos(h);
+    this.spin += (this.vf / s.radius) * dt;
+    this.followTerrain(dt, city);
+    if (!this.trailer) this.tPitch = -0.11; // a car on the boom: front wheels up
+    this.pitch = this.roll = 0;
+    this.sync();
+  }
+
+  get trailer() {
+    return this.data.model === 'trailer';
   }
 
   // ride on the hill: height from the terrain, body tilted to the slope, gravity along it
@@ -559,7 +676,7 @@ export class Vehicles {
         const k = near ? kn++ : kf++;
         _q.setFromAxisAngle(UP, c.yaw);
         if (specOf(c).bike) _q.multiply(_q2.setFromAxisAngle(Z_AXIS, -0.2)); // on the side stand
-        _m.compose(_p.set(c.x, this.city.terrain ? this.city.terrain(c.x, c.z) : 0, c.z), _q, _s);
+        _m.compose(_p.set(c.x, specOf(c).boat ? this.city.WATER_Y : this.city.terrain ? this.city.terrain(c.x, c.z) : 0, c.z), _q, _s);
         for (const p of parts) {
           const inst = near ? p.near : p.far;
           inst.setMatrixAt(k, tmp.multiplyMatrices(_m, p.rel));
@@ -610,6 +727,29 @@ export class Vehicles {
     return c;
   }
 
+  addParked(data) {
+    const c = { ...data, model: this.models[data.model] ? data.model : 'sedan', id: this.cars.length + 100000 + Math.floor(Math.random() * 1e6), vehicle: null };
+    this.cars.push(c);
+    this.batches[c.model]?.list.push(c);
+    this.dirty = true;
+    return c;
+  }
+
+  // hitch b on behind a (a trailer on the truck, a car on the tow truck); null: let go
+  hitch(a, b) {
+    const va = this.activate(a), vb = this.activate(b);
+    va.towing = vb;
+    vb.towedBy = va;
+  }
+
+  unhitch(a) {
+    const va = a.vehicle;
+    if (!va?.towing) return;
+    va.towing.towedBy = null;
+    va.towing.vel.set(0, 0, 0);
+    va.towing = null;
+  }
+
   remove(c) {
     if (c.vehicle) c.vehicle.dispose(this.scene);
     c.vehicle = null;
@@ -623,8 +763,12 @@ export class Vehicles {
     for (const c of this.cars) {
       if (c.wrecked) continue;
       const x = c.vehicle ? c.vehicle.pos.x : c.x, z = c.vehicle ? c.vehicle.pos.z : c.z;
-      if (Math.abs(x - pos.x) > 6 || Math.abs(z - pos.z) > 6) continue;
-      const d = Math.hypot(x - pos.x, z - pos.z) - 1.2;
+      if (Math.abs(x - pos.x) > 9 || Math.abs(z - pos.z) > 9) continue;
+      // (distance to the body's footprint: you can get into a bus from its door, not its middle)
+      const sp = specOf(c), h = c.vehicle ? c.vehicle.heading : c.yaw;
+      const lx = (x - pos.x) * Math.cos(h) - (z - pos.z) * Math.sin(h), lz = (x - pos.x) * Math.sin(h) + (z - pos.z) * Math.cos(h);
+      const d = Math.hypot(Math.max(0, Math.abs(lx) - sp.halfW), Math.max(0, Math.abs(lz) - sp.halfL)) + Math.min(1.2, sp.halfW);
+      if (sp.wheelbase > 9) continue; // (a trailer has no cab)
       if (d < bd) {
         bd = d;
         best = c;
@@ -643,7 +787,7 @@ export class Vehicles {
     if ((this.sweepTimer = (this.sweepTimer || 0) - dt) <= 0) {
       this.sweepTimer = 3;
       for (const c of [...this.cars]) {
-        if (!c.spawned || c.vehicle || c.owned || c.keep) continue; // keep: a story mission needs it
+        if (!c.spawned || c.vehicle || c.owned || c.keep || c.job) continue; // keep: a story mission needs it; job: a depot's vehicle
         if ((c.x - cam.x) ** 2 + (c.z - cam.z) ** 2 < 190 * 190) continue;
         const b = this.batches[c.model];
         if (b) b.list.splice(b.list.indexOf(c), 1);
@@ -670,7 +814,7 @@ export class Vehicles {
       const busy = c.burning || c.smolder > 0 || c.health < 65 || v.doorOpen > 0.01 || c.entering || c.roadblock;
       if (c !== driven && !c.ai && !busy && v.speed < 0.05 && Math.abs(v.angVel) < 0.02) {
         // tuned cars stay full models: the instanced fleet can't show tinted glass or painted rims
-        if ((v.restTime += dt) > 2 && !c.tune) this.deactivate(c);
+        if ((v.restTime += dt) > 2 && !c.tune && !v.towedBy && !v.towing && !c.keep) this.deactivate(c);
       } else v.restTime = 0;
     }
     if (this.fx) this.effects(dt, cam);
@@ -700,7 +844,7 @@ export class Vehicles {
       const d2 = (v.pos.x - cam.x) ** 2 + (v.pos.z - cam.z) ** 2;
       if (d2 > 110 * 110) {
         // out of sight the fire still burns down
-        if (c.burning && (c.health -= dt * 2.4) <= 0) c.explodeNow = true;
+        if (c.burning && !c.fireJob && (c.health -= dt * 2.4) <= 0) c.explodeNow = true;
         else if (c.wrecked) c.smolder -= dt;
         continue;
       }
@@ -711,7 +855,7 @@ export class Vehicles {
       const gy = v.groundY || 0;
       const ey = gy + v.hopY + (s.bike ? 0.7 : 0.95);
       if (c.burning) {
-        c.health -= dt * 2.4;
+        if (!c.fireJob) c.health -= dt * 2.4; // (a fire job's car burns until it is put out)
         if (c.health <= 0) c.explodeNow = true;
         fx.burning(ex, ey, ez, d2 < 60 * 60 ? 1 : 0.5);
         for (v.fireAcc += dt * 34; v.fireAcc > 1; v.fireAcc--) fx.flames(ex, ey - 0.1, ez, 1);
@@ -726,6 +870,17 @@ export class Vehicles {
       } else if (c.health < 65) {
         const dark = THREE.MathUtils.clamp((40 - c.health) / 25, 0, 1);
         for (v.smokeAcc += dt * (5 + 12 * (1 - c.health / 65)); v.smokeAcc > 1; v.smokeAcc--) fx.engineSmoke(ex, ey, ez, dark);
+      }
+      // boats: spray at the bow and a wake behind
+      if (s.boat) {
+        if (v.speed > 2 && d2 < 90 * 90) {
+          for (v.tyreAcc += dt * v.speed * 1.6; v.tyreAcc > 1; v.tyreAcc--) {
+            const b = Math.random() < 0.5, sd = Math.random() < 0.5 ? -1 : 1;
+            const along = b ? s.halfL * 0.6 : -s.halfL, side = b ? sd * s.halfW * 0.9 : (Math.random() - 0.5) * s.halfW;
+            fx.wake(v.pos.x + fxh * along + rx * side, v.groundY, v.pos.z + fzh * along + rz * side, rx * sd * (b ? 2 : 0.4), fxh * -v.vf * 0.2, fzh * -v.vf * 0.2, b);
+          }
+        }
+        continue;
       }
       // sliding tyres: rubber on the road + smoke
       if (d2 > 80 * 80 || c.wrecked) continue;
@@ -752,7 +907,8 @@ export class Vehicles {
       for (const b of this.cars) {
         if (b === a) continue;
         const [bx, bz, bh] = this.pose(b);
-        if (Math.abs(bx - va.pos.x) > 6 || Math.abs(bz - va.pos.z) > 6) continue;
+        if (Math.abs(bx - va.pos.x) > va.spec.halfL + MAX_HALF_L + 2 || Math.abs(bz - va.pos.z) > va.spec.halfL + MAX_HALF_L + 2) continue;
+        if (va.towing === b.vehicle || va.towedBy === b.vehicle) continue; // (the truck and its trailer)
         const bf = [Math.sin(bh), Math.cos(bh)];
         const sb = specOf(b), rr = va.spec.r + sb.r;
         for (const [ax, az] of va.circles()) {
@@ -798,9 +954,10 @@ export class Vehicles {
     let hit = 0;
     for (const c of this.cars) {
       const v = c.vehicle, x = v ? v.pos.x : c.x, z = v ? v.pos.z : c.z; // (no array: this runs for every person, every frame)
-      if (Math.abs(x - p.x) > 4 || Math.abs(z - p.z) > 4) continue;
+      if (Math.abs(x - p.x) > MAX_HALF_L + 1 || Math.abs(z - p.z) > MAX_HALF_L + 1) continue;
       const h = v ? v.heading : c.yaw;
       const spec = specOf(c);
+      if (Math.abs(x - p.x) > spec.halfL + 1 && Math.abs(z - p.z) > spec.halfL + 1) continue;
       const s = Math.sin(h), co = Math.cos(h);
       const dx = p.x - x, dz = p.z - z;
       const lx = dx * co - dz * s, lz = dx * s + dz * co; // into car space (+Z forward)

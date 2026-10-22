@@ -28,6 +28,7 @@ import { Birds } from './birds.js';
 import { PoliceHeli } from './heli.js';
 import { Shops } from './shops.js';
 import { Fun } from './fun.js';
+import { SideJobs } from './jobs.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
 import { DaCity } from './dacity.js';
@@ -118,6 +119,7 @@ let stunts = null;
 let heli = null;
 let shop = null;
 let fun = null;
+let jobs = null;
 let vigilante = null;
 let story = null;
 let dacity = null;
@@ -168,8 +170,10 @@ Promise.all([
   load('assets/models/npc_police.glb', true),
   load('assets/models/car_taxi.glb', true), load('assets/models/car_super.glb', true), load('assets/models/car_lux.glb', true),
   load('assets/models/heli_police.glb', true),
+  // the side jobs' working vehicles and the boats
+  ...['ambulance', 'firetruck', 'bus', 'truck', 'trailer', 'towtruck', 'boat', 'jetski'].map((n) => load(`assets/models/car_${n}.glb`, true)),
 ])
-  .then(([hero, sedan, coupe, npcMale, npcFemale, van, policeCar, bike, npcPolice, taxi, superCar, lux, heliModel]) => {
+  .then(([hero, sedan, coupe, npcMale, npcFemale, van, policeCar, bike, npcPolice, taxi, superCar, lux, heliModel, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski]) => {
     player = new Player(hero, city);
     player.position.copy(city.spawn);
     player.yaw = city.spawnYaw;
@@ -178,7 +182,7 @@ Promise.all([
     follow.zoom = follow.mode.zoom;
     follow.pitch = follow.mode.pitch;
     scene.add(player.object);
-    const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux }).filter(([, g]) => g));
+    const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));
     vehicles = new Vehicles(scene, city, carModels);
     traffic = new Traffic(city, vehicles);
     peds = new Peds(scene, city, hero, { male: npcMale, female: npcFemale, police: npcPolice }, vehicles);
@@ -202,6 +206,7 @@ Promise.all([
     fun = new Fun({ player, hud, audio, peds });
     shop = new Shops({ scene, city, hud, audio, weapons, player, env, follow, peds, wanted, fun, models: { male: npcMale, female: npcFemale } });
     vigilante = new Vigilante({ city, vehicles, hud, audio });
+    jobs = new SideJobs({ scene, city, vehicles, peds, hud, audio, fx });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
     story.onSave = () => saveGame();
     // DaCity rewards (only when the game runs on the Sol City server, see server/README.md)
@@ -364,7 +369,7 @@ Promise.all([
     overlay.classList.add('ready');
     window.__game = {
       player, city, follow, camera, renderer, scene, input: mainInput, story: () => story, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
-      env, fx, spray: () => spray, packages: () => packages, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, dacity: () => dacity, homes: () => homes, events: () => events, bounties: () => bounties, hud, radio,
+      env, fx, spray: () => spray, packages: () => packages, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, dacity: () => dacity, homes: () => homes, events: () => events, bounties: () => bounties, jobs: () => jobs, fun: () => fun, hud, radio,
       state: () => ({ driving }),
       step,
       render: () => composer.render(),
@@ -470,8 +475,8 @@ function toggleVehicle() {
     if (w.cop || police.units.some((u) => police.visible(u.c.vehicle.pos, player.position, 60))) wanted.crime('theft');
   }
   const v = vehicles.activate(c);
-  // motorbikes: straight on; cars: walk to the door, open it (drag the driver out), get in
-  if (v.spec.bike) {
+  // motorbikes, boats: straight on; cars: walk to the door, open it (drag the driver out), get in
+  if (v.spec.bike || v.spec.boat) {
     if (c.ai) {
       peds.unseatDriver(v);
       peds.spawnFleeing(v.pos.x + Math.cos(v.heading) * 1.4, v.pos.z - Math.sin(v.heading) * 1.4, player.position);
@@ -492,6 +497,8 @@ function seatPlayer(c) {
   driving = c;
   player.enterVehicle(v);
   follow.setMode('car');
+  // a bus or a fire truck needs the camera further back
+  follow.zoom = Math.min(follow.mode.maxZoom, follow.mode.zoom * Math.max(1, (v.spec.halfL / 2.4) ** 0.75));
   follow.yaw = v.heading;
 }
 
@@ -737,7 +744,7 @@ function step(dt) {
     vehicles.wet = env.wet;
     vehicles.update(dt, driving, ctl, night, camera.position);
     // drove into the sea: the car floods and you swim out of it
-    if (driving && driving.vehicle.data.drowned) {
+    if (driving && driving.vehicle.data.drowned && !driving.vehicle.spec.boat) {
       exitQueued = false;
       exitVehicle();
       hud.say('The engine flooded. Swim for it!', 3);
@@ -798,12 +805,13 @@ function step(dt) {
     }
     if (heli) heli.update(dt, { level: wanted.level, target: driving ? driving.vehicle.pos : player.position, nightK: env.nightK, camera });
     if (!races.active && !story.active) taxiJobs.update(dt, { player, driving, input, wanted });
+    jobs.update(dt, { player, driving, input, wanted, follow, busy: story.active || races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
     races.dim = env.nightK;
-    races.update(dt, { driving, input, wanted, blocked: taxiJobs.state !== 'off' || vigilante.state !== 'off' || story.active, dead: player.dead || player.busted });
+    races.update(dt, { driving, input, wanted, blocked: taxiJobs.state !== 'off' || vigilante.state !== 'off' || jobs.state !== 'off' || story.active, dead: player.dead || player.busted });
     spray.update(dt, driving, input);
     if (!shop.inside) homes.update(dt, input, driving);
-    events.update(dt, { driving, input, busy: story.active || races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' || !!shop.inside || bounties.active });
-    bounties.update(dt, { driving, input, busy: story.active || races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
+    events.update(dt, { driving, input, busy: story.active || races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' || jobs.state !== 'off' || !!shop.inside || bounties.active });
+    bounties.update(dt, { driving, input, busy: story.active || races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' || jobs.state !== 'off' });
     // DaCity ATMs on the street
     const atm = !driving && !player.dead && (shop.atms || []).find((a) => Math.hypot(a.x - player.position.x, a.z - player.position.z) < 1.3);
     if (atm && !nearAtm) hud.say('Press <em>E</em> to use the <em>DaCity ATM</em>.', 3);
@@ -813,7 +821,7 @@ function step(dt) {
     hud.setNitro(driving && driving.tune?.nitro && !driving.vehicle.spec.bike ? driving.vehicle.nitro / 3.5 : null, driving?.vehicle.boosting);
     if (!races.active && !story.active) vigilante.update(dt, { driving, input, dead: player.dead || player.busted });
     wanted.frozen = !!story.mission || !!shop.inside || bounties.active;
-    story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
+    story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' || jobs.state !== 'off' });
     dacity.update(dt, driving ? driving.vehicle.pos : player.position, !!shop.inside || !!story.cut);
     radio.update(dt, !!driving && !player.dead, input);
     // horn: people in front of the car jump out of the way
@@ -823,7 +831,7 @@ function step(dt) {
       const v = driving.vehicle;
       peds.scare(v.pos.x + Math.sin(v.heading) * 6, v.pos.z + Math.cos(v.heading) * 6, null, 9);
     }
-    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.kind !== 'stunt' && b.kind !== 'shop' && b.kind !== 'home' && b.kind !== 'event' && b.kind !== 'bounty' && !b.story), ...stunts.blips(), ...shop.blips(), ...homes.blips(), ...events.blips(), ...bounties.blips(), ...story.blips.map((b) => ({ ...b, story: true }))];
+    if (!races.active) hud.poiBlips = [...(hud.poiBlips || []).filter((b) => b.kind !== 'stunt' && b.kind !== 'shop' && b.kind !== 'home' && b.kind !== 'event' && b.kind !== 'bounty' && b.kind !== 'job' && !b.story), ...stunts.blips(), ...jobs.blips(), ...shop.blips(), ...homes.blips(), ...events.blips(), ...bounties.blips(), ...story.blips.map((b) => ({ ...b, story: true }))];
     hud.setWanted(wanted.level, wanted.flashing, elapsed);
     audio.siren(Math.min(police.nearestSiren(focusPos), ...(traffic.sirens || []).map((v) => Math.hypot(v.pos.x - focusPos.x, v.pos.z - focusPos.z))));
     let near = null, nd = 90;

@@ -884,6 +884,16 @@ LUX = dict(
 )
 
 MODELS = {"sedan": SEDAN, "coupe": COUPE, "police": POLICE, "van": VAN, "taxi": TAXI, "super": SUPER, "lux": LUX}
-only = [a for a in ARGS[1:] if a in MODELS]
-for name in only or MODELS:
-    build_car(name, MODELS[name])
+# heavy / special vehicles (ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski) live in
+# build_heavy.py, which imports the helpers above; their names are accepted here too.
+HEAVY = ("ambulance", "firetruck", "bus", "truck", "trailer", "towtruck", "boat", "jetski")
+
+if __name__ == "__main__":
+    only = [a for a in ARGS[1:] if a in MODELS or a in HEAVY]
+    for name in only or MODELS:
+        if name in MODELS:
+            build_car(name, MODELS[name])
+        else:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import build_heavy
+            build_heavy.MODELS[name]()

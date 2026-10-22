@@ -30,6 +30,13 @@ const GLYPHS = {
   gym: '<rect x="4" y="8.5" width="3" height="7" rx=".6"/><rect x="17" y="8.5" width="3" height="7" rx=".6"/><rect x="6.5" y="10" width="2" height="4"/><rect x="15.5" y="10" width="2" height="4"/><rect x="8.5" y="11.2" width="7" height="1.6"/>',
   // cocktail glass
   club: '<path d="M5.5 6h13L12 12.6z"/><path d="M12 12.4V18M8.6 18.6h6.8" stroke="#fff" stroke-width="1.6"/>',
+  // the side jobs' depots: a red cross, a flame, a bus, a truck, a tow hook; an anchor for boats
+  hospital: '<path d="M10 5h4v5h5v4h-5v5h-4v-5H5v-4h5z"/>',
+  fire: '<path d="M12 4c.6 3 4.6 5 4.6 9.4a4.6 4.6 0 0 1-9.2 0c0-2 1-3.2 2-4.2.2 1.5.9 2.4 1.8 2.8-.4-3 .4-5.6.8-8z"/>',
+  bus: '<rect x="6" y="5" width="12" height="12.5" rx="1.6"/><rect x="7.6" y="6.8" width="8.8" height="4.4" fill="#000" opacity=".35"/><circle cx="8.6" cy="19" r="1.3"/><circle cx="15.4" cy="19" r="1.3"/>',
+  truck: '<rect x="4" y="7" width="10" height="8" rx=".8"/><path d="M14 9.5h3.2l2.6 3v2.5H14z"/><circle cx="7.5" cy="16.6" r="1.5"/><circle cx="16.8" cy="16.6" r="1.5"/>',
+  tow: '<path d="M12 4v9a3 3 0 1 1-3-3" fill="none" stroke="#fff" stroke-width="1.8"/><rect x="9.5" y="3.5" width="5" height="2" rx=".6"/>',
+  boat: '<circle cx="12" cy="6.4" r="1.6" fill="none" stroke="#fff" stroke-width="1.4"/><path d="M12 8v11M8.6 11h6.8M5.6 14.2c.6 3 3.2 4.8 6.4 4.8s5.8-1.8 6.4-4.8" fill="none" stroke="#fff" stroke-width="1.6"/>',
   // joystick
   arcade: '<rect x="5" y="14.5" width="14" height="4.5" rx="1.2"/><path d="M12 14.5V9" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="7.6" r="2.6"/>',
 };
@@ -50,6 +57,12 @@ export const ICONS = {
   gym: { color: '#b3202a', name: 'Gym' },
   club: { color: '#9b30d9', name: 'Nightclub (dancing, darts)' },
   arcade: { color: '#1aa3c8', name: 'Arcade' },
+  hospital: { color: '#d63a3a', name: 'Hospital (paramedic job)' },
+  fire: { color: '#e0561e', name: 'Fire station (firefighter job)' },
+  bus: { color: '#d8a514', name: 'Bus depot (bus driver job)' },
+  truck: { color: '#2a7ad8', name: 'Port freight (trucker job)' },
+  tow: { color: '#c47a12', name: 'Impound lot (tow truck job)' },
+  boat: { color: '#1f6fa8', name: 'Boats and jetskis' },
 };
 
 export function iconSvg(key, size = 24) {
