@@ -657,6 +657,14 @@ export class Peds {
 
   updateDown(p, dt) {
     p.timer += dt;
+    // a dragged-out driver picks himself up and runs
+    if (p.getUpAt && p.timer > p.getUpAt) {
+      p.getUpAt = 0;
+      p.state = 'flee';
+      p.timer = 6;
+      if (!p.fleeFrom) p.fleeFrom = { x: p.x, z: p.z };
+      return;
+    }
     p.x += p.vel.x * dt;
     p.z += p.vel.z * dt;
     p.vel.multiplyScalar(Math.exp(-3.5 * dt));

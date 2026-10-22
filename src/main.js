@@ -27,6 +27,7 @@ import { PoliceHeli } from './heli.js';
 import { GunShop } from './shop.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
+import { CarEntry } from './carentry.js';
 
 const loadingBar = document.getElementById('loading-bar');
 const loadingText = document.getElementById('loading-text');
@@ -110,6 +111,7 @@ let heli = null;
 let shop = null;
 let vigilante = null;
 let story = null;
+let entry = null;
 let savedStory = null;
 const stats = { km: 0, wrecks: 0, uniqueJumps: 0, races: 0, fares: 0, suspects: 0, maxWanted: 0 };
 let gunfireCooldown = 0;
@@ -175,6 +177,20 @@ Promise.all([
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
     story.onSave = () => saveGame();
+    entry = new CarEntry({ player, peds, city, audio, hud });
+    entry.onEntered = (c) => seatPlayer(c);
+    entry.onExited = (c, bailed) => {
+      const v = c.vehicle;
+      v.driven = false;
+      driving = null;
+      exitQueued = false;
+      follow.setMode('foot');
+      if (bailed) {
+        follow.shake = 0.35;
+        hud.setHealth(player.health);
+      }
+    };
+    entry.onJack = (c) => wanted.crime(c.ai?.police ? 'ram_cop' : 'carjack');
     story.exitCar = () => {
       if (!driving) return;
       exitQueued = false;
@@ -290,7 +306,7 @@ Promise.all([
     overlay.classList.add('ready');
     window.__game = {
       player, city, follow, camera, renderer, scene, input: mainInput, story: () => story, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
-      env, fx, spray: () => spray, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, hud, radio,
+      env, fx, spray: () => spray, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, hud, radio,
       state: () => ({ driving }),
       step,
       render: () => composer.render(),
@@ -366,27 +382,46 @@ function witnessed(pos, victim) {
 }
 
 function toggleVehicle() {
+  if (entry?.active) {
+    // changed your mind on the way to the door
+    if (entry.steering) entry.cancel();
+    return;
+  }
   if (driving) {
-    // brake to a stop first, then step out
-    exitQueued = true;
+    const v = driving.vehicle;
+    // going fast: jump out and roll; otherwise brake to a stop and climb out
+    if (v.speed > 7) entry.bail(driving);
+    else exitQueued = true;
     return;
   }
   if (player.busted || player.dead || player.overlay) return;
-  const c = vehicles.nearest(player.position);
+  const c = vehicles.nearest(player.position, 6);
   if (!c) return;
-  if (c.ai && c.vehicle) {
-    // carjacking: the driver is pulled out and runs off
-    const v0 = c.vehicle;
-    peds.unseatDriver(v0);
-    const side = Math.cos(v0.heading), sideZ = -Math.sin(v0.heading);
-    peds.spawnFleeing(v0.pos.x + side * 1.6, v0.pos.z + sideZ * 1.6, player.position);
-    wanted.crime(c.ai.police ? 'ram_cop' : 'carjack');
-  } else if (!c.owned) {
+  if (c.vehicle && c.vehicle.speed > 9) return; // too fast to catch
+  if (!c.ai && !c.owned) {
     // stealing a parked car is only a crime if an officer sees it
     const w = peds.witnesses(player.position, 30);
     if (w.cop || police.units.some((u) => police.visible(u.c.vehicle.pos, player.position, 60))) wanted.crime('theft');
   }
   const v = vehicles.activate(c);
+  // motorbikes: straight on; cars: walk to the door, open it (drag the driver out), get in
+  if (v.spec.bike) {
+    if (c.ai) {
+      peds.unseatDriver(v);
+      peds.spawnFleeing(v.pos.x + Math.cos(v.heading) * 1.4, v.pos.z - Math.sin(v.heading) * 1.4, player.position);
+      wanted.crime(c.ai.police ? 'ram_cop' : 'carjack');
+    }
+    seatPlayer(c);
+    return;
+  }
+  entry.enter(c);
+}
+
+// in the seat: the car is ours now
+function seatPlayer(c) {
+  const v = vehicles.activate(c);
+  if (c.ai && !c.ai.police) c.ai = null;
+  if (v.npcDriver) peds.unseatDriver(v);
   v.driven = true;
   driving = c;
   player.enterVehicle(v);
@@ -595,7 +630,15 @@ function step(dt) {
     if (input.pressed('KeyP')) setQuality((quality + 1) % QUALITY.length, true);
     if (input.pressed('KeyF') || input.pressed('Enter')) toggleVehicle();
 
-    if (driving && exitQueued && driving.vehicle.speed < 1.5) exitVehicle();
+    // stopped: climb out (motorbikes: just step off)
+    if (driving && exitQueued && driving.vehicle.speed < 1.5) {
+      if (driving.vehicle.spec.bike || !driving.vehicle.doorMesh) exitVehicle();
+      else if (!entry.active) {
+        exitQueued = false;
+        entry.exit(driving);
+      }
+    }
+    entry.update(dt);
     // a hard crash throws you off a motorbike
     if (driving && driving.vehicle.spec.bike && driving.vehicle.impact > 7) {
       const v = driving.vehicle;
@@ -627,9 +670,10 @@ function step(dt) {
     stats.maxWanted = Math.max(stats.maxWanted, wanted.level);
     gunfireCooldown -= dt;
     shop.update(dt, input, !driving && !player.dead && !player.busted);
-    weapons.update(dt, input, { onFoot: !driving && !player.dead && !player.busted });
+    weapons.update(dt, entry.active ? NO_INPUT : input, { onFoot: !driving && !player.dead && !player.busted && !entry.active });
     player.aimPitch = follow.pitch;
-    player.update(dt, input, follow.yaw, vehicles, peds);
+    // walking to a car door: the entry sequence steers the hero
+    player.update(dt, entry.steering ? entry.input : entry.active ? NO_INPUT : input, entry.steering ? entry.yaw : follow.yaw, vehicles, peds);
     // health slowly comes back once you're out of a fight
     if (!player.dead && player.health < 100 && player.guardTimer < -6) {
       player.health = Math.min(100, player.health + 4 * dt);
@@ -642,6 +686,8 @@ function step(dt) {
       driverTimer = 0.4;
       for (const c of vehicles.active) {
         const v = c.vehicle;
+        // hands off while the hero is climbing in: the driver is his to drag out
+        if (c.entering) continue;
         const near = (v.pos.x - camera.position.x) ** 2 + (v.pos.z - camera.position.z) ** 2 < 60 * 60;
         const wantDriver = c.ai && near && !v.driven && !(c.ai.police && v.officersOut);
         if (wantDriver && !v.npcDriver) peds.seatDriver(v, c.ai.police ? 'police' : Math.random() < 0.4 ? 'female' : 'male');
@@ -732,7 +778,7 @@ function step(dt) {
     }
     fx.update(dt);
     hud.minutes = env.minutes;
-    hud.update(dt, focus, subject.yaw, follow.yaw, driving ? driving.vehicle.vf : null, !driving && vehicles.nearest(player.position));
+    hud.update(dt, focus, subject.yaw, follow.yaw, driving ? driving.vehicle.vf : null, !driving && !entry.active && vehicles.nearest(player.position));
 
   } else {
     camera.position.set(Math.sin(elapsed * 0.1) * 90, 45, Math.cos(elapsed * 0.1) * 90);

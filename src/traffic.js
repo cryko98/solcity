@@ -144,7 +144,7 @@ export class Traffic {
       ai.points.shift();
     }
 
-    let target = CRUISE;
+    let target = ai.halt ? 0 : CRUISE; // someone is going for the door
     // red light: brake to the stop point
     const stopIdx = ai.points.findIndex((p) => p.stop);
     if (stopIdx >= 0 && stopIdx < 4) {

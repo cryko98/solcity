@@ -109,6 +109,15 @@ class Vehicle {
       o.rotation.order = 'YXZ';
       this.wheels.push({ o, front: o.name[6] === 'F', rest: o.quaternion.clone() });
     });
+    this.doorMesh = this.root.getObjectByName('Door_L');
+    if (this.doorMesh) {
+      this.doorRest = this.doorMesh.quaternion.clone();
+      // the door is a thin shell: show its inside when it swings open
+      this.doorMesh.traverse((o) => {
+        if (o.isMesh) o.material.side = THREE.DoubleSide;
+      });
+    }
+    this.doorOpen = 0;
     this.fork = this.root.getObjectByName('fork');
     if (this.fork) this.forkRest = this.fork.quaternion.clone();
     this.sirenMats = [];
@@ -405,6 +414,7 @@ class Vehicle {
       w.o.quaternion.multiply(_q.setFromAxisAngle(X_AXIS, this.spin));
     }
     if (this.fork) this.fork.quaternion.copy(this.forkRest).multiply(_q.setFromAxisAngle(UP, this.steer));
+    if (this.doorMesh) this.doorMesh.quaternion.copy(this.doorRest).multiply(_q.setFromAxisAngle(UP, -1.15 * this.doorOpen));
   }
 
   setShadows(on) {
@@ -563,7 +573,7 @@ export class Vehicles {
         v.crashAt = null;
       }
       // damaged cars stay simulated so they keep smoking / burning
-      const busy = c.burning || c.smolder > 0 || c.health < 65;
+      const busy = c.burning || c.smolder > 0 || c.health < 65 || v.doorOpen > 0.01 || c.entering;
       if (c !== driven && !c.ai && !busy && v.speed < 0.05 && Math.abs(v.angVel) < 0.02) {
         if ((v.restTime += dt) > 2) this.deactivate(c);
       } else v.restTime = 0;

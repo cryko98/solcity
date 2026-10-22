@@ -37,6 +37,15 @@ M opens the map, N skips to the next night / morning, K changes the weather, P s
 (HIGH / MEDIUM / LOW resolution and shadows, for weaker GPUs), H hides the help panel.
 Progress (money, guns, armour, time of day) is saved in the browser every 10 seconds.
 
+## Getting in and out
+
+F next to a car: the hero walks to the driver door (around the car if needed), opens it, drags out whoever
+is at the wheel and throws them on the road (they get up and run), steps in ducking under the roof and pulls the
+door shut. A moving car brakes when you go for its door. F at the wheel: stop, open the door, step out, close it;
+at speed you dive out instead and roll on the road while the car rolls on. The driver doors are separate,
+hinged objects in `blender/build_car.py`; the OpenDoor / GetIn / JackPull clips are in `blender/build_character.py`
+and the sequence in `src/carentry.js`. Motorbikes: straight on and off.
+
 ## Wanted level & police
 
 Crimes raise heat (stars): punching or knocking someone out, running people over and

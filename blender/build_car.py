@@ -556,6 +556,53 @@ def build_car(name, P):
     body_ob.name = "Body"
     # flip liner normals inward visually: rely on double-sided-ish solidify
 
+    # ---- driver door: cut out of the body (skin, window, handle, lettering) as its own object,
+    # hinged on its front edge so the game can swing it open. The cutter is an L-shaped prism:
+    # the lower part reaches in to 80% of the half width (clear of the seats and dash), the
+    # window part stops just inside the side glass and just under the roof line.
+    y0, y1 = P["seams"][0] + 0.004, P["seams"][1] - 0.004
+    z0 = P["seam_z"][0] - 0.01
+    x_low = hw * 0.8
+    # slice the whole body along the door seams, then hand every face inside the door outline
+    # (lower panel out to the skin, window part out from just inside the side glass) to the door
+    bm = bmesh.new()
+    bm.from_mesh(body_ob.data)
+    for co, no in (((0, y0, 0), (0, 1, 0)), ((0, y1, 0), (0, 1, 0)), ((0, 0, z0), (0, 0, 1))):
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], plane_co=co, plane_no=no)
+
+    def in_door(f):
+        c = f.calc_center_median()
+        if not (y0 < c.y < y1 and c.z > z0 and c.x > 0):
+            return False
+        zb_, zt_, wb_, wt_ = interp(gh, c.y)
+        if c.z < zb_ - 0.02:
+            return c.x > x_low
+        return c.z < zt_ - 0.035 and c.x > wt_ - 0.06
+
+    door_faces = [f for f in bm.faces if in_door(f)]
+    bm_door = bm.copy()
+    keep = {f.index for f in door_faces}
+    bm_door.faces.ensure_lookup_table()
+    bmesh.ops.delete(bm_door, geom=[f for f in bm_door.faces if f.index not in keep], context="FACES")
+    bmesh.ops.delete(bm, geom=door_faces, context="FACES")
+    bm.to_mesh(body_ob.data)
+    bm.free()
+    door_me = bpy.data.meshes.new("Door_L")
+    bm_door.to_mesh(door_me)
+    bm_door.free()
+    for m in body_ob.data.materials:
+        door_me.materials.append(m)
+    door_ob = bpy.data.objects.new("Door_L", door_me)
+    scene.collection.objects.link(door_ob)
+    # pivot on the hinge line (outer skin, front edge)
+    hinge = V((hw - 0.02, y0, (z0 + interp(gh, y0)[0]) / 2))
+    door_ob.data.transform(Matrix.Translation(-hinge))
+    door_ob.name = "Door_L"
+    door_ob.parent = body_ob
+    door_ob.matrix_parent_inverse = Matrix()
+    door_ob.location = hinge
+    print("DOOR", name, len(door_ob.data.polygons), "faces")
+
     # ---- wheels
     for wid, wx, wy in (("FL", 1, P["axle_f"]), ("FR", -1, P["axle_f"]), ("RL", 1, P["axle_r"]), ("RR", -1, P["axle_r"])):
         bm = bmesh.new()
@@ -628,6 +675,17 @@ def build_car(name, P):
             cam.rotation_euler = (V((0, 0, 0.7)) - V(loc)).to_track_quat("-Z", "Y").to_euler()
             scene.render.filepath = os.path.join(out, f"{name}_{tag}.png")
             bpy.ops.render.render(write_still=True)
+        # door swung open (about its hinge, rear edge outward)
+        door = bpy.data.objects.get("Door_L")
+        if door:
+            door.rotation_euler = (0, 0, -1.15)
+            bpy.context.view_layer.update()
+            for tag, loc in (("open34", (4.6, 3.0, 2.2)), ("openfront", (3.0, -5.0, 1.6))):
+                cam.location = loc
+                cam.rotation_euler = (V((0.6, 0, 0.7)) - V(loc)).to_track_quat("-Z", "Y").to_euler()
+                scene.render.filepath = os.path.join(out, f"{name}_{tag}.png")
+                bpy.ops.render.render(write_still=True)
+            door.rotation_euler = (0, 0, 0)
 
 
 SEDAN = dict(

@@ -1738,12 +1738,13 @@ def drive(t_):
         "chest": rot("chest", (XA, 4 - .6 * s)),
         "neck": rot("neck", (XA, 9)),
         "head": rot("head", (XA, 7)),
-        "thigh.L": rot("thigh.L", (XA, -66), (ZA, 7), (YA, -4)),
-        "thigh.R": rot("thigh.R", (XA, -68), (ZA, -7), (YA, 4)),
-        "shin.L": rot("shin.L", (XA, 64)),
-        "shin.R": rot("shin.R", (XA, 56)),
-        "foot.L": rot("foot.L", (XA, -12)),
-        "foot.R": rot("foot.R", (XA, -6)),
+        # legs stretched out to the pedals: knees a little up, feet resting above the cabin floor
+        "thigh.L": rot("thigh.L", (XA, -72), (ZA, 7), (YA, -4)),
+        "thigh.R": rot("thigh.R", (XA, -74), (ZA, -7), (YA, 4)),
+        "shin.L": rot("shin.L", (XA, 34)),
+        "shin.R": rot("shin.R", (XA, 30)),
+        "foot.L": rot("foot.L", (XA, 8)),
+        "foot.R": rot("foot.R", (XA, 10)),
         "upper_arm.L": rot("upper_arm.L", (XA, -56), (YA, 8), (ZA, -12)),
         "upper_arm.R": rot("upper_arm.R", (XA, -56), (YA, -8), (ZA, 12)),
         "forearm.L": rot("forearm.L", (XA, -36), (ZA, -10)),
@@ -1864,6 +1865,91 @@ def hands_up(t_):
 
 
 HANDSUP_ROLL = 0.0
+
+
+# ---------------------------------------------------------------- getting into cars
+# The game stands the hero at the driver door facing the car. Car front is then on his LEFT
+# (+X), the door handle ~0.55 m ahead and 0.15 m to the left at hip height; the door hinges
+# 0.65 m to the left and its handle swings out towards him as it opens.
+DOOR_CACHE = {}
+
+
+def reach(p, sfx, sgn, target, hand_dir, out=.55, roll_=0.0):
+    solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, HIPS0 + V(target),
+                HIPS0 + V((sgn * out, .3, .15)), V(hand_dir).normalized(), roll=(0, 0, roll_))
+
+
+def open_door(t_):
+    """left hand to the handle, then pull the door open along its arc, leaning back a little"""
+    key = round(t_, 3)
+    if key in DOOR_CACHE.setdefault("od", {}):
+        return DOOR_CACHE["od"][key]
+    p, _ = idle(0.0)
+    p = dict(p)
+    a = smooth01(0, .3, t_)  # reach
+    th = 1.15 * smooth01(.3, .85, t_)  # door angle
+    # handle on its arc (car offsets mapped to the hero's armature frame)
+    hx, hy = .65 - .5 * math.cos(th), -.55 + .5 * math.sin(th)
+    rest = V((.22, -.05, -.2))
+    reach(p, ".L", 1, rest.lerp(V((hx + .03, hy + .06, -.04)), a), (.2, -1, -.2), roll_=20)
+    lean = smooth01(.3, .7, t_) * (1 - smooth01(.85, 1, t_))
+    p["spine"] = rot("spine", (XA, 4 * a - 5 * lean), (ZA, -6 * a))
+    p["chest"] = rot("chest", (XA, -3), (ZA, -8 * a - 6 * lean))
+    p["head"] = rot("head", (XA, 6 * a), (ZA, 10 * a))
+    p["thigh.L"] = rot("thigh.L", (XA, -8 * lean), (ZA, 6 + 8 * lean))
+    hands(p, 20 + 60 * smooth01(.22, .32, t_))
+    DOOR_CACHE["od"][key] = (p, (0, .04 * lean, -.015))
+    return p, (0, .04 * lean, -.015)
+
+
+def get_in(t_):
+    """from standing at the open door to sitting at the wheel: step in, duck under the roof, sit.
+    The game turns and carries the body from the door to the seat during the clip."""
+    key = round(t_, 3)
+    if key in DOOR_CACHE.setdefault("gi", {}):
+        return DOOR_CACHE["gi"][key]
+    a, _ = idle(0.0)
+    b, _ = drive(0.0)
+    s = smooth01(.2, .85, t_)
+    p = {}
+    for name in set(a) | set(b):
+        qa, qb = a.get(name, Quaternion()), b.get(name, Quaternion())
+        p[name] = qa.slerp(qb, s)
+    duck = bump(t_, .5, .16)
+    step = bump(t_, .32, .12)
+    p["spine"] = p["spine"] @ rot("spine", (XA, 26 * duck))
+    p["chest"] = p["chest"] @ rot("chest", (XA, 12 * duck))
+    p["neck"] = p.get("neck", Quaternion()) @ rot("neck", (XA, 14 * duck))
+    p["thigh.L"] = p["thigh.L"] @ rot("thigh.L", (XA, -55 * step))
+    p["shin.L"] = p["shin.L"] @ rot("shin.L", (XA, 70 * step))
+    hands(p, 30 + 40 * s)
+    DOOR_CACHE["gi"][key] = (p, (0, 0, -.12 * duck))
+    return p, (0, 0, -.12 * duck)
+
+
+def jack_pull(t_):
+    """reach into the car with both hands, grab the driver and yank him out behind you"""
+    key = round(t_, 3)
+    if key in DOOR_CACHE.setdefault("jp", {}):
+        return DOOR_CACHE["jp"][key]
+    p, _ = idle(0.0)
+    p = dict(p)
+    r = smooth01(0, .3, t_) * (1 - smooth01(.36, .62, t_))
+    y = smooth01(.36, .62, t_) * (1 - smooth01(.8, 1, t_))
+    into, back = V((.0, -.78, .2)), V((-.42, .25, .05))
+    for sfx, sgn in ((".L", 1), (".R", -1)):
+        rest = V((sgn * .22, -.05, -.2))
+        tgt = rest.lerp(into + V((sgn * .12, 0, 0)), r) + (back + V((sgn * .1, 0, 0)) - rest) * y
+        reach(p, sfx, sgn, tgt, (sgn * .1, -1, 0), roll_=-sgn * 40)
+    p["spine"] = rot("spine", (XA, 18 * r - 6 * y), (ZA, 14 * y))
+    p["chest"] = rot("chest", (XA, 10 * r - 4 * y), (ZA, 22 * y))
+    p["neck"] = rot("neck", (ZA, -10 * y))
+    p["thigh.R"] = rot("thigh.R", (XA, 18 * y), (ZA, -8))
+    p["thigh.L"] = rot("thigh.L", (XA, -14 * r), (ZA, 8))
+    p["shin.L"] = rot("shin.L", (XA, 18 * r))
+    hands(p, 30 + 65 * smooth01(.28, .36, t_))
+    DOOR_CACHE["jp"][key] = (p, (0, -.12 * r + .1 * y, -.03 * r))
+    return p, (0, -.12 * r + .1 * y, -.03 * r)
 
 
 # ---------------------------------------------------------------- conversation (story cutscenes)
@@ -2029,6 +2115,9 @@ if HERO or PREVIEW:
         make_action("SitListen", 120, sit_listen, 4),
         make_action("StandTalk", 120, stand_talk, 3),
         make_action("StandListen", 120, stand_listen, 4),
+        make_action("OpenDoor", 27, open_door, 1),
+        make_action("GetIn", 33, get_in, 1),
+        make_action("JackPull", 30, jack_pull, 1),
     ]
     # PistolHold/Aim, SMGHold/Aim, ShotgunHold/Aim for the guns this variant carries
     actions += [make_action(*a) for a in BW.define_actions(WH, globals())]
@@ -2105,6 +2194,8 @@ if PREVIEW:
         shoot("ko_end.png", "KnockDown", 42, (3.5, -1.5, 1.4), (0, .4, .2))
         for fr in (4, 8, 11, 14, 18, 22):
             shoot(f"roll_{fr:02d}.png", "Roll", fr, (3.6, -.4, 1.0), (0, 0, .55))
+        for clip_, fr in (("OpenDoor", 8), ("OpenDoor", 22), ("GetIn", 16), ("GetIn", 30), ("JackPull", 9), ("JackPull", 18)):
+            shoot(f"{clip_.lower()}_{fr}_34.png", clip_, fr, (-2.2, -2.6, 1.5), (0, -.2, .95))
         for clip_, fr in (("SitTalk", 36), ("SitTalk", 87), ("SitListen", 30), ("StandTalk", 30), ("StandListen", 36)):
             shoot(f"{clip_.lower()}_{fr}_34.png", clip_, fr, (2.2, -2.6, 1.5), (0, -.2, .95))
             shoot(f"{clip_.lower()}_{fr}_side.png", clip_, fr, (3.0, -.3, 1.2), (0, -.2, .9))

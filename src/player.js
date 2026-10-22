@@ -41,7 +41,7 @@ export class Player {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen'];
+    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull'];
     // Ride / HandsUp may be missing from older exports
     const clips = Object.fromEntries(names.map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     // stride length = ground covered per gait cycle, measured from the foot motion in the clip
@@ -149,13 +149,30 @@ export class Player {
     return this.object.position;
   }
 
+  // a scripted full-body clip (getting in / out of cars): the caller moves the body
+  playScripted(name, reverse = false) {
+    const a = this.actions[name];
+    if (!a) return 0;
+    a.reset();
+    a.setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = true;
+    a.timeScale = reverse ? -1 : 1;
+    if (reverse) a.time = a.getClip().duration;
+    a.play();
+    this.posed = name;
+    this.overlay = null;
+    for (const n of Object.keys(this.weights)) this.weights[n] = n === name ? 1 : 0;
+    this.showWeapon();
+    return a.getClip().duration;
+  }
+
   setWeapon(w) {
     this.weapon = w;
     this.showWeapon();
   }
 
   showWeapon() {
-    for (const [n, o] of Object.entries(this.weaponNodes)) o.visible = !!this.weapon && !this.vehicle && n === this.weapon.node;
+    for (const [n, o] of Object.entries(this.weaponNodes)) o.visible = !!this.weapon && !this.vehicle && !this.posed && n === this.weapon.node;
   }
 
   recoil(k) {
@@ -495,7 +512,7 @@ export class Player {
       tw = { walk: 1 - t, run: t };
     }
     // armed: legs keep their locomotion, the upper body holds / aims the gun
-    const armed = this.weapon && !this.vehicle && !this.busted && !this.dead && this.actions[this.weapon.clip + '_hold'] &&
+    const armed = this.weapon && !this.vehicle && !this.posed && !this.busted && !this.dead && this.actions[this.weapon.clip + '_hold'] &&
       !(this.overlay && (this.overlay.name === 'hit' || this.overlay.name === 'knockdown' || this.overlay.name === 'roll'));
     if (armed) {
       const lt = {};
