@@ -697,7 +697,7 @@ def face_paint(v):
     e = (p.x / (.025 * SCALE)) ** 2 + ((p.z - MOUTH_Z) / (.0098 * SCALE)) ** 2
     lips = sm(1.2, .75, e) * front * (1 if p.y < NOSE.y + .04 else 0)
     c = V((1, 1, 1)).lerp(LIP_TINT, lips)
-    dark = max(hair * .8, brow * .45, beard * .45)
+    dark = max(hair * .8, brow * .85, beard * .45)
     return c.lerp(HAIR_TINT, dark), hair
 
 
@@ -736,7 +736,7 @@ KNEE_Z = REST["shin.L"][0].z
 
 
 # ================================================================ real clothing geometry
-def garment(name, pick, key, loose, planes=(), keep=None, smooth=8, thick=.0045, folds=None):
+def garment(name, pick, key, loose, planes=(), keep=None, smooth=14, thick=.0045, folds=None):
     """Cloth cut from the body surface: anatomy smoothed away, pushed out so it hangs
     loose, wrinkled, trimmed with clean plane cuts (hems) and given real thickness."""
     sb = bm.copy()
@@ -840,7 +840,14 @@ elif MALE:
             folds=lambda p: wrinkles(28, .0024)(p) + bunch(BELT_Z, .05, .002, 90)(p))
 else:
     top_z = NECK_Z - .105
-    garment("Top", lambda f: torso_band(f, BELT_Z + .04, top_z + .03),
+    def top_pick(f):
+        # by position, not by bone weights: faces of the back near the shoulder blades are
+        # weighted to the arms and would leave notches
+        c = f.calc_center_median()
+        b = base(face_dom(f))
+        return BELT_Z + .04 < c.z < top_z + .03 and b not in ("head",) + HANDS and (b not in NOT_TORSO or (abs(c.x) < .11 and f.normal.y > .5))
+
+    garment("Top", top_pick,
             "shirt", .006, planes=[((0, 0, BELT_Z + .06), (0, 0, 1)), ((0, 0, top_z), (0, 0, 1))],
             keep=lambda f, l: BELT_Z + .06 < f.calc_center_median().z < top_z, folds=wrinkles(30, .0016))
 for f in bm.faces:
@@ -864,8 +871,11 @@ if HERO:
         c = f.calc_center_median()
         dom = face_dom(f)
         b = base(dom)
-        if b in ("head", "thigh", "shin", "foot") + HANDS:
+        if b in ("head", "shin", "foot") + HANDS:
             return False
+        if b == "thigh":
+            # the hips under the hem: the hem plane cuts it clean instead of the bone weights
+            return c.z > BELT_Z - .17
         if b == "forearm":
             return (c - WRIST[side_of(dom)]).length > .05
         if b == "upper_arm":
@@ -891,12 +901,49 @@ if HERO:
         E = REST["forearm" + sfx][0]
         elbow_folds.append(lambda p, E=E: .004 * math.sin((p - E).length * 160) * math.exp(-((p - E).length / .06) ** 2))
     garment("Jacket", jacket_pick, "jacket", lambda p: .018 if p.z < NECK_Z - .07 else .012, planes=planes, keep=jacket_keep,
-            smooth=10, thick=.006,
+            smooth=24, thick=.006,
             folds=lambda p: wrinkles(18, .003)(p) + sum(fn(p) for fn in elbow_folds) + bunch(BELT_Z - .05, .05, .003, 80)(p))
     for f in bm.faces:
         dom = face_dom(f)
         if base(dom) in ("upper_arm", "forearm") and (f.calc_center_median() - WRIST[side_of(dom)]).length > .09:
             HIDE.add(f.index)
+
+    # turned-down leather collar: a clean band round the neck, open at the front, covering the
+    # cut edge of the jacket shell
+    NK = REST["neck"][0]
+    neck_pts = [v.co for v in bm.verts if abs(v.co.z - (NECK_Z - .005)) < .006 and math.hypot(v.co.x - NK.x, v.co.y - NK.y) < .085]
+    if neck_pts:
+        ncx = sum(p.x for p in neck_pts) / len(neck_pts)
+        ncy = sum(p.y for p in neck_pts) / len(neck_pts)
+        rx = max(abs(p.x - ncx) for p in neck_pts)
+        ry = max(abs(p.y - ncy) for p in neck_pts)
+        cb = bmesh.new()
+        cdl = cb.verts.layers.deform.verify()
+        cb.loops.layers.uv.verify()
+        prof = ((NECK_Z - .022, .006), (NECK_Z + .008, .005), (NECK_Z + .011, .011), (NECK_Z - .008, .026), (NECK_Z - .018, .03))
+        segs, gap = 28, math.radians(38)
+        rings = []
+        for k in range(segs + 1):
+            ang = math.pi / 2 + gap + (2 * math.pi - 2 * gap) * k / segs  # from beside the throat round the back (+Y) to the other side
+            ring = []
+            for z_, grow in prof:
+                v = cb.verts.new((ncx + math.cos(ang) * (rx + grow), ncy - math.sin(ang) * (ry + grow), z_))
+                v[cdl][GI["neck"]] = .45
+                v[cdl][GI["chest"]] = .55
+                ring.append(v)
+            rings.append(ring)
+        for ra, rb in zip(rings, rings[1:]):
+            for i in range(len(prof) - 1):
+                cb.faces.new((ra[i], rb[i], rb[i + 1], ra[i + 1]))
+        bmesh.ops.recalc_face_normals(cb, faces=cb.faces)
+        for f in cb.faces:
+            f.material_index = mat_index("jacket")
+        paint(cb, lambda f: "jacket")
+        col = to_object("Collar", cb)
+        m = col.modifiers.new("solid", "SOLIDIFY")
+        m.thickness, m.offset = .004, 0
+        bpy.context.view_layer.objects.active = col
+        bpy.ops.object.modifier_apply(modifier=m.name)
 
 # ================================================================ hair cards
 def strand_texture(name, base_hex, tip_hex):
@@ -1026,53 +1073,132 @@ def CAP_Z(p, dir_only=False):
 
 
 scalp = scalp_faces(.004)
-# a thin opaque cap under the cards so the scalp never shows through
-shell("HairCap", lambda f: all(HAIRF.get(v.index, -1) > .006 for v in f.verts),
-      lambda v: .0012 + (.003 if FEMALE else .0015) * sm(0, .03, HAIRF.get(v.index, -1)), "hair")
+# ---- hair, the way game hair is built: a sculpted hair volume carries the shape of the cut
+#      (with a strand texture projected from the crown), and a few layers of short, flat,
+#      softly feathered cards lie on top of it to break up the surface and the silhouette.
+CROWN = HEAD_C + V((0, .035 * SCALE, .1 * SCALE))
+
+
+def hair_depth_at(p):
+    """thickness of the hair volume over the scalp point p"""
+    f = hair_field(p)
+    rel = (p - HEAD_C).z / SCALE
+    if FEMALE:
+        return .002 + .013 * sm(0, .03, f) * (.55 + .45 * sm(-.04, .07, rel))
+    top = .012 if HERO else .010
+    return .0015 + top * sm(0, .035, f) * (.3 + .7 * sm(-.03, .07, rel))
+
+
+cap = shell("HairCap", lambda f: all(HAIRF.get(v.index, -1) > .002 for v in f.verts), lambda v: hair_depth_at(v.co), "hair")
+bmc = bmesh.new()
+bmc.from_mesh(cap.data)
+inner = [v for v in bmc.verts if not v.is_boundary]
+for _ in range(5):
+    bmesh.ops.smooth_vert(bmc, verts=inner, factor=.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
+uvc = bmc.loops.layers.uv.verify()
+for fc in bmc.faces:
+    uvs = []
+    for loop in fc.loops:
+        d = loop.vert.co - CROWN
+        az = math.atan2(d.x, -d.y)
+        pol = math.atan2(math.hypot(d.x, d.y), d.z)
+        uvs.append([az / (2 * math.pi) * 5, pol * 1.6])
+    # no seam smear where the azimuth wraps round at the back
+    us = [u for u, _ in uvs]
+    if max(us) - min(us) > 2.5:
+        for uv in uvs:
+            if uv[0] < 0:
+                uv[0] += 5
+    for loop, uv in zip(fc.loops, uvs):
+        loop[uvc].uv = uv
+bmc.to_mesh(cap.data)
+bmc.free()
+
+
+def clump_texture(name, base_hex, tip_hex):
+    """strands grouped into clumps with soft edges and tapered tips: reads as hair, not as ribbons"""
+    w, h = 256, 256
+    rgba = np.zeros((h, w, 4), np.float32)
+    bc, tc = hexrgb(base_hex), hexrgb(tip_hex)
+    rng = np.random.default_rng(23)
+    ys = np.arange(h)
+    for _ in range(30):
+        cx, cw, top = rng.uniform(0, w), rng.uniform(5, 12), rng.uniform(0, .3)
+        for _ in range(16):
+            x0 = cx + rng.normal(0, cw / 3)
+            y0 = int((top + rng.uniform(0, .12)) * h)
+            wig = rng.uniform(0, 2.5)
+            xs = x0 + np.sin(ys / h * rng.uniform(2, 6) + rng.uniform(0, 6)) * wig
+            shade = rng.uniform(.7, 1.15)
+            for dx in range(-2, 3):
+                cxs = (np.round(xs).astype(int) + dx) % w
+                a = np.exp(-(dx / 1.1) ** 2) * np.clip((ys - y0) / 40.0, 0, 1)
+                a[ys < y0] = 0
+                t_ = (ys / h)[:, None]
+                col = (bc[None, :] * t_ + tc[None, :] * (1 - t_)) * shade
+                rgba[ys, cxs, :3] = np.where(a[:, None] > rgba[ys, cxs, 3:4], col, rgba[ys, cxs, :3])
+                rgba[ys, cxs, 3] = np.maximum(rgba[ys, cxs, 3], a)
+    rgba = rgba[::-1]
+    img = bpy.data.images.new(name, w, h, alpha=True)
+    img.pixels.foreach_set(rgba.ravel())
+    img.file_format = "PNG"
+    img.pack()
+    return img
+
+
+HAIR_CARD.node_tree.nodes["Image Texture"].image = clump_texture("clumps", "0c0907" if HERO else "6a6a6a", "2a1c12" if HERO else "c8c8c8")
+
+
+def on_cap(p, n):
+    """a root on the hair volume surface instead of on the skin underneath it"""
+    return p + n * (hair_depth_at(p) - .0005)
+
 
 if FEMALE:
     TIE = HEAD_C + V((0, .105 * SCALE, .045))
 
     def to_tie(p, n):
-        d = tangent(TIE - p, n)
-        L = (TIE - p).length
-        return [p + n * (.003 + .006 * math.sin(math.pi * s)) + d * L * s * .98 for s in (0, .33, .66, 1)]
+        # pulled back to the tie, hugging the head all the way (radius blends from root to tie)
+        p = on_cap(p, n)
+        r0, r1 = (p - HEAD_C).length, (TIE - HEAD_C).length
+        pts = []
+        for s in (0, .25, .5, .75, 1):
+            q = p.lerp(TIE, s * .97)
+            r = r0 + (r1 - r0) * s + .0015 + .003 * math.sin(math.pi * s)
+            pts.append(HEAD_C + (q - HEAD_C).normalized() * r)
+        return pts
 
-    cards("HairScalp", sample_faces(scalp, 1400), to_tie, .014)
+    cards("HairScalp", sample_faces(scalp, 700), to_tie, .016)
 
     def tail(p, n):
         ang = RNG_H.uniform(0, 2 * math.pi)
-        r = RNG_H.uniform(0, .018)
-        L = RNG_H.uniform(.18, .27)
+        r = RNG_H.uniform(0, .016)
+        L = RNG_H.uniform(.18, .26)
         off = V((math.cos(ang) * r, math.sin(ang) * r * .7, 0))
-        return [TIE + off * (1 + 1.6 * s) + V((0, .03 * s, -L * s)) for s in (0, .25, .5, .75, 1)]
+        return [TIE + off * (1 + 1.4 * s) + V((0, .03 * s, -L * s)) for s in (0, .25, .5, .75, 1)]
 
     tie_w = lambda q: {"head": 1.0} if q.z > TIE.z - .06 else {"neck": .6, "chest": .4}
-    cards("Ponytail", [(TIE, V((0, 1, 0)))] * 160, tail, .016, weight=tie_w)
+    cards("Ponytail", [(TIE, V((0, 1, 0)))] * 70, tail, .02, weight=tie_w)
 else:
-    # short textured cut: longer on top, combed back, faded at the sides
+    # short textured cut: a little longer on top and combed back, cards lying close to the volume
     def short(p, n):
         top = sm(.02, .07, (p - HEAD_C).z)
-        L = (.008 + (.03 if HERO else .028) * top) * RNG_H.uniform(.7, 1.2)
-        d = tangent(V((0, 1, -.25)) * top + V((0, .4, -1)) * (1 - top) + V((RNG_H.normal() * .3, 0, 0)), n)
-        lift = .002 + .006 * top
-        return [p + n * (lift * math.sin(math.pi * s * .8) + .001) + d * L * s for s in (0, .5, 1)]
+        p = on_cap(p, n)
+        L = (.01 + (.026 if HERO else .022) * top) * RNG_H.uniform(.75, 1.15)
+        # combed back on top and at the front hairline, down at the sides and the back
+        front = sm(HC_Y - .02, HC_Y - .07, p.y)
+        lay = max(top, front)
+        d = tangent(V((0, 1, .1)) * lay + V((0, .4, -1)) * (1 - lay) + V((RNG_H.normal() * .25, 0, 0)), n)
+        lift = .0008 + .0022 * top
+        # bend the card round the head so the tips stay on the hair instead of sticking out
+        r0 = (p - HEAD_C).length
+        return [HEAD_C + (p + d * L * s - HEAD_C).normalized() * (r0 + lift * math.sin(math.pi * s * .8)) for s in (0, .5, 1)]
 
     if POLICE:  # nothing under the cap
         scalp = [f for f in scalp if f.calc_center_median().z < CAP_Z(f.calc_center_median()) - .006]
-    cards("Hair", sample_faces(scalp, 2600 if HERO else 1500 if not POLICE else 700), short, .009, segs=2)
+    cards("Hair", sample_faces(scalp, 1100 if HERO else 750 if not POLICE else 300), short, .012, segs=2)
 
-# eyebrows and (hero) goatee as short cards
-brow_roots = []
-for sfx_s in (1, -1):
-    for k in range(18):
-        u = RNG_H.uniform(-1, 1)
-        x = sfx_s * (EYE_X * .98 + u * .024 * SCALE)
-        z = EYE_Z + (.018 + .004 * (1 - u * u) - (.003 * u if not FEMALE else 0)) * SCALE + RNG_H.normal() * .0015
-        cand = min(bm.verts, key=lambda v: (v.co.x - x) ** 2 + (v.co.z - z) ** 2 + (0 if v.normal.y < -.3 else 1))
-        brow_roots.append((cand.co.copy(), cand.normal.copy(), sfx_s))
-cards("Brows", [(p, n) for p, n, s_ in brow_roots],
-      lambda p, n: [p + n * .0008, p + n * .0016 + tangent(V((math.copysign(1, p.x), 0, .35)), n) * .011], .006 if not FEMALE else .004, segs=1)
+# eyebrows are painted into the skin (see face_paint): no floating cards
 # ---- sneakers fitted to each foot
 def loft_part(name, rings, key, segs, bone):
     b_ = bmesh.new()
