@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { Vigilante } from './vigilante.js';
 import { buildInteriors, SEAT_Y } from './interiors.js';
+import { chooseOutfit } from './materials.js';
 
 const FLOOR = -0.03;
 const FADE = 0.45;
@@ -19,7 +20,7 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const CONTACTS = [
   {
     id: 'rosa', name: 'ROSA', letter: 'R', room: 'cafe', kind: 'female', color: '#ff8ab8', voice: 300, block: [2, 5], t: 28,
-    outfit: { Skin: '#a8714c', Shirt: '#b0203a', Denim: '#1c1c22', Hair: '#120c08', Sneaker: '#2a2a2a' },
+    outfit: { Skin: '#a8714c', Shirt: '#b0203a', Denim: '#1c1c22', Hair: '#120c08', Sneaker: '#2a2a2a', wear: 'female_casualsuit01' },
     missions: [
       {
         title: 'PROTECTION MONEY', pay: 400, pose: 'sit',
@@ -49,7 +50,7 @@ const CONTACTS = [
   },
   {
     id: 'vince', name: 'VINCE', letter: 'V', room: 'office', kind: 'male', color: '#ffd23f', voice: 115, block: [1, 2], t: 30,
-    outfit: { Skin: '#e6b897', Shirt: '#ece6da', Denim: '#24242a', Hair: '#16100c', Sneaker: '#121212' },
+    outfit: { Skin: '#e6b897', Shirt: '#ece6da', Denim: '#24242a', Hair: '#16100c', Sneaker: '#121212', wear: 'male_elegantsuit01' },
     missions: [
       {
         title: 'SINK THE COMPETITION', pay: 700, pose: 'sit',
@@ -169,9 +170,10 @@ export class Story {
   }
 
   dress(p, outfit) {
+    if (outfit.wear) p.body.userData.outfit = chooseOutfit(p.body, outfit.wear);
     p.body.traverse((o) => {
       if (!o.isSkinnedMesh) return;
-      const c = outfit[o.material.name === 'HairCards' ? 'Hair' : o.material.name];
+      const c = outfit[/^(Hair|Brow)Cards$/.test(o.material.name) ? 'Hair' : o.material.name];
       if (!c) return;
       o.material = o.material.clone();
       o.material.color.set(c);
@@ -396,7 +398,7 @@ export class Story {
       const tito = ped.add('male', x0 + 22, z0 + 2.2, Math.PI);
       tito.state = 'contact';
       tito.keep = true;
-      this.dress(tito, { Shirt: '#d8b83a', Denim: '#33333a', Hair: '#0a0a0a' });
+      this.dress(tito, { Shirt: '#d8b83a', Denim: '#33333a', Hair: '#0a0a0a', wear: 'male_casualsuit05' });
       ms.data.target = tito;
       ms.steps = [S('Find <em>Tito</em> and beat him up.', () => {
         this.arrowOn(tito.x, tito.y + 2.4, tito.z);

@@ -14,10 +14,11 @@ shells for the leather jacket, shoes, hair, brows and beard.
 
   blender -b --factory-startup --disable-autoexec -P blender/build_character.py -- <root> --variant hero [--preview <dir>]
 """
-import bpy, bmesh, math, sys, os
+import bpy, bmesh, math, sys, os, json
 import numpy as np
 from mathutils import Vector, Quaternion, Matrix
 from mathutils import noise as mnoise
+from mathutils.bvhtree import BVHTree
 
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ROOT = os.path.abspath(ARGS[0]) if ARGS else os.getcwd()
@@ -25,6 +26,14 @@ VARIANT = ARGS[ARGS.index("--variant") + 1] if "--variant" in ARGS else "hero"
 PREVIEW = "--preview" in ARGS
 HERO, FEMALE, POLICE = VARIANT == "hero", VARIANT == "female", VARIANT == "police"
 MALE = VARIANT in ("male", "police")  # the police officer is the male NPC in uniform
+# CC0 MakeHuman outfits (vendor/makehuman, see README): street peds carry several, one shown per ped;
+# everybody wears MakeHuman shoes. The hero keeps his tank top and jeans, the officer his uniform.
+MH_OUTFITS = {"male": ["male_casualsuit03", "male_casualsuit04", "male_casualsuit05", "male_casualsuit06", "male_elegantsuit01"],
+              "female": ["female_casualsuit01", "female_casualsuit02", "female_elegantsuit01", "female_sportsuit01"]}.get(VARIANT, [])
+MH_SHOES = {"hero": ["shoes05"], "police": ["shoes04"]}.get(VARIANT, ["shoes01", "shoes02", "shoes03", "shoes04", "shoes05", "shoes06"])
+if "--outfit" in ARGS:  # preview a single outfit (and the first shoes)
+    MH_OUTFITS = [ARGS[ARGS.index("--outfit") + 1]]
+    MH_SHOES = MH_SHOES[:1]
 SRC = os.path.join(ROOT, "vendor", "human_base_meshes", "extracted", "human-base-meshes-bundle-v1.4.1", "human_base_meshes_bundle.blend")
 FPS = 30
 V = Vector
@@ -524,6 +533,7 @@ bm.from_mesh(body.data)
 bm.normal_update()
 dl = bm.verts.layers.deform.verify()
 uvl = bm.loops.layers.uv.verify()
+UV_NAME = body.data.uv_layers.active.name if body.data.uv_layers.active else "UVMap"
 
 
 def dominant(v):
@@ -615,6 +625,10 @@ def to_object(name, b_):
     me = bpy.data.meshes.new(name)
     b_.to_mesh(me)
     b_.free()
+    # same UV layer name as the body: the join matches layers by name, a stray "UVMap"
+    # would be dropped and every part built from scratch would lose its texture coordinates
+    if len(me.uv_layers) == 1:
+        me.uv_layers[0].name = UV_NAME
     for p in me.polygons:
         p.use_smooth = True
     ob = bpy.data.objects.new(name, me)
@@ -668,15 +682,26 @@ LIP_TINT = V((.84, .6, .58)) if not FEMALE else V((.86, .56, .58))
 def hair_field(p):
     rel = p - V((0, HC_Y, EYE_Z))
     az = abs(math.atan2(rel.x, -rel.y))  # 0 = face, pi = back of the head
-    front, side, back = (.075, -.02, -.085) if FEMALE else (.068, .025, -.07)
+    front, side, back = (.072, -.04, -.085) if FEMALE else (.056, .02, -.07)
     if az < 1.2:
         tz = front + (side - front) * max(0, min(1, (az - .5) / .7))
     else:
         tz = side + (back - side) * max(0, min(1, (az - 1.5) / 1.1))
     f = rel.z / SCALE - tz
-    if abs(rel.x) > .062 * SCALE and -.08 < rel.z / SCALE < .095 and -.04 < rel.y / SCALE < .07:
+    ear_top = .02 if FEMALE else .095
+    if abs(rel.x) > .062 * SCALE and -.08 < rel.z / SCALE < ear_top and -.03 < rel.y / SCALE < .06:
         f = min(f, -.02)  # keep the ears clear
     return f
+
+
+def beard_mask(p, n):
+    """short beard: jaw, chin and upper lip, fading up the cheeks (0 for women)"""
+    if FEMALE:
+        return 0.0
+    front = sm(-.1, -.4, n.y)
+    jaw = sm(MOUTH_Z + .03 * SCALE, MOUTH_Z + .004 * SCALE, p.z) * sm(.35, .0, n.y) * sm(EYE_Z - .2 * SCALE, EYE_Z - .17 * SCALE, p.z)
+    lip = sm(.03 * SCALE, .022 * SCALE, abs(p.x)) * math.exp(-((p.z - (MOUTH_Z + .012 * SCALE)) / (.004 * SCALE)) ** 2) * front
+    return max(jaw, lip)
 
 
 def face_paint(v):
@@ -688,17 +713,18 @@ def face_paint(v):
     u = (abs(p.x) - EYE_X * .98) / (.024 * SCALE)
     zc = EYE_Z + (.018 + .004 * (1 - u * u) - (.003 * u if not FEMALE else 0)) * SCALE
     brow = math.exp(-((p.z - zc) / ((.0028 if FEMALE else .0038) * SCALE * (1 - .4 * min(1, u * u)))) ** 2) * sm(1.15, .8, abs(u)) * front
-    beard = 0.0
-    if not FEMALE:
-        # short stubble: jaw, chin and upper lip, fading up the cheeks
-        jaw = sm(MOUTH_Z + .03 * SCALE, MOUTH_Z + .004 * SCALE, p.z) * sm(.35, .0, n.y) * sm(EYE_Z - .2 * SCALE, EYE_Z - .17 * SCALE, p.z)
-        lip = sm(.03 * SCALE, .022 * SCALE, abs(p.x)) * math.exp(-((p.z - (MOUTH_Z + .012 * SCALE)) / (.004 * SCALE)) ** 2) * front
-        beard = (.75 if HERO else .55) * max(jaw, lip)
+    beard = (.75 if HERO else .55) * beard_mask(p, n)
     e = (p.x / (.025 * SCALE)) ** 2 + ((p.z - MOUTH_Z) / (.0098 * SCALE)) ** 2
     lips = sm(1.2, .75, e) * front * (1 if p.y < NOSE.y + .04 else 0)
     c = V((1, 1, 1)).lerp(LIP_TINT, lips)
     dark = max(hair * .8, brow * .85, beard * .45)
     return c.lerp(HAIR_TINT, dark), hair
+
+
+def in_head(p):
+    """the head by position, not by dominant bone: the base mesh weights some temple and
+    scalp vertices to other head bones, which used to leave bald patches"""
+    return abs(p.x) < .14 * SCALE and p.z > EYE_Z - .16 * SCALE
 
 
 SKIN_I = mat_index("skin")
@@ -707,7 +733,7 @@ cl = bm.loops.layers.color.get("Col")
 HAIRV = {}
 HAIRF = {}
 for v in bm.verts:
-    if base(VDOM[v.index]) in ("head", "neck"):
+    if in_head(v.co):
         col, hv = face_paint(v)
         HAIRV[v.index] = hv
         HAIRF[v.index] = hair_field(v.co)
@@ -736,7 +762,7 @@ KNEE_Z = REST["shin.L"][0].z
 
 
 # ================================================================ real clothing geometry
-def garment(name, pick, key, loose, planes=(), keep=None, smooth=14, thick=.0045, folds=None):
+def garment(name, pick, key, loose, planes=(), keep=None, smooth=14, thick=.0045, folds=None, post=None):
     """Cloth cut from the body surface: anatomy smoothed away, pushed out so it hangs
     loose, wrinkled, trimmed with clean plane cuts (hems) and given real thickness."""
     sb = bm.copy()
@@ -760,6 +786,8 @@ def garment(name, pick, key, loose, planes=(), keep=None, smooth=14, thick=.0045
     if keep:
         bmesh.ops.delete(sb, geom=[f for f in sb.faces if not keep(f, sdl)], context="FACES")
         bmesh.ops.delete(sb, geom=[v for v in sb.verts if not v.link_faces], context="VERTS")
+    if post:
+        post(sb)
     for f in sb.faces:
         f.material_index = mat_index(key)
     paint(sb, lambda f: key)
@@ -795,12 +823,13 @@ def upper_arm_t(c, dom):
 # ---- jeans: straight-leg, waistband, stacked at the ankles
 CUFF_Z = .125 * SCALE
 jeans_folds = [wrinkles(26, .0026), bunch(KNEE_Z, .05, .0035, 120), bunch(CUFF_Z + .03, .05, .005, 150)]
-garment("Jeans", lambda f: base(face_dom(f)) in ("thigh", "shin") or torso_band(f, CUFF_Z - .03, BELT_Z + .03),
+if not MH_OUTFITS:
+    garment("Jeans", lambda f: base(face_dom(f)) in ("thigh", "shin") or torso_band(f, CUFF_Z - .03, BELT_Z + .03),
         "jeans", lambda p: .009 + .01 * sm(KNEE_Z + .1, CUFF_Z, p.z) + .006 * sm(BELT_Z - .2, BELT_Z - .05, p.z) * 0,
         planes=[((0, 0, BELT_Z + .01), (0, 0, 1)), ((0, 0, CUFF_Z), (0, 0, 1))],
         keep=lambda f, l: CUFF_Z < f.calc_center_median().z < BELT_Z + .01,
         folds=lambda p: sum(fn(p) for fn in jeans_folds))
-for f in bm.faces:
+for f in (bm.faces if not MH_OUTFITS else ()):
     c = f.calc_center_median()
     b = base(face_dom(f))
     # only skin well inside the jeans goes (the waist band stays as a safety layer)
@@ -808,18 +837,77 @@ for f in bm.faces:
         HIDE.add(f.index)
 # waistband + belt
 belt_ring = [v.co for v in bm.verts if abs(v.co.z - BELT_Z) < .006 and base(VDOM[v.index]) in TRUNK]
-if belt_ring:
+if belt_ring and not MH_OUTFITS:
     garment("Waistband", lambda f: torso_band(f, BELT_Z - .03, BELT_Z + .022),
             "jeans", .016, planes=[((0, 0, BELT_Z + .013), (0, 0, 1)), ((0, 0, BELT_Z - .022), (0, 0, 1))],
             keep=lambda f, l: BELT_Z - .022 < f.calc_center_median().z < BELT_Z + .013, smooth=10, thick=.005)
 
 # ---- tops
 neck_cut = ((0, TORSO_Y, NECK_Z - .012), (0, -.42, 1))  # crew neck dips at the front
+# hero: white ribbed tank top (A-shirt): scoop neck front and back, deep armholes, straps over the shoulders
+SH = REST["upper_arm.L"][0]
+ARMPIT_Z = SH.z - .1
+STRAP_X = abs(SH.x) - .055
+TANK_NECK = ((0, TORSO_Y, NECK_Z - .05), (0, -.85, 1))  # deep scoop at the front
+TANK_BACK = ((0, TORSO_Y, NECK_Z - .02), (0, .6, 1))  # shallower at the back
+
+
+SCOOP_X = .058  # the neck scoops are this wide; the straps run between here and STRAP_X
+TANK_HEM = BELT_Z - .005  # tucked under the jeans' waistband
+
+
+SCOOP_TOP = NECK_Z + .04
+SCOOP_FRONT, SCOOP_BACK = NECK_Z - .11, NECK_Z - .065  # bottoms of the U at the front / back
+
+
+def scoop_z(x, front):
+    """height of the U-shaped neckline edge at x (front or back)"""
+    bottom = SCOOP_FRONT if front else SCOOP_BACK
+    u = min(1.0, abs(x) / SCOOP_X)
+    return bottom + (SCOOP_TOP - bottom) * (1 - math.sqrt(max(0.0, 1 - u * u)))
+
+
+def scoop_planes(front):
+    """the U as a polyline of cutting planes (extruded along Y)"""
+    out, n = [], 8
+    pts = [(SCOOP_X * math.sin(math.pi * (k / n - .5)), 0) for k in range(n + 1)]
+    pts = [(x, scoop_z(x, front)) for x, _ in pts]
+    for (x0, z0), (x1, z1) in zip(pts, pts[1:]):
+        dx, dz = x1 - x0, z1 - z0
+        out.append(((x0, 0, z0), (-dz, 0, dx)))
+    return out
+
+
+def tank_side(c):
+    """how far the point is inside the tank top's outline (negative = outside), metres"""
+    if abs(c.x) > STRAP_X and c.z > ARMPIT_Z:
+        return -1  # armhole
+    if abs(c.x) < SCOOP_X:
+        return scoop_z(c.x, c.y < TORSO_Y) - c.z
+    return 1
+
+
+def tank_keep(f, l):
+    c = f.calc_center_median()
+    return c.z > TANK_HEM and tank_side(c) > 0
+
+
+def tank_pick(f):
+    # by position: the shoulder blades and the armpits are weighted to the arms and would leave notches
+    c = f.calc_center_median()
+    b = base(face_dom(f))
+    return BELT_Z - .05 < c.z < NECK_Z + .045 and b not in ("head",) + HANDS and (b not in NOT_TORSO or abs(c.x) < STRAP_X + .02)
+
+
 if HERO:
-    garment("Shirt", lambda f: torso_band(f, BELT_Z - .09, NECK_Z + .03),
-            "shirt", .007, planes=[((0, 0, BELT_Z - .075), (0, 0, 1)), neck_cut],
-            keep=lambda f, l: f.calc_center_median().z > BELT_Z - .075 and (f.calc_center_median() - V(neck_cut[0])).dot(V(neck_cut[1])) < 0,
-            folds=wrinkles(30, .002))
+    garment("Tank", tank_pick,
+            "shirt", lambda p: .004 + .004 * sm(BELT_Z + .15, BELT_Z - .05, p.z),
+            planes=[((0, 0, TANK_HEM), (0, 0, 1)), *scoop_planes(True), *scoop_planes(False), ((0, TORSO_Y, 0), (0, 1, 0)),
+                    ((STRAP_X, 0, 0), (1, 0, 0)), ((-STRAP_X, 0, 0), (-1, 0, 0)), ((0, 0, ARMPIT_Z), (0, 0, 1))],
+            keep=tank_keep, smooth=18, thick=.003,
+            folds=lambda p: wrinkles(34, .0012)(p) + bunch(BELT_Z, .05, .0015, 90)(p))
+elif MH_OUTFITS:
+    pass
 elif MALE:
     def tee_keep(f, l):
         c = f.calc_center_median()
@@ -854,8 +942,14 @@ for f in bm.faces:
     c = f.calc_center_median()
     dom = face_dom(f)
     b = base(dom)
+    if MH_OUTFITS:
+        continue
     if b in TRUNK and c.z > BELT_Z + .08:
-        if HERO or MALE:
+        if HERO:
+            # only skin that is well inside the tank top's outline
+            if c.z < NECK_Z - .06 and tank_side(c) > .03 and abs(c.x) < STRAP_X - .015:
+                HIDE.add(f.index)
+        elif MALE:
             if c.z < NECK_Z - .05:
                 HIDE.add(f.index)
         elif BELT_Z + .1 < c.z < NECK_Z - .135:
@@ -863,8 +957,8 @@ for f in bm.faces:
     if MALE and b == "upper_arm" and upper_arm_t(c, dom) < .3:
         HIDE.add(f.index)
 
-# ---- jacket (hero): smoothed leather shell, open front, rolled cuffs, turned-down collar
-if HERO:
+# ---- jacket (hero): retired - the hero now wears the tank top (kept for reference, never built)
+if False:
     a = math.radians(21)
 
     def jacket_pick(f):
@@ -887,11 +981,16 @@ if HERO:
         dom = dom_of(f, l)
         if base(dom) in ("upper_arm", "forearm"):
             return (c - WRIST[side_of(dom)]).length > .07
-        if c.z < BELT_Z - .1 or c.z > NECK_Z + .004:
+        if c.z < BELT_Z - .1 or (c - V(neck_plane[0])).dot(V(neck_plane[1]).normalized()) > 0:
             return False
+        if c.z > VZ and c.y < TORSO_Y - .01 and abs(c.x) < .035 + .8 * (c.z - VZ):
+            return False  # V-shaped opening at the throat
         return not (c.y < TORSO_Y and abs(c.x) < .16 and math.degrees(math.atan2(abs(c.x), -(c.y - TORSO_Y))) < 19)
 
-    planes = [((0, 0, BELT_Z - .1), (0, 0, 1)), ((0, 0, NECK_Z + .004), (0, 0, 1)),
+    neck_plane = ((0, TORSO_Y, NECK_Z - .012), (0, -.45, 1))  # lower at the front, higher at the back
+    VZ = NECK_Z - .1  # bottom of the V neckline: the collar turns into lapels down to here
+    vee = [((.035, 0, VZ), (1, 0, -.8)), ((-.035, 0, VZ), (-1, 0, -.8))]
+    planes = [((0, 0, BELT_Z - .1), (0, 0, 1)), neck_plane, *vee,
               ((0, TORSO_Y, 0), (math.cos(a), math.sin(a), 0)), ((0, TORSO_Y, 0), (math.cos(a), -math.sin(a), 0))]
     for sfx in (".L", ".R"):
         fd = (REST["forearm" + sfx][1] - REST["forearm" + sfx][0]).normalized()
@@ -900,50 +999,48 @@ if HERO:
     for sfx in (".L", ".R"):
         E = REST["forearm" + sfx][0]
         elbow_folds.append(lambda p, E=E: .004 * math.sin((p - E).length * 160) * math.exp(-((p - E).length / .06) ** 2))
+    NK = REST["neck"][0]
+
+    def jacket_collar(sb):
+        """smooth the cut neckline, then grow the collar out of it: up the neck, then folded
+        down over the shoulders - one piece with the jacket, no gap, no separate ring"""
+        edges = [e for e in sb.edges if e.is_boundary and min(v.co.z for v in e.verts) > NECK_Z - .07
+                 and abs(e.verts[0].co.z - e.verts[1].co.z) < .7 * e.calc_length()]
+        eset = set(edges)
+        verts = {v for e in edges for v in e.verts}
+        for _ in range(10):
+            new = {}
+            for v in verts:
+                nb = [o for e in v.link_edges if e in eset for o in e.verts if o is not v]
+                if len(nb) == 2:
+                    new[v] = v.co * .5 + (nb[0].co + nb[1].co) * .25
+            for v, c in new.items():
+                v.co = c
+
+        def outward(v):
+            return V((v.co.x - NK.x, v.co.y - NK.y, 0)).normalized()
+
+        res = bmesh.ops.extrude_edge_only(sb, edges=edges)
+        stand = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert)]
+        backness = lambda v: sm(TORSO_Y - .03, TORSO_Y + .05, v.co.y)
+        for v in stand:
+            v.co += V((0, 0, .012 + .02 * backness(v))) + outward(v) * .002
+        sset = set(stand)
+        top = [g for g in res["geom"] if isinstance(g, bmesh.types.BMEdge) and all(x in sset for x in g.verts)]
+        res2 = bmesh.ops.extrude_edge_only(sb, edges=top)
+        for v in (g for g in res2["geom"] if isinstance(g, bmesh.types.BMVert)):
+            b_ = backness(v)
+            v.co += outward(v) * (.008 + .014 * b_) - V((0, 0, .01 + .016 * b_))
+        sb.normal_update()
+
     garment("Jacket", jacket_pick, "jacket", lambda p: .018 if p.z < NECK_Z - .07 else .012, planes=planes, keep=jacket_keep,
-            smooth=24, thick=.006,
+            smooth=24, thick=.006, post=jacket_collar,
             folds=lambda p: wrinkles(18, .003)(p) + sum(fn(p) for fn in elbow_folds) + bunch(BELT_Z - .05, .05, .003, 80)(p))
     for f in bm.faces:
         dom = face_dom(f)
         if base(dom) in ("upper_arm", "forearm") and (f.calc_center_median() - WRIST[side_of(dom)]).length > .09:
             HIDE.add(f.index)
 
-    # turned-down leather collar: a clean band round the neck, open at the front, covering the
-    # cut edge of the jacket shell
-    NK = REST["neck"][0]
-    neck_pts = [v.co for v in bm.verts if abs(v.co.z - (NECK_Z - .005)) < .006 and math.hypot(v.co.x - NK.x, v.co.y - NK.y) < .085]
-    if neck_pts:
-        ncx = sum(p.x for p in neck_pts) / len(neck_pts)
-        ncy = sum(p.y for p in neck_pts) / len(neck_pts)
-        rx = max(abs(p.x - ncx) for p in neck_pts)
-        ry = max(abs(p.y - ncy) for p in neck_pts)
-        cb = bmesh.new()
-        cdl = cb.verts.layers.deform.verify()
-        cb.loops.layers.uv.verify()
-        prof = ((NECK_Z - .022, .006), (NECK_Z + .008, .005), (NECK_Z + .011, .011), (NECK_Z - .008, .026), (NECK_Z - .018, .03))
-        segs, gap = 28, math.radians(38)
-        rings = []
-        for k in range(segs + 1):
-            ang = math.pi / 2 + gap + (2 * math.pi - 2 * gap) * k / segs  # from beside the throat round the back (+Y) to the other side
-            ring = []
-            for z_, grow in prof:
-                v = cb.verts.new((ncx + math.cos(ang) * (rx + grow), ncy - math.sin(ang) * (ry + grow), z_))
-                v[cdl][GI["neck"]] = .45
-                v[cdl][GI["chest"]] = .55
-                ring.append(v)
-            rings.append(ring)
-        for ra, rb in zip(rings, rings[1:]):
-            for i in range(len(prof) - 1):
-                cb.faces.new((ra[i], rb[i], rb[i + 1], ra[i + 1]))
-        bmesh.ops.recalc_face_normals(cb, faces=cb.faces)
-        for f in cb.faces:
-            f.material_index = mat_index("jacket")
-        paint(cb, lambda f: "jacket")
-        col = to_object("Collar", cb)
-        m = col.modifiers.new("solid", "SOLIDIFY")
-        m.thickness, m.offset = .004, 0
-        bpy.context.view_layer.objects.active = col
-        bpy.ops.object.modifier_apply(modifier=m.name)
 
 # ================================================================ hair cards
 def strand_texture(name, base_hex, tip_hex):
@@ -1004,7 +1101,7 @@ RNG_H = np.random.default_rng(5)
 def scalp_faces(min_field):
     out = []
     for f in bm.faces:
-        if base(face_dom(f)) not in ("head", "neck"):
+        if not all(in_head(v.co) for v in f.verts):
             continue
         if all(HAIRF.get(v.index, -1) > min_field for v in f.verts):
             out.append(f)
@@ -1073,9 +1170,7 @@ def CAP_Z(p, dir_only=False):
 
 
 scalp = scalp_faces(.004)
-# ---- hair, the way game hair is built: a sculpted hair volume carries the shape of the cut
-#      (with a strand texture projected from the crown), and a few layers of short, flat,
-#      softly feathered cards lie on top of it to break up the surface and the silhouette.
+# ---- hair: a thin dark volume over the painted scalp, under the MakeHuman hair cards
 CROWN = HEAD_C + V((0, .035 * SCALE, .1 * SCALE))
 
 
@@ -1084,17 +1179,26 @@ def hair_depth_at(p):
     f = hair_field(p)
     rel = (p - HEAD_C).z / SCALE
     if FEMALE:
-        return .002 + .013 * sm(0, .03, f) * (.55 + .45 * sm(-.04, .07, rel))
-    top = .012 if HERO else .010
-    return .0015 + top * sm(0, .035, f) * (.3 + .7 * sm(-.03, .07, rel))
+        return .0008 + .004 * sm(0, .03, f)
+    top = .003
+    return .0008 + top * sm(0, .06, f) * (.25 + .75 * sm(-.03, .07, rel))
 
 
-cap = shell("HairCap", lambda f: all(HAIRF.get(v.index, -1) > .002 for v in f.verts), lambda v: hair_depth_at(v.co), "hair")
+cap = shell("HairCap", lambda f: all(HAIRF.get(v.index, -1) > .004 for v in f.verts), lambda v: hair_depth_at(v.co), "hair")
 bmc = bmesh.new()
 bmc.from_mesh(cap.data)
-inner = [v for v in bmc.verts if not v.is_boundary]
-for _ in range(5):
+# smooth the inside of the volume only: the edge stays flush with the scalp
+inner = [v for v in bmc.verts if not v.is_boundary and hair_field(v.co) > .014]
+for _ in range(12):
     bmesh.ops.smooth_vert(bmc, verts=inner, factor=.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
+# finer mesh: the groomed strands are projected onto it
+bmesh.ops.subdivide_edges(bmc, edges=bmc.edges[:], cuts=1, use_grid_fill=True)
+cdl_ = bmc.verts.layers.deform.verify()
+for v in bmc.verts:
+    for gi in list(v[cdl_].keys()):
+        del v[cdl_][gi]
+    v[cdl_][GI["head"]] = 1.0
+bmc.normal_update()
 uvc = bmc.loops.layers.uv.verify()
 for fc in bmc.faces:
     uvs = []
@@ -1149,56 +1253,555 @@ def clump_texture(name, base_hex, tip_hex):
 HAIR_CARD.node_tree.nodes["Image Texture"].image = clump_texture("clumps", "0c0907" if HERO else "6a6a6a", "2a1c12" if HERO else "c8c8c8")
 
 
-def on_cap(p, n):
-    """a root on the hair volume surface instead of on the skin underneath it"""
-    return p + n * (hair_depth_at(p) - .0005)
+SKIN_BVH = BVHTree.FromBMesh(bm)
+_cb = bmesh.new()
+_cb.from_mesh(cap.data)
+CAP_BVH = BVHTree.FromBMesh(_cb)
+_cb.free()
+# the volume only guides the fit now: the MakeHuman cards are the hair, over the painted scalp
+PARTS.remove(cap)
+bpy.data.objects.remove(cap)
 
 
-if FEMALE:
-    TIE = HEAD_C + V((0, .105 * SCALE, .045))
+# ---- hair and brows: CC0 MakeHuman system assets (game-ready alpha hair cards, see README),
+#      fitted to our head: the MakeHuman base head is matched to ours (eye height, skull
+#      width, depth and crown height), then every hair vertex keeps its height above the
+#      MakeHuman scalp, measured along the ray from the head centre, over our scalp.
+MHDIR = os.path.join(ROOT, "vendor", "makehuman")
 
-    def to_tie(p, n):
-        # pulled back to the tie, hugging the head all the way (radius blends from root to tie)
-        p = on_cap(p, n)
-        r0, r1 = (p - HEAD_C).length, (TIE - HEAD_C).length
-        pts = []
-        for s in (0, .25, .5, .75, 1):
-            q = p.lerp(TIE, s * .97)
-            r = r0 + (r1 - r0) * s + .0015 + .003 * math.sin(math.pi * s)
-            pts.append(HEAD_C + (q - HEAD_C).normalized() * r)
-        return pts
 
-    cards("HairScalp", sample_faces(scalp, 700), to_tie, .016)
+def read_obj(path):
+    """MakeHuman OBJ (decimetres, Y up, facing +Z) -> our metres, Z up, facing -Y"""
+    vs, vts, faces, groups, g = [], [], [], {}, None
+    with open(path, encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            w = line.split()
+            if not w:
+                continue
+            if w[0] == "v":
+                x, y, z = map(float, w[1:4])
+                vs.append(V((x, -z, y)) * .1)
+            elif w[0] == "vt":
+                vts.append((float(w[1]), float(w[2])))
+            elif w[0] == "g":
+                g = w[1] if len(w) > 1 else None
+            elif w[0] == "f":
+                idx = []
+                for t in w[1:]:
+                    parts = (t.split("/") + ["", ""])[:2]
+                    idx.append((int(parts[0]) - 1, int(parts[1]) - 1 if parts[1] else -1))
+                groups.setdefault(g, []).append(len(faces))
+                faces.append(idx)
+    return vs, vts, faces, groups
 
-    def tail(p, n):
-        ang = RNG_H.uniform(0, 2 * math.pi)
-        r = RNG_H.uniform(0, .016)
-        L = RNG_H.uniform(.18, .26)
-        off = V((math.cos(ang) * r, math.sin(ang) * r * .7, 0))
-        return [TIE + off * (1 + 1.4 * s) + V((0, .03 * s, -L * s)) for s in (0, .25, .5, .75, 1)]
 
-    tie_w = lambda q: {"head": 1.0} if q.z > TIE.z - .06 else {"neck": .6, "chest": .4}
-    cards("Ponytail", [(TIE, V((0, 1, 0)))] * 70, tail, .02, weight=tie_w)
-else:
-    # short textured cut: a little longer on top and combed back, cards lying close to the volume
-    def short(p, n):
-        top = sm(.02, .07, (p - HEAD_C).z)
-        p = on_cap(p, n)
-        L = (.01 + (.026 if HERO else .022) * top) * RNG_H.uniform(.75, 1.15)
-        # combed back on top and at the front hairline, down at the sides and the back
-        front = sm(HC_Y - .02, HC_Y - .07, p.y)
-        lay = max(top, front)
-        d = tangent(V((0, 1, .1)) * lay + V((0, .4, -1)) * (1 - lay) + V((RNG_H.normal() * .25, 0, 0)), n)
-        lift = .0008 + .0022 * top
-        # bend the card round the head so the tips stay on the hair instead of sticking out
-        r0 = (p - HEAD_C).length
-        return [HEAD_C + (p + d * L * s - HEAD_C).normalized() * (r0 + lift * math.sin(math.pi * s * .8)) for s in (0, .5, 1)]
+MB_V, _, MB_F, MB_G = read_obj(os.path.join(MHDIR, "base.obj"))
 
-    if POLICE:  # nothing under the cap
-        scalp = [f for f in scalp if f.calc_center_median().z < CAP_Z(f.calc_center_median()) - .006]
-    cards("Hair", sample_faces(scalp, 1100 if HERO else 750 if not POLICE else 300), short, .012, segs=2)
 
-# eyebrows are painted into the skin (see face_paint): no floating cards
+def mb_ids(group):
+    return {i for fi in MB_G[group] for i, _ in MB_F[fi]}
+
+
+def mb_centre(group):
+    ids = mb_ids(group)
+    return sum((MB_V[i] for i in ids), V((0, 0, 0))) / len(ids)
+
+
+MB_EYE = (mb_centre("joint-l-eye") + mb_centre("joint-r-eye")) / 2
+
+
+def skull(points, eye_z):
+    """crown height, and width / front / back of the skull a little above the eyes"""
+    top = max(p.z for p in points)
+    h = top - eye_z
+    sl = [p for p in points if eye_z + .3 * h < p.z < eye_z + .6 * h]
+    return top, max(p.x for p in sl) - min(p.x for p in sl), min(p.y for p in sl), max(p.y for p in sl)
+
+
+_mb_head = [MB_V[i] for i in mb_ids("body") if abs(MB_V[i].x) < .12 and MB_V[i].z > MB_EYE.z - .05]
+_our_head = [v.co.copy() for v in bm.verts if in_head(v.co) and abs(v.co.x) < .12]
+MB_TOP, MB_W, MB_Y0, MB_Y1 = skull(_mb_head, MB_EYE.z)
+OUR_TOP, OUR_W, OUR_Y0, OUR_Y1 = skull(_our_head, EYE_Z)
+FIT = V(((OUR_W / MB_W), (OUR_Y1 - OUR_Y0) / (MB_Y1 - MB_Y0), (OUR_TOP - EYE_Z) / (MB_TOP - MB_EYE.z)))
+print("hair fit scale", tuple(round(c, 3) for c in FIT))
+
+
+def fit(p):
+    return V((p.x * FIT.x, OUR_Y0 + (p.y - MB_Y0) * FIT.y, EYE_Z + (p.z - MB_EYE.z) * FIT.z))
+
+
+def brow_placer(path):
+    """brows go exactly over the painted brow line (inner end above the inner eye corner,
+    tail past the outer one), keeping the asset's own arch, then are projected onto the
+    skin from the front so no part sinks into the eye socket"""
+    bound = read_mhclo(path[:-4] + ".mhclo") or read_obj(path)[0]
+    side = [p for p in bound if p.x > 0]
+    x0, x1 = min(p.x for p in side), max(p.x for p in side)
+    zm = sum(p.z for p in side) / len(side)
+    tx0, tx1 = EYE_X * .98 - .024 * SCALE, EYE_X * .98 + .025 * SCALE
+    zc = EYE_Z + (.021 if not FEMALE else .022) * SCALE
+    thick = FIT.z * (1.0 if FEMALE else 1.2)
+
+    def place(p):  # p: the MakeHuman position of the vertex (from the .mhclo)
+        u = (abs(p.x) - x0) / (x1 - x0)
+        x = math.copysign(tx0 + u * (tx1 - tx0), p.x)
+        z = zc + (p.z - zm) * thick
+        loc, nrm, _, _ = SKIN_BVH.ray_cast(V((x, HC_Y - .3, z)), V((0, 1, 0)), .5)
+        if loc is None:
+            loc, nrm, _, _ = SKIN_BVH.find_nearest(V((x, HC_Y - .1, z)))
+        return loc + nrm * .0018
+    return place
+
+
+_mb_faces = [[i for i, _ in fc] for fc in (MB_F[fi] for fi in MB_G["body"]) if all(MB_V[i].z > MB_EYE.z - .25 for i, _ in fc)]
+MB_BVH = BVHTree.FromPolygons([fit(p) for p in MB_V], _mb_faces)
+
+
+def read_mhclo(path):
+    return [p for p, _ in read_mhclo_refs(path)]
+
+
+def read_mhclo_refs(path):
+    """where MakeHuman puts the asset on its base mesh: every vertex is bound to a base
+    triangle (barycentric weights + an offset scaled by the base proportions); the raw OBJ
+    coordinates are not on the head"""
+    sc, out, on = {}, [], False
+    raw = lambda p: (p.x * 10, p.z * 10, -p.y * 10)  # back to MakeHuman's own axes
+    with open(path, encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            w = line.split()
+            if not w:
+                continue
+            if w[0] in ("x_scale", "y_scale", "z_scale"):
+                ax = "xyz".index(w[0][0])
+                sc[ax] = abs(raw(MB_V[int(w[1])])[ax] - raw(MB_V[int(w[2])])[ax]) / float(w[3])
+            elif w[0] == "verts":
+                on = True
+            elif on:
+                if len(w) == 1 and w[0].isdigit():
+                    out.append((MB_V[int(w[0])].copy(), [(int(w[0]), 1.0)]))
+                elif len(w) == 9:
+                    i, wt, d = [int(x) for x in w[:3]], [float(x) for x in w[3:6]], [float(x) for x in w[6:9]]
+                    p = sum((MB_V[k] * c for k, c in zip(i, wt)), V((0, 0, 0)))
+                    dx, dy, dz = d[0] * sc.get(0, 1), d[1] * sc.get(1, 1), d[2] * sc.get(2, 1)
+                    out.append((p + V((dx, -dz, dy)) * .1, list(zip(i, wt))))
+                elif out:  # a keyword after the vertex block ends it (one before it, like material, does not)
+                    on = False
+    return out
+
+
+def conform(p, clearance):
+    """carry p over from the MakeHuman scalp to ours; never closer than clearance to the skin
+    or the hair volume"""
+    d = p - HEAD_C
+    if d.length < 1e-6:
+        return p
+    d.normalize()
+    ours = SKIN_BVH.ray_cast(HEAD_C, d, .3)
+    theirs = MB_BVH.ray_cast(HEAD_C, d, .3)
+    if ours[0] is not None and theirs[0] is not None:
+        p = p + d * max(-.02, min(.02, ours[3] - theirs[3]))
+    floor = max([h[3] for h in (ours, CAP_BVH.ray_cast(HEAD_C, d, .3)) if h[0] is not None] or [0])
+    if floor and (p - HEAD_C).length < floor + clearance and (p - HEAD_C).dot(d) > 0:
+        p = HEAD_C + d * (floor + clearance)
+    return p
+
+
+def hair_image(path, size, grey, dark=1.0):
+    """the asset's diffuse+alpha, downsized for the game; NPC copies are made neutral grey
+    (bright) so the per-ped hair colour tints them"""
+    img = bpy.data.images.load(path)
+    img.scale(size, size)
+    if grey:
+        px = np.array(img.pixels[:], np.float32).reshape(-1, 4)
+        lum = px[:, :3] @ np.array([.3, .59, .11], np.float32)
+        ref = np.percentile(lum[px[:, 3] > .5], 90) if (px[:, 3] > .5).any() else 1
+        lum = np.clip(.25 + .7 * lum / max(ref, 1e-3), 0, 1)
+        px[:, :3] = lum[:, None]
+        img.pixels.foreach_set(px.ravel())
+    elif dark != 1.0:
+        px = np.array(img.pixels[:], np.float32).reshape(-1, 4)
+        px[:, :3] *= dark
+        img.pixels.foreach_set(px.ravel())
+    img.pack()
+    return img
+
+
+def mh_asset(name, path, key, clearance, keep=None, weight=None, place=fit):
+    vs, vts, faces, _ = read_obj(path)
+    bound = read_mhclo(path[:-4] + ".mhclo")
+    if len(bound) == len(vs):
+        vs = bound
+    else:
+        print("WARNING", name, "mhclo has", len(bound), "verts for", len(vs))
+    pts = [conform(place(p), clearance) if place is fit else place(p) for p in vs]
+    b_ = bmesh.new()
+    dl = b_.verts.layers.deform.verify()
+    uvl = b_.loops.layers.uv.verify()
+    bv = [b_.verts.new(p) for p in pts]
+    for fc in faces:
+        if keep and not keep([pts[i] for i, _ in fc]):
+            continue
+        try:
+            nf = b_.faces.new([bv[i] for i, _ in fc])
+        except ValueError:
+            continue
+        for loop, (_, ti) in zip(nf.loops, fc):
+            if ti >= 0:
+                loop[uvl].uv = vts[ti]
+        nf.material_index = mat_index(key)
+    bmesh.ops.delete(b_, geom=[v for v in b_.verts if not v.link_faces], context="VERTS")
+    for v in b_.verts:
+        for bn, wv in (weight(v.co) if weight else {"head": 1.0}).items():
+            v[dl][GI[bn]] = wv
+    paint(b_, lambda f: None)
+    print("hair asset", name, len(b_.faces), "faces")
+    return to_object(name, b_)
+
+
+HAIR_STYLE = "short04" if HERO or POLICE else "ponytail01" if FEMALE else "short02"
+BROW_STYLE = "eyebrow005" if FEMALE else "eyebrow001"
+HAIR_CARD.node_tree.nodes["Image Texture"].image = hair_image(
+    os.path.join(MHDIR, "hair", HAIR_STYLE, HAIR_STYLE + "_diffuse.png"), 1024 if HERO else 512, not HERO, .4)
+MAT["brows"] = card_material("BrowCards", hair_image(os.path.join(MHDIR, "eyebrows", BROW_STYLE, BROW_STYLE + ".png"), 256, not HERO, .6))
+
+
+def hair_weight(q):
+    # long hair below the skull follows the neck and the upper back, not just the head
+    t = sm(EYE_Z - .16 * SCALE, EYE_Z - .06 * SCALE, q.z)
+    return {"head": t, "neck": (1 - t) * .7, "chest": (1 - t) * .3} if t < 1 else {"head": 1.0}
+
+
+mh_asset("Hair", os.path.join(MHDIR, "hair", HAIR_STYLE, HAIR_STYLE + ".obj"), "cards", .0012,
+         keep=(lambda ps: max(p.z - CAP_Z(p) for p in ps) < -.004) if POLICE else None, weight=hair_weight)
+mh_asset("Brows", os.path.join(MHDIR, "eyebrows", BROW_STYLE, BROW_STYLE + ".obj"), "brows", .0007,
+         place=brow_placer(os.path.join(MHDIR, "eyebrows", BROW_STYLE, BROW_STYLE + ".obj")))
+
+# ---- MakeHuman clothes, fitted body part by body part. Every garment vertex is bound (.mhclo)
+#      to the MakeHuman base mesh, whose skin weights say which body part carries it; for each
+#      part the point is carried from the MakeHuman bone to ours (position along the bone,
+#      offset turned with the bone, so A-pose arms come down to our rest pose), and its height
+#      over the MakeHuman skin, measured from the bone outwards, is kept over our skin.
+#      The parts' results are blended by the weights, then nothing may sit inside our skin.
+MB_W = {}
+for bn, lst in json.load(open(os.path.join(MHDIR, "default_weights.mhw"), encoding="utf-8"))["weights"].items():
+    sfx = ".L" if bn.endswith(".L") else ".R" if bn.endswith(".R") else ""
+    b0 = bn.split(".")[0]
+    part = ("UA" if b0.startswith("upperarm") else "FA" if b0.startswith("lowerarm")
+            else "HD" if b0.startswith(("wrist", "metacarpal", "finger")) else "TH" if b0.startswith("upperleg")
+            else "SH" if b0.startswith("lowerleg") else "FT" if b0.startswith(("foot", "toe")) else "T")
+    key = part + sfx if part != "T" else "T"
+    for vi, wv in lst:
+        d_ = MB_W.setdefault(vi, {})
+        d_[key] = d_.get(key, 0) + wv
+
+MB_BODY_BVH = BVHTree.FromPolygons(MB_V, [[i for i, _ in MB_F[fi]] for fi in MB_G["body"]])
+# which way the MakeHuman face normals point (outward = +1): probe from inside the chest
+_hit = MB_BODY_BVH.ray_cast(mb_centre("joint-spine-1"), V((0, -1, 0)), .5)
+MB_SIGN = 1 if _hit[1] is not None and _hit[1].y < 0 else -1
+SEGS = {}
+for s_, sfx in (("l", ".L"), ("r", ".R")):
+    sh_, el_, ha_ = mb_centre(f"joint-{s_}-shoulder"), mb_centre(f"joint-{s_}-elbow"), mb_centre(f"joint-{s_}-hand")
+    ul_, kn_, an_, to_ = mb_centre(f"joint-{s_}-upper-leg"), mb_centre(f"joint-{s_}-knee"), mb_centre(f"joint-{s_}-ankle"), mb_centre(f"joint-{s_}-foot-2")
+    SEGS["UA" + sfx] = (sh_, el_, *REST["upper_arm" + sfx])
+    SEGS["FA" + sfx] = (el_, ha_, *REST["forearm" + sfx])
+    SEGS["HD" + sfx] = (ha_, ha_ + (ha_ - el_).normalized() * .09, *REST["hand" + sfx])
+    SEGS["TH" + sfx] = (ul_, kn_, *REST["thigh" + sfx])
+    SEGS["SH" + sfx] = (kn_, an_, *REST["shin" + sfx])
+    SEGS["FT" + sfx] = (an_, to_, *REST["foot" + sfx])
+
+
+def _spine_at(z, a, b):
+    t_ = (z - a.z) / (b.z - a.z)
+    return a.lerp(b, t_)
+
+
+_mb_hip = (mb_centre("joint-l-upper-leg") + mb_centre("joint-r-upper-leg")) / 2
+_mb_sh = mb_centre("joint-l-shoulder")
+_mb_neck, _mb_head = mb_centre("joint-neck"), mb_centre("joint-head")
+MB_CHAIN = [V((0, mb_centre("joint-pelvis").y, _mb_hip.z)), V((0, mb_centre("joint-spine-1").y, _mb_sh.z)),
+            V((0, _mb_neck.y, _mb_neck.z)), V((0, _mb_head.y, _mb_head.z)), V((0, _mb_head.y, MB_TOP))]
+_our_hip = (REST["thigh.L"][0] + REST["thigh.R"][0]) / 2
+OUR_CHAIN = [V((0, REST["hips"][0].y, _our_hip.z)), V((0, _spine_at(REST["upper_arm.L"][0].z, *REST["chest"]).y, REST["upper_arm.L"][0].z)),
+             REST["neck"][0].copy(), REST["head"][0].copy(), REST["head"][1].copy()]
+
+
+def _centre_y(tree, p):
+    """the point halfway between the front and the back of the body at p's height
+    (MakeHuman's spine joints sit near the back, ours in the middle)"""
+    f_ = tree.ray_cast(p, V((0, -1, 0)), .5)
+    b_ = tree.ray_cast(p, V((0, 1, 0)), .5)
+    if f_[0] is None or b_[0] is None:
+        return p
+    return V((p.x, (f_[0].y + b_[0].y) / 2, p.z))
+
+
+for k_ in range(3):
+    MB_CHAIN[k_] = _centre_y(MB_BODY_BVH, MB_CHAIN[k_])
+    OUR_CHAIN[k_] = _centre_y(SKIN_BVH, OUR_CHAIN[k_])
+
+
+
+def _ray(tree, o, d):
+    h = tree.ray_cast(o, d, .5)
+    return h[3] if h[0] is not None else None
+
+
+def _carry(off, c, C, d_mh, d_ours):
+    """keep the height over the skin: shift by the difference of the two body radii"""
+    r1, r2 = _ray(MB_BODY_BVH, c, d_mh), _ray(SKIN_BVH, C, d_ours)
+    if r1 is None or r2 is None:
+        return V((0, 0, 0))
+    return d_ours * max(-.05, min(.05, r2 - r1))
+
+
+def map_seg(p, key):
+    a, b, A, B = SEGS[key]
+    ax = b - a
+    t_ = (p - a).dot(ax) / ax.length_squared
+    c = a + ax * t_
+    off = p - c
+    R = ax.normalized().rotation_difference((B - A).normalized())
+    C = A + (B - A) * t_
+    o2 = R @ off
+    if off.length > 1e-5:
+        d_ = off.normalized()
+        o2 += _carry(off, c, C, d_, R @ d_)
+    return C + o2
+
+
+def map_torso(p):
+    k = 0
+    while k < len(MB_CHAIN) - 2 and p.z > MB_CHAIN[k + 1].z:
+        k += 1
+    a, b, A, B = MB_CHAIN[k], MB_CHAIN[k + 1], OUR_CHAIN[k], OUR_CHAIN[k + 1]
+    t_ = (p.z - a.z) / (b.z - a.z)
+    c, C = a.lerp(b, t_), A.lerp(B, t_)
+    off = p - c
+    o2 = off.copy()
+    hz = V((off.x, off.y, 0))
+    if hz.length > 1e-5:
+        o2 += _carry(off, c, C, hz.normalized(), hz.normalized())
+    return C + o2
+
+
+def map_body(p, refs):
+    acc = {}
+    for vi, wv in refs:
+        for k, x in MB_W.get(vi, {"T": 1.0}).items():
+            acc[k] = acc.get(k, 0) + wv * x
+    tot = sum(x for x in acc.values() if x > .02)
+    out = V((0, 0, 0))
+    for k, x in acc.items():
+        if x > .02:
+            out += (map_torso(p) if k == "T" else map_seg(p, k)) * (x / tot)
+    return out
+
+
+def our_part(f_):
+    b_ = base(face_dom(f_))
+    sfx = face_dom(f_)[-2:] if face_dom(f_)[-2:] in (".L", ".R") else ""
+    return {"upper_arm": "UA", "forearm": "FA", "thigh": "TH", "shin": "SH", "foot": "FT"}.get(
+        b_, "HD" if b_ in HANDS else "T") + (sfx if b_ in ("upper_arm", "forearm", "thigh", "shin", "foot") or b_ in HANDS else "")
+
+
+# our skin split by body part: a garment point only looks at the skin of the parts that carry
+# it (a shirt hem next to a hanging hand must not take the hand's weights or be pushed off it)
+bm.faces.ensure_lookup_table()
+_pf = {}
+for f_ in bm.faces:
+    _pf.setdefault(our_part(f_), []).append(f_.index)
+PART_BVH = {}
+for k_, idx in _pf.items():
+    vs_ = sorted({v.index for i in idx for v in bm.faces[i].verts})
+    remap = {vi: n for n, vi in enumerate(vs_)}
+    bm.verts.ensure_lookup_table()
+    PART_BVH[k_] = (BVHTree.FromPolygons([bm.verts[vi].co for vi in vs_], [[remap[v.index] for v in bm.faces[i].verts] for i in idx]), idx)
+
+
+def _centred(a, b, pts):
+    """the limb's own axis: through the centres of its cross-sections near both ends
+    (bones are not always in the middle of the flesh)"""
+    ax = b - a
+    near = lambda lo, hi: [p for p in pts if lo < (p - a).dot(ax) / ax.length_squared < hi]
+    s0, s1 = near(.12, .28), near(.72, .88)
+    if len(s0) < 8 or len(s1) < 8:
+        return a, b
+    c0 = sum(s0, V((0, 0, 0))) / len(s0)
+    c1 = sum(s1, V((0, 0, 0))) / len(s1)
+    u = (c1 - c0).normalized()
+    return c0 + u * (a - c0).dot(u), c0 + u * (b - c0).dot(u)
+
+
+_mb_part = {}
+for vi in mb_ids("body"):
+    ws_ = MB_W.get(vi)
+    if ws_:
+        _mb_part.setdefault(max(ws_, key=ws_.get), []).append(MB_V[vi])
+for k_, (a_, b_, A_, B_) in list(SEGS.items()):
+    ours_ = [bm.verts[v.index].co for i in _pf.get(k_, []) for v in bm.faces[i].verts]
+    SEGS[k_] = (*_centred(a_, b_, _mb_part.get(k_, [])), *_centred(A_, B_, ours_))
+
+
+def nearest_on(q, parts):
+    """nearest skin point among the given body parts -> (location, normal, body face index)"""
+    best = None
+    for k_ in parts:
+        if k_ not in PART_BVH:
+            continue
+        loc, nrm, fi, dist = PART_BVH[k_][0].find_nearest(q)
+        if loc is not None and (best is None or dist < best[3]):
+            best = (loc, nrm, PART_BVH[k_][1][fi], dist)
+    if best is None:
+        loc, nrm, fi, dist = SKIN_BVH.find_nearest(q)
+        return loc, nrm, fi
+    return best[:3]
+
+
+def part_weights(refs):
+    acc = {}
+    for vi, wv in refs:
+        for k, x in MB_W.get(vi, {"T": 1.0}).items():
+            acc[k] = acc.get(k, 0) + wv * x
+    return acc
+
+
+def skin_weights(q, parts=None):
+    """our skin's bone weights at the point nearest q (inverse-distance blend of the face corners)"""
+    loc, _, fi = nearest_on(q, parts or ())
+    bm.faces.ensure_lookup_table()
+    acc = {}
+    for v in bm.faces[fi].verts:
+        k = 1 / ((v.co - loc).length + 1e-4)
+        for gi, wv in v[dl].items():
+            acc[gi] = acc.get(gi, 0) + wv * k
+    top = sorted(acc.items(), key=lambda x: -x[1])[:4]
+    tot = sum(x for _, x in top) or 1
+    return {gi: x / tot for gi, x in top}
+
+
+def push_out(q, parts, clearance):
+    """out of every nearby body part's skin (hands and forearms only for their own sleeves/gloves,
+    so a shirt hem is not shoved away from a hanging hand)"""
+    for k_ in PART_BVH:
+        if k_[:2] in ("HD", "FA") and k_ not in parts:
+            continue
+        loc, nrm, _, dist = PART_BVH[k_][0].find_nearest(q, .03)
+        if loc is None:
+            continue
+        h = (q - loc).dot(nrm)
+        if h < clearance:
+            q = q + nrm * (clearance - h)
+    return q
+
+
+CLOTH_PARTS = {}
+
+
+def mh_cloth(folder, name, key, clearance, size=512, cut_above=None):
+    """one MakeHuman garment, fitted, weighted like the skin under it, with its own textured material"""
+    d_ = os.path.join(MHDIR, "clothes", folder)
+    obj = next(x for x in os.listdir(d_) if x.endswith(".obj"))
+    mhmat = open(os.path.join(d_, next(x for x in os.listdir(d_) if x.endswith(".mhmat"))), encoding="utf-8").read()
+    texname = next(l.split()[1] for l in mhmat.splitlines() if l.startswith("diffuseTexture"))
+    vs, vts, faces, _ = read_obj(os.path.join(d_, obj))
+    bound = read_mhclo_refs(os.path.join(d_, obj[:-4] + ".mhclo"))
+    if len(bound) != len(vs):
+        print("WARNING", folder, "mhclo has", len(bound), "verts for", len(vs))
+        return None
+    pts, parts_of = [], []
+    mapped = []
+    for p, refs in bound:
+        q = map_body(p, refs)
+        mapped.append(q.copy())
+        pw = part_weights(refs)
+        parts = sorted((k for k, x in pw.items() if x > .05), key=lambda k: -pw[k]) or ["T"]
+        parts_of.append(parts)
+        # shrink-wrap: as high over our skin as it was over the MakeHuman skin (tight parts fit
+        # exactly; parts that hang well off the body, like a skirt, keep their mapped shape)
+        ml, mn_, _, _ = MB_BODY_BVH.find_nearest(p)
+        h_mh = (p - ml).dot(mn_) * MB_SIGN
+        if h_mh < .06:
+            loc, nrm, _ = nearest_on(q, parts)
+            q = (loc + nrm * max(clearance, h_mh + .002)).lerp(q, sm(.025, .06, h_mh))
+        pts.append(push_out(q, parts, clearance))
+    # the snapping to the nearest skin can jump between neighbouring points (armpits, seams):
+    # smooth the correction over the garment, then make sure nothing ended up inside the skin
+    nbr = [set() for _ in pts]
+    for fc in faces:
+        ids = [i for i, _ in fc]
+        for a_, b_ in zip(ids, ids[1:] + ids[:1]):
+            nbr[a_].add(b_)
+            nbr[b_].add(a_)
+    disp = [q - m for q, m in zip(pts, mapped)]
+    for _ in range(6):
+        disp = [d * .5 + (sum((disp[j] for j in nb), V((0, 0, 0))) / len(nb)) * .5 if nb else d for d, nb in zip(disp, nbr)]
+    for i, (m, parts) in enumerate(zip(mapped, parts_of)):
+        pts[i] = push_out(m + disp[i], parts, clearance)
+    img = bpy.data.images.load(os.path.join(d_, texname))
+    img.scale(size, size)
+    img.pack()
+    MAT[key] = material(key, "ffffff", .85, tex=img)
+    b_ = bmesh.new()
+    dl_ = b_.verts.layers.deform.verify()
+    uvl_ = b_.loops.layers.uv.verify()
+    bv = [b_.verts.new(p) for p in pts]
+    for v, parts in zip(bv, parts_of):
+        for gi, wv in skin_weights(v.co, parts[:1]).items():
+            v[dl_][gi] = wv
+    face_parts = []
+    for fc in faces:
+        if cut_above is not None and min(pts[i].z for i, _ in fc) > cut_above:
+            continue
+        try:
+            nf = b_.faces.new([bv[i] for i, _ in fc])
+        except ValueError:
+            continue
+        face_parts.append(set().union(*(parts_of[i] for i, _ in fc)))
+        for loop, (_, ti) in zip(nf.loops, fc):
+            if ti >= 0:
+                loop[uvl_].uv = vts[ti]
+        nf.material_index = mat_index(key)
+    bmesh.ops.delete(b_, geom=[v for v in b_.verts if not v.link_faces], context="VERTS")
+    paint(b_, lambda f: None)
+    print("cloth", folder, len(b_.faces), "faces")
+    CLOTH_PARTS[name] = face_parts
+    return to_object(name, b_)
+
+
+def covered_faces(ob):
+    """body faces with this garment right over them (within 3.5 cm along the skin normal), the
+    garment there belonging to the same body part (not a shirt seen from the inside of the arm)"""
+    fparts = CLOTH_PARTS[ob.name]
+    b_ = bmesh.new()
+    b_.from_mesh(ob.data)
+    tree = BVHTree.FromBMesh(b_)
+    b_.free()
+    out = set()
+    for f_ in bm.faces:
+        if base(face_dom(f_)) in ("head",) + HANDS:
+            continue
+        c = f_.calc_center_median()
+        hit = tree.ray_cast(c + f_.normal * .001, f_.normal, .035)
+        if hit[0] is not None and our_part(f_) in fparts[hit[2]]:
+            out.add(f_.index)
+    return out
+
+
+_cover = None
+for o_ in MH_OUTFITS:
+    ob_ = mh_cloth(o_, "Outfit_" + o_, "Outfit_" + o_, .003)
+    if ob_:
+        cv = covered_faces(ob_)
+        _cover = cv if _cover is None else _cover & cv
+for s_ in MH_SHOES:
+    # the MakeHuman shoes come with socks up the calf: cut them at the shoe collar (they would
+    # show through trouser legs, which MakeHuman handles with render order)
+    mh_cloth(s_, "Shoes_" + s_, "Shoes_" + s_, .003, cut_above=REST["foot.L"][0].z + .03)
+# skin that every outfit covers goes (each ped wears one of them, so only the common part)
+if _cover:
+    HIDE |= _cover
+
 # ---- sneakers fitted to each foot
 def loft_part(name, rings, key, segs, bone):
     b_ = bmesh.new()
@@ -1234,7 +1837,7 @@ def loft_part(name, rings, key, segs, bone):
 
 SHOE = [(.078, .068, .038, .043), (.05, .077, .048, .058), (.0, .072, .052, .056),
         (-.06, .057, .054, .041), (-.12, .046, .050, .028), (-.165, .041, .036, .02)]
-for sfx in (".L", ".R"):
+for sfx in ((".L", ".R") if not MH_SHOES else ()):
     fv = [v.co for v in bm.verts if VDOM[v.index] == "foot" + sfx]
     heel_y = max(p.y for p in fv)
     toe_y = min(p.y for p in fv)
@@ -1484,6 +2087,8 @@ if HERO:
         guess = V((math.cos(ang) * nx, cy + math.sin(ang) * ry, NECK_Z + .01 * back - .006 - .065 * sag))
         co, idx, _ = kd.find(guess)
         path.append(co + bme.vertices[idx].normal * (.0135 if math.sin(ang) < -.2 else .004))
+    for _ in range(6):  # snapped to the nearest skin points: relax the zigzag out of it
+        path = [path[i - 1] * .25 + path[i] * .5 + path[(i + 1) % n_pts] * .25 for i in range(n_pts)]
     cb = bmesh.new()
     cdl = cb.verts.layers.deform.verify()
     cb.loops.layers.uv.verify()
@@ -1508,30 +2113,6 @@ if HERO:
         f.material_index = mat_index("gold")
     paint(cb, lambda f: "gold")
     to_object("Chain", cb)
-if FEMALE:
-    pb_ = bmesh.new()
-    pdl = pb_.verts.layers.deform.verify()
-    puv = pb_.loops.layers.uv.verify()
-    back = V((0, REST["head"][0].y + .1, EYE_Z + .03))
-    rings = []
-    for k, (dz, r) in enumerate(((0, .025), (-.06, .027), (-.13, .021), (-.2, .011))):
-        ring = []
-        for i in range(12):
-            ang = 2 * math.pi * i / 12
-            v = pb_.verts.new(back + V((math.cos(ang) * r, .02 * k + math.sin(ang) * r * .85, dz)))
-            v[pdl][GROUPS.index("head" if k < 2 else "neck")] = 1.0
-            ring.append(v)
-        rings.append(ring)
-    for ra, rb in zip(rings, rings[1:]):
-        for i in range(12):
-            j = (i + 1) % 12
-            pb_.faces.new((ra[i], ra[j], rb[j], rb[i]))
-    pb_.faces.new(list(reversed(rings[-1])))
-    for f in pb_.faces:
-        f.material_index = mat_index("hair")
-    paint(pb_, lambda f: "hair")
-    to_object("Ponytail", pb_)
-
 # ================================================================ join + skin
 bpy.data.objects.remove(body)
 for ob in PARTS:
@@ -2310,7 +2891,9 @@ if PREVIEW:
     scene.display.shading.color_type = "TEXTURE"
     shoot("face.png", "Idle", 0, (0.3, -1.0, EYE_Z + .02), (0, 0, EYE_Z - .02))
     shoot("back.png", "Idle", 0, (-1.6, 3.0, 1.6), (0, 0, 1.1))
-    if HERO:
+    shoot("head_34.png", "Idle", 0, (0.75, -0.75, EYE_Z + .12), (0, 0, EYE_Z + .02))
+    shoot("head_back.png", "Idle", 0, (-.55, .8, EYE_Z + .25), (0, 0, EYE_Z + .02))
+    if HERO and "--quick" not in ARGS:
         shoot("walk_09.png", "Walk", 9, (4.0, -2.5, 1.1))
         shoot("guard.png", "Guard", 0, (2.2, -2.6, 1.4), (0, 0, 1.15))
         shoot("guard_hands.png", "Guard", 0, (0.6, -1.2, 1.45), (0, -.2, 1.35))

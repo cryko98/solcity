@@ -4,7 +4,7 @@
 // down for good and drops cash. Cars knock them over too.
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { prepareCharacter, retargetClips } from './materials.js';
+import { prepareCharacter, retargetClips, chooseOutfit } from './materials.js';
 
 const MAX_PEDS = 18, SPAWN_MIN = 25, SPAWN_MAX = 110, DESPAWN = 140, RADIUS = 0.3, KO_HITS = 6;
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
@@ -92,7 +92,7 @@ export class Peds {
     const colors = { Skin: new THREE.Color(pick(SKIN)) };
     for (const [k, list] of Object.entries(OUTFIT)) colors[k] = new THREE.Color(pick(list));
     if (kind === 'police') Object.assign(colors, UNIFORM);
-    colors.HairCards = colors.Hair;
+    colors.HairCards = colors.BrowCards = colors.Hair;
     const meshes = [];
     root.traverse((o) => {
       if (!o.isSkinnedMesh) return;
@@ -106,6 +106,7 @@ export class Peds {
       meshes.push(o);
     });
     root.userData.meshes = meshes;
+    root.userData.outfit = chooseOutfit(root);
     // only officers carry a sidearm, and it stays out of sight until they draw it
     root.userData.gun = root.getObjectByName('Weapon_Pistol');
     for (const n of ['Weapon_Pistol', 'Weapon_SMG', 'Weapon_Shotgun']) {
@@ -541,6 +542,45 @@ export class Peds {
     }
   }
 
+  // Steer round whatever is in the way (the player, other peds, cars, lamp posts, palms)
+  // instead of stopping and queueing behind it: everything ahead inside the walking lane
+  // pushes the heading sideways, nearer and more central obstacles push harder. Head-on
+  // with nothing to choose from, each ped keeps its own preferred side so two walkers
+  // pass each other rather than dancing.
+  avoid(p, heading, player) {
+    const fx = Math.sin(heading), fz = Math.cos(heading), LOOK = 2.4;
+    let turn = 0, slow = 1;
+    p.passSide ??= Math.random() < 0.5 ? 1 : -1;
+    const obstacle = (ox, oz, r, moving) => {
+      const rx = ox - p.x, rz = oz - p.z;
+      const ahead = rx * fx + rz * fz;
+      if (ahead <= -0.1 || ahead > LOOK + r) return;
+      const lat = rx * fz - rz * fx; // + : on the side a positive turn heads to
+      const clear = r + RADIUS + 0.3;
+      if (Math.abs(lat) > clear) return;
+      const near = 1 - Math.max(0, ahead - r) / LOOK;
+      const dir = Math.abs(lat) < 0.08 ? p.passSide : -Math.sign(lat);
+      turn += dir * near * (1 - Math.abs(lat) / clear) * 1.3;
+      // almost touching: ease off while the turn takes effect (stand still only if boxed in)
+      if (ahead < r + RADIUS + 0.25) slow = Math.min(slow, moving ? 0.55 : 0.4);
+    };
+    if (player) obstacle(player.position.x, player.position.z, 0.35, false);
+    for (const o of this.list) {
+      if (o === p || o.state === 'down' || o.state === 'riding') continue;
+      if (Math.abs(o.x - p.x) > 3 || Math.abs(o.z - p.z) > 3) continue;
+      obstacle(o.x, o.z, RADIUS, o.cur > 0.3);
+    }
+    for (const c of this.vehicles.active) {
+      const v = c.vehicle;
+      if (Math.abs(v.pos.x - p.x) > 6 || Math.abs(v.pos.z - p.z) > 6) continue;
+      for (const [cx, cz] of v.circles()) obstacle(cx, cz, v.spec.r, v.speed > 0.5);
+    }
+    for (const c of this.city.query(p.x - 3, p.x + 3, p.z - 3, p.z + 3)) {
+      if (c.type !== 'box' && c.r < 1.5) obstacle(c.x, c.z, c.r, false);
+    }
+    return { turn: THREE.MathUtils.clamp(turn, -1.2, 1.2), slow };
+  }
+
   updateWalk(p, dt, player) {
     const t = p.points[0];
     if (!t) {
@@ -556,19 +596,9 @@ export class Peds {
       want = 0;
       if (this.canCross(t.wait)) p.points.shift();
     } else if (d < 0.35) p.points.shift();
-    if (player) {
-      const px = player.position.x - p.x, pz = player.position.z - p.z;
-      const ahead = px * Math.sin(p.yaw) + pz * Math.cos(p.yaw);
-      if (ahead > 0 && ahead < 1.4 && Math.hypot(px, pz) < 1.3) want = 0;
-    }
-    for (const o of this.list) {
-      if (o === p || o.state === 'down') continue;
-      const ox = o.x - p.x, oz = o.z - p.z;
-      if (Math.abs(ox) > 2 || Math.abs(oz) > 2) continue;
-      const ahead = ox * Math.sin(p.yaw) + oz * Math.cos(p.yaw);
-      if (ahead > 0 && ahead < 1.1 && Math.hypot(ox, oz) < 1.0) want = Math.min(want, o.cur * 0.9);
-    }
-    this.move(p, want, d > 1e-3 ? Math.atan2(dx, dz) : p.yaw, dt);
+    const heading = d > 1e-3 ? Math.atan2(dx, dz) : p.yaw;
+    const steer = this.avoid(p, heading, player);
+    this.move(p, want * steer.slow, heading + steer.turn, dt);
   }
 
   updateFlee(p, dt) {

@@ -140,7 +140,8 @@ Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove gene
 ## World
 
 - AI traffic drives in the right-hand lanes, turns at random at intersections, stops at red lights and for people, keeps its distance from the car ahead and pulls over for sirens (`src/traffic.js`). You can take any traffic car with F.
-- Pedestrians walk around the blocks, cross at the zebra crossings when the lights allow, and get knocked down by cars (`src/peds.js`). Each pedestrian is a random outfit of the protagonist model, merged into a single draw call.
+- Pedestrians walk around the blocks, cross at the zebra crossings when the lights allow, and get knocked down by cars (`src/peds.js`). They steer around whatever is in their way (you, other people, cars, lamp posts) instead of stopping and queueing behind it.
+- Every pedestrian wears one of several real outfits (shirt and jeans, jacket, tee, suit; tee and shorts, blouse and skirt, sports top and leggings) with matching shoes, and gets their own skin and hair colour.
 - Both are spawned around the player and removed when far away.
 
 ## Trailer
@@ -156,6 +157,15 @@ Music: "Cyberpunk Beat" by Disquantic, https://freesound.org/people/Disquantic/s
 People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
 (~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to
 `vendor/human_base_meshes/extracted/human-base-meshes-bundle-v1.4.1/`. The finished GLB models are included.
+
+Hair, eyebrows, the NPC outfits and all shoes are MakeHuman system assets (CC0,
+https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html). To rebuild, extract
+`hair/`, `eyebrows/` and `clothes/` from `makehuman_system_assets_cc0.zip` into `vendor/makehuman/`, and put
+MakeHuman's `base.obj` (makehuman/data/3dobjs) and `default_weights.mhw` (makehuman/data/rigs) from
+https://github.com/makehumancommunity/makehuman next to them. `build_character.py` fits them to our bodies:
+every garment vertex is bound to the MakeHuman base mesh (.mhclo); it is carried bone by bone to our skeleton
+(A-pose arms come down to our rest pose), keeps its height over the skin, is smoothed and pushed out of the
+skin, and takes the bone weights of the skin under it.
 
 ## Rebuilding the 3D models
 

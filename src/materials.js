@@ -1,12 +1,12 @@
 // Fix-ups for materials exported from the Blender people models.
 import * as THREE from 'three';
 
-// hair cards carry their strands in the texture alpha: cut them out, show both sides
+// hair and brow cards carry their strands in the texture alpha: cut them out, show both sides
 export function prepareCharacter(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-      if (m.name === 'HairCards') {
+      if (m.name === 'HairCards' || m.name === 'BrowCards') {
         m.alphaTest = 0.45;
         m.transparent = false;
         m.side = THREE.DoubleSide;
@@ -14,6 +14,29 @@ export function prepareCharacter(root) {
       }
     }
   });
+}
+
+// The street NPC models carry several MakeHuman outfits and pairs of shoes: show one of
+// each. An outfit can be asked for by name (story characters); shoes go with the outfit.
+const SHOES_FOR = { elegant: ['shoes01', 'shoes04'], sport: ['shoes02', 'shoes05', 'shoes06'] };
+export function chooseOutfit(root, want) {
+  const have = { Outfit_: [], Shoes_: [] };
+  root.traverse((o) => {
+    const n = o.isMesh ? o.material.name || '' : '';
+    for (const p of Object.keys(have)) if (n.startsWith(p) && !have[p].includes(n)) have[p].push(n);
+  });
+  const any = (list) => list[Math.floor(Math.random() * list.length)];
+  const outfit = have.Outfit_.includes('Outfit_' + want) ? 'Outfit_' + want : any(have.Outfit_);
+  const style = Object.keys(SHOES_FOR).find((k) => outfit?.includes(k));
+  const fitting = have.Shoes_.filter((n) => !style || SHOES_FOR[style].some((s) => n.endsWith(s)));
+  const shoes = any(fitting.length ? fitting : have.Shoes_);
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const n = o.material.name || '';
+    if (n.startsWith('Outfit_')) o.visible = n === outfit;
+    else if (n.startsWith('Shoes_')) o.visible = n === shoes;
+  });
+  return outfit;
 }
 
 // rest (bind) pose of every bone: its local rotation and its rotation in model space
