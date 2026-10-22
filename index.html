@@ -63,6 +63,7 @@
     #weapon .w-name { font: 700 13px Inter, sans-serif; letter-spacing: 3px; color: #f2d48c; text-shadow: var(--shadow); }
     #weapon .w-ammo { font: 26px Anton, Impact, sans-serif; text-shadow: var(--shadow); }
     #weapon .w-ammo small { font-size: 18px; color: #ccc; }
+    body.touch #help { display: none !important; } /* phones: on-screen buttons instead (src/touch.js) */
     #crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; pointer-events: none; transition: opacity .15s; }
     #crosshair.show { opacity: 1; }
     #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }

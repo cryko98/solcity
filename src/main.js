@@ -33,6 +33,7 @@ import { DaCity } from './dacity.js';
 import { Safehouses } from './safehouses.js';
 import { StreetEvents } from './events.js';
 import { Bounties } from './bounty.js';
+import { TouchControls, isTouch } from './touch.js';
 import { CarEntry } from './carentry.js';
 
 const loadingBar = document.getElementById('loading-bar');
@@ -356,7 +357,7 @@ Promise.all([
     };
     // compile every shader now, so nothing stalls the first time it comes into view
     renderer.compile(scene, camera);
-    loadingText.textContent = 'Click to play';
+    loadingText.textContent = isTouch() ? 'Tap to play' : 'Click to play';
     overlay.classList.add('ready');
     window.__game = {
       player, city, follow, camera, renderer, scene, input: mainInput, story: () => story, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
@@ -389,10 +390,14 @@ Promise.all([
     console.error(err);
   });
 
+let touch = null;
+if (isTouch()) document.body.classList.add('touch'); // hides the keyboard help
 overlay.addEventListener('click', () => {
   if (!player) return;
   overlay.classList.add('hidden');
   audio.start();
+  // phones / tablets: on-screen stick and buttons (after the tap that started the game)
+  if (isTouch() && !touch) touch = new TouchControls(mainInput);
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
   showTips();
 });
