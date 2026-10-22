@@ -1,0 +1,136 @@
+# Sol City
+
+A GTA-style browser game prototype (Three.js). The character and the cars are
+modelled, rigged and animated procedurally in Blender by the scripts in `blender/`.
+
+## Run
+
+```bash
+node server.js
+```
+
+Then open http://localhost:8080 (the page must be served over HTTP; opening
+`index.html` directly from disk cannot load the GLB models). Three.js is loaded from the jsDelivr CDN.
+
+## Controls
+
+| On foot | |
+|---|---|
+| W A S D | move (camera-relative) |
+| Shift | run |
+| Space | jump (while aiming: dodge roll) |
+| C | dodge roll |
+| Mouse / wheel | look around / zoom (click the game to lock the mouse) |
+| F | get in the nearest car |
+
+| In a car | |
+|---|---|
+| W / S | throttle / brake & reverse |
+| A / D | steer |
+| Space | handbrake (drift) |
+| F | stop and get out |
+| R | next radio station |
+| G | horn (people jump out of the way) |
+| E | start a street race (at an R marker) |
+
+M opens the map, N skips to the next night / morning, K changes the weather, P switches the graphics quality
+(HIGH / MEDIUM / LOW resolution and shadows, for weaker GPUs), H hides the help panel.
+Progress (money, guns, armour, time of day) is saved in the browser every 10 seconds.
+
+## Wanted level & police
+
+Crimes raise heat (stars): punching or knocking someone out, running people over and
+carjacking need a witness; anything done to an officer always counts. Patrol cars (one per
+star, max 4) chase you across the road grid with sirens, officers get out and run after you
+on foot. Stay out of every officer's sight until the stars stop blinking and the search ends;
+if officers hold you still, you're BUSTED (fine + respawn). Code: `src/police.js`.
+
+## Weapons
+
+Pistol, SMG and pump shotgun (`src/weapons.js`, models + hold/aim poses in
+`blender/build_character.py` / `blender/build_weapons.py`). Green rings around the city are
+weapon pickups (respawn after 45 s). `1`-`4` / `Q` switch, right mouse aims over the shoulder
+(two-handed isosceles pistol stance, shouldered long guns), left mouse fires, `R` reloads.
+From four stars the police draw their pistols and shoot back. Getting busted costs your guns.
+Guns, ammo and armour can also be bought at **Ammu-Nation** (G on the map, Downtown): walk up to the counter, keys 1-4.
+Red first-aid kits refill your health, blue vests give body armour (it soaks up most of the damage).
+Dying costs a $100 hospital bill.
+
+## Police helicopter
+
+From three stars a police helicopter (`blender/build_heli.py`) joins the chase, circles you and keeps
+its searchlight on you: as long as the beam is on you, the stars won't fade. It can be shot down.
+
+## Cars: damage, fire, explosions
+
+Crashes and bullets damage cars: grey smoke, then black smoke, then the engine catches fire and the car
+explodes a few seconds later (get out!). Explosions throw people and nearby cars around and can set
+off a chain reaction; wrecks stay as burnt-out shells. Skidding leaves tyre marks and smoke.
+The **Pay 'n' Spray** in Little Havana ($ on the map) repairs and repaints your car for $100 and
+makes the police lose you.
+
+## Street races and stunt jumps
+
+Four checkpoint races (R markers, one per district): drive into the marker, press E, then hit every
+checkpoint before the clock runs out. Gold / silver / bronze pay $500 / $300 / $150; best times are kept.
+Yellow-black ramps on the beaches (J on the map) are stunt jumps: land them for a stunt bonus,
+double the first time.
+
+## Weather and time of day
+
+The clock runs one game minute per second, with sunrise, noon, golden hour, dusk and a starry night.
+The weather cycles between clear, cloudy, rain and thunderstorms: rain, wet glossy roads (less grip!),
+lightning and thunder. Car headlights light up the road after dark.
+
+## Vigilante missions
+
+In a police cruiser press `T`: a getaway car (red blip) flees across the city. Ram it until the engine
+catches fire and the driver bails out (or blow it up) before the clock runs out. Every level is faster
+and pays more.
+
+## Taxi missions
+
+Get into a taxi and press `T`: pick up the fare marked on the radar, drive them to the
+destination (GPS route on the minimap, beam of light on the street) before the meter runs out.
+Fare + tip for the time left, $200 bonus for every 5 fares in a row.
+
+## Districts & vehicles
+
+Downtown (glass towers), South Beach (art deco + neon), Little Havana (colourful
+shophouses with balconies), Old Harbor (warehouses, container yards), Vinewood Hills
+(villas with pools), all on an island with a beach and the Port of Sol container terminal.
+Vehicles: sedan, coupe, taxi (lit roof sign at night), supercar, luxury saloon, delivery van, police cruiser and a motorbike (`blender/build_car.py`,
+`blender/build_bike.py`), plus the police helicopter (`blender/build_heli.py`).
+Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove generated live with WebAudio.
+
+## World
+
+- AI traffic drives in the right-hand lanes, turns at random at intersections, stops at red lights and for people, keeps its distance from the car ahead and pulls over for sirens (`src/traffic.js`). You can take any traffic car with F.
+- Pedestrians walk around the blocks, cross at the zebra crossings when the lights allow, and get knocked down by cars (`src/peds.js`). Each pedestrian is a random outfit of the protagonist model, merged into a single draw call.
+- Both are spawned around the player and removed when far away.
+
+## Trailer
+
+`SolCity_Trailer.mp4` is recorded from the game itself: open http://localhost:8080/?trailer
+(frames are saved to `captures/trailer/`), then encode with music:
+
+```bash
+blender -b --factory-startup -P blender/encode_trailer.py -- . vendor/music/cyberpunk_beat_disquantic_cc0.mp3 SolCity_Trailer.mp4
+```
+
+Music: "Cyberpunk Beat" by Disquantic, https://freesound.org/people/Disquantic/sounds/525290/ (CC0).
+People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
+(~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to
+`vendor/human_base_meshes/extracted/human-base-meshes-bundle-v1.4.1/`. The finished GLB models are included.
+
+## Rebuilding the 3D models
+
+```bash
+blender -b --factory-startup -P blender/build_character.py -- .
+blender -b --factory-startup -P blender/build_car.py -- .
+blender -b --factory-startup -P blender/build_bike.py -- .
+blender -b --factory-startup -P blender/build_heli.py -- .
+```
+
+Each script writes the GLB to `assets/models/` and a `.blend` file to `blender/`.
+Add `--preview <dir>` to also render preview images.

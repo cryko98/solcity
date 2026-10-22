@@ -1,0 +1,12 @@
+# trailer frame captures (re-recordable with ?trailer)
+captures/
+# Blender backups and Python caches
+*.blend1
+__pycache__/
+# third-party Human Base Meshes bundle (~100 MB, CC0): download it again to rebuild the people (see README)
+vendor/human_base_meshes/
+# local tool settings
+.claude/
+node_modules/
+.DS_Store
+Thumbs.db

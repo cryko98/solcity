@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sol City</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --hud: #ffffff; --money: #7ad65b; --shadow: 0 2px 0 #000, 0 0 6px rgba(0,0,0,.6); }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: Inter, Arial, sans-serif; color: #fff; }
+    #game canvas { display: block; }
+
+    /* top-right stats */
+    #stats { position: fixed; top: 18px; right: 24px; text-align: right; pointer-events: none; }
+    #clock { font: 28px Anton, Impact, sans-serif; letter-spacing: 1px; text-shadow: var(--shadow); }
+    #money { font: 34px Anton, Impact, sans-serif; color: var(--money); letter-spacing: 1px; text-shadow: var(--shadow); }
+    #wanted { font-size: 22px; letter-spacing: 2px; color: rgba(255,255,255,.35); text-shadow: var(--shadow); }
+
+    /* minimap */
+    #radar { position: fixed; left: 22px; bottom: 22px; width: 250px; pointer-events: none; }
+    #minimap { width: 250px; height: 160px; display: block; border-radius: 6px; border: 3px solid rgba(0,0,0,.55); }
+    .bars { display: flex; gap: 4px; margin-top: 4px; }
+    .bar { height: 7px; background: rgba(0,0,0,.6); flex: 1; }
+    .bar span { display: block; height: 100%; }
+    #hp span { width: 100%; background: #5fb04b; }
+    #hp span, #armor span { transition: width .3s; }
+    #armor span { width: 0; background: #4b8fd6; }
+    #armor.empty { opacity: .45; }
+    #hp span.low { background: #d6493a; animation: pulse .8s infinite; }
+
+    /* street banner */
+    #street { position: fixed; right: 26px; bottom: 26px; text-align: right; opacity: 0; transform: translateY(8px); transition: opacity .6s, transform .6s; pointer-events: none; }
+    #street.show { opacity: 1; transform: none; }
+    #street-name { font: 30px Anton, Impact, sans-serif; text-shadow: var(--shadow); }
+    #district-name { font: 700 15px Inter, sans-serif; letter-spacing: 3px; text-transform: uppercase; color: #f2d48c; text-shadow: var(--shadow); }
+
+    #speedo { position: fixed; right: 28px; bottom: 96px; text-align: right; opacity: 0; transition: opacity .3s; pointer-events: none; }
+    #speedo.show { opacity: 1; }
+    #kmh { font: 64px Anton, Impact, sans-serif; line-height: 1; text-shadow: var(--shadow); }
+    #speedo small { display: block; font: 700 13px Inter, sans-serif; letter-spacing: 3px; color: #f2d48c; text-shadow: var(--shadow); }
+    #hint { position: fixed; left: 50%; top: 62%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 8px 14px; border-radius: 6px;
+      font: 600 14px Inter, sans-serif; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    #hint.show { opacity: 1; }
+    #wanted span { transition: color .15s, text-shadow .15s; }
+    #wanted span.on { color: #fff; text-shadow: 0 2px 0 #000, 0 0 10px rgba(255,255,255,.7); }
+    #wanted.active span:not(.on) { color: rgba(255,255,255,.22); }
+    #subtitle-line { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); max-width: 80vw; text-align: center;
+      font: 700 22px Inter, sans-serif; color: #fff; text-shadow: 0 2px 0 #000, 0 0 8px rgba(0,0,0,.9); opacity: 0; transition: opacity .3s; pointer-events: none; }
+    #subtitle-line.show { opacity: 1; }
+    #subtitle-line em { color: #ffd23f; font-style: normal; }
+    #mission { position: fixed; right: 24px; top: 250px; min-width: 210px; background: rgba(0,0,0,.55); padding: 10px 14px; border-radius: 6px;
+      opacity: 0; transition: opacity .3s; pointer-events: none; }
+    #mission.show { opacity: 1; }
+    #mission .m-title { font: 22px Anton, Impact, sans-serif; letter-spacing: 1px; color: #ffd23f; margin-bottom: 4px; }
+    #mission .m-row { display: flex; justify-content: space-between; gap: 16px; font: 700 13px Inter, sans-serif; letter-spacing: 1px; color: #ddd; line-height: 1.7; }
+    #mission .m-row b { font: 18px Anton, Impact, sans-serif; color: #fff; letter-spacing: 1px; }
+    #mission .m-row b.warn { color: #ff5a4a; }
+    #weapon { margin-top: 6px; display: flex; flex-direction: column; align-items: flex-end; }
+    #weapon .w-name { font: 700 13px Inter, sans-serif; letter-spacing: 3px; color: #f2d48c; text-shadow: var(--shadow); }
+    #weapon .w-ammo { font: 26px Anton, Impact, sans-serif; text-shadow: var(--shadow); }
+    #weapon .w-ammo small { font-size: 18px; color: #ccc; }
+    #crosshair { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; pointer-events: none; transition: opacity .15s; }
+    #crosshair.show { opacity: 1; }
+    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+    #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+    #crosshair::after { top: 10px; left: 0; height: 2px; width: 22px; }
+    #money-add { font: 26px Anton, Impact, sans-serif; color: var(--money); text-shadow: var(--shadow); opacity: 0; }
+    #money-add.show { animation: cashpop 1.6s ease-out; }
+    @keyframes cashpop { 0% { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+    #wasted-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+      background: rgba(60, 60, 60, .55); backdrop-filter: grayscale(1); opacity: 0; transition: opacity 1.2s; }
+    #wasted-screen.show { opacity: 1; }
+    #wasted-screen span { font: 110px Anton, Impact, sans-serif; color: #c8151b; letter-spacing: 4px; text-shadow: 0 4px 0 #000, 0 0 30px rgba(0,0,0,.6); }
+    #radio { position: fixed; left: 50%; top: 26px; transform: translateX(-50%); text-align: center; opacity: 0; transition: opacity .4s; pointer-events: none; }
+    #radio.show { opacity: 1; }
+    #radio .r-name { font: 34px Anton, Impact, sans-serif; letter-spacing: 2px; color: #ffd23f; text-shadow: var(--shadow); }
+    #radio .r-sub { font: 700 12px Inter, sans-serif; letter-spacing: 4px; text-transform: uppercase; color: #eee; text-shadow: var(--shadow); }
+    #shop { position: fixed; left: 24px; top: 50%; transform: translateY(-50%); min-width: 250px; background: rgba(10,10,12,.82); border-left: 4px solid #e04040;
+      padding: 12px 16px; border-radius: 6px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    #shop.show { opacity: 1; }
+    #shop .s-title { font: 26px Anton, Impact, sans-serif; letter-spacing: 2px; color: #ff4b4b; margin-bottom: 6px; }
+    #shop .s-row { display: flex; align-items: center; gap: 10px; font: 700 14px Inter, sans-serif; line-height: 2; }
+    #shop .s-row span { flex: 1; }
+    #shop .s-row b { font: 18px Anton, Impact, sans-serif; color: #7ad65b; letter-spacing: 1px; }
+    #shop .s-row.poor b { color: #a55; }
+    #shop .s-foot { margin-top: 6px; font: 600 11px Inter, sans-serif; letter-spacing: 2px; color: #999; text-transform: uppercase; }
+    #bigmap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+      background: rgba(5,8,14,.78); pointer-events: none; }
+    #bigmap.show { display: flex; }
+    #bigmap .map-row { display: flex; gap: 14px; align-items: flex-start; }
+    #bigmap .stats { min-width: 190px; background: rgba(0,0,0,.55); border-radius: 6px; padding: 10px 14px; font: 700 12px Inter, sans-serif; letter-spacing: 1px; }
+    #bigmap .stats div { display: flex; justify-content: space-between; gap: 12px; line-height: 2; color: #ccc; text-transform: uppercase; }
+    #bigmap .stats b { font: 16px Anton, Impact, sans-serif; color: #fff; letter-spacing: 1px; }
+    @media (max-width: 900px) { #bigmap .stats { display: none; } }
+    #bigmap canvas { border: 3px solid rgba(255,255,255,.25); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+    #bigmap .legend { font: 700 13px Inter, sans-serif; letter-spacing: 1px; display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+    #bigmap .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid #000; margin-right: 6px; vertical-align: -1px; }
+    #help { position: fixed; top: 18px; left: 22px; background: rgba(0,0,0,.55); padding: 12px 16px; border-radius: 6px; font-size: 13px; line-height: 1.75; }
+    #help.hidden { display: none; }
+    kbd { display: inline-block; min-width: 22px; padding: 0 6px; margin-right: 4px; border-radius: 4px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); font: 600 12px Inter, sans-serif; text-align: center; }
+
+    /* title / loading */
+    #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at center, rgba(20,10,30,.35), rgba(0,0,0,.85)); cursor: wait; transition: opacity .5s; }
+    #overlay.ready { cursor: pointer; }
+    #overlay.hidden { opacity: 0; pointer-events: none; }
+    #title { font: 120px Anton, Impact, sans-serif; line-height: .9; letter-spacing: 4px; text-align: center;
+      background: linear-gradient(180deg, #ffe08a 0%, #ff7a3d 55%, #d93a7a 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 6px 0 #000) drop-shadow(0 0 30px rgba(255,120,80,.35)); }
+    #subtitle { margin-top: 8px; font: 700 16px Inter, sans-serif; letter-spacing: 8px; color: #f6e3c2; text-transform: uppercase; }
+    #loading { width: min(360px, 80vw); height: 6px; margin-top: 46px; background: rgba(255,255,255,.15); border-radius: 3px; overflow: hidden; }
+    #loading-bar { width: 0; height: 100%; background: #ffb347; transition: width .3s; }
+    #loading-text { margin-top: 14px; font: 700 14px Inter, sans-serif; letter-spacing: 3px; text-transform: uppercase; color: #ddd; }
+    #overlay.ready #loading-text { animation: pulse 1.4s infinite; color: #fff; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    @media (max-width: 700px) { #title { font-size: 72px; } #radar { width: 170px; } #minimap { width: 170px; height: 110px; } }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="stats">
+    <div id="clock">18:40</div>
+    <div id="money">$00000500</div>
+    <div id="money-add"></div>
+    <div id="weapon"></div>
+    <div id="wanted">★★★★★</div>
+  </div>
+
+  <div id="radar">
+    <canvas id="minimap" width="250" height="160"></canvas>
+    <div class="bars"><div class="bar" id="hp"><span></span></div><div class="bar" id="armor"><span></span></div></div>
+  </div>
+
+  <div id="street"><div id="street-name"></div><div id="district-name"></div></div>
+  <div id="speedo"><span id="kmh">0</span><small>km/h</small></div>
+  <div id="hint">Press <kbd>F</kbd> to get in</div>
+  <div id="crosshair"></div>
+  <div id="subtitle-line"></div>
+  <div id="radio"></div>
+  <div id="shop"></div>
+  <div id="mission"></div>
+  <div id="wasted-screen"><span>WASTED</span></div>
+  <div id="bigmap"><div class="map-row"><canvas></canvas><div class="stats"></div></div>
+    <div class="legend"><span><i style="background:#f4f4f4"></i>Street race</span><span><i style="background:#e0407e"></i>Pay 'n' Spray</span>
+      <span><i style="background:#7ad65b"></i>Weapon</span><span><i style="background:#ff5a5a"></i>Health</span><span><i style="background:#4b9fff"></i>Armor</span><span><i style="background:#f2c12e"></i>Stunt jump</span><span><i style="background:#e04040"></i>Ammu-Nation</span><span>M close</span></div>
+  </div>
+
+  <div id="help">
+    <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</div>
+    <div><kbd>Shift</kbd> run &nbsp; <kbd>Space</kbd> jump &nbsp; <kbd>C</kbd> dodge roll</div>
+    <div><kbd>Mouse</kbd> look &nbsp; <kbd>Wheel</kbd> zoom</div>
+    <div><kbd>Click</kbd> punch / shoot &nbsp; <kbd>Right mouse</kbd> aim</div>
+    <div><kbd>1</kbd>-<kbd>4</kbd> / <kbd>Q</kbd> switch weapon &nbsp; <kbd>R</kbd> reload</div>
+    <div><kbd>F</kbd> get in / out of a car &nbsp; <kbd>T</kbd> taxi missions (in a taxi)</div>
+    <div><kbd>E</kbd> start a street race at an <b>R</b> marker &nbsp; <b>$</b> Pay 'n' Spray</div>
+    <div><kbd>T</kbd> in a police car: vigilante missions</div>
+    <div>In a car: <kbd>W</kbd> gas <kbd>S</kbd> brake / reverse <kbd>Space</kbd> handbrake <kbd>G</kbd> horn</div>
+    <div><kbd>M</kbd> map &nbsp; <kbd>R</kbd> radio (in a car) &nbsp; <kbd>P</kbd> graphics quality</div>
+    <div><kbd>N</kbd> skip to night / morning &nbsp; <kbd>K</kbd> weather &nbsp; <kbd>H</kbd> hide help</div>
+  </div>
+
+  <div id="overlay">
+    <div id="title">SOL CITY</div>
+    <div id="subtitle">Stories of the street</div>
+    <div id="loading"><div id="loading-bar"></div></div>
+    <div id="loading-text">Loading…</div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
