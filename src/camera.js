@@ -85,7 +85,7 @@ export class FollowCamera {
     cam.position.x += -Math.cos(this.yaw) * so;
     cam.position.z += Math.sin(this.yaw) * so;
     cam.position.y += 0.1 * this.aimK;
-    cam.position.y = Math.max(cam.position.y, 0.35);
+    cam.position.y = Math.max(cam.position.y, this.city.groundHeight(cam.position.x, cam.position.z) + 0.4);
     if (this.shake > 0.001) {
       cam.position.x += (Math.random() - 0.5) * this.shake;
       cam.position.y += (Math.random() - 0.5) * this.shake;

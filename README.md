@@ -88,6 +88,18 @@ checkpoint before the clock runs out. Gold / silver / bronze pay $500 / $300 / $
 Yellow-black ramps on the beaches (J on the map) are stunt jumps: land them for a stunt bonus,
 double the first time.
 
+## Mount Sol and the SOL CITY sign
+
+A big rounded hill rises out of the sea behind Vinewood Hills, with a Hollywood-style **SOL CITY** sign of
+white block letters on its slope (softly lit at night). Cars climb the lower slopes (they stall and slide back
+where it gets steeper than ~35 degrees); on foot you can walk right up to the letters and look down over the city.
+
+## Smooth running
+
+All shaders are compiled while loading, the sky reflections are rebuilt only when the sky really changes, and
+if the game runs below ~24 fps for a few seconds the graphics quality steps down automatically (P picks it
+by hand).
+
 ## Weather and time of day
 
 The clock runs one game minute per second, with sunrise, noon, golden hour, dusk and a starry night.

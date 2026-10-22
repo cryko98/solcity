@@ -786,6 +786,141 @@ export function buildCity(scene) {
     };
   }
 
+  // ------------------------------------------------------------- Mount Sol + the SOL CITY sign
+  // A big hill rising out of the sea behind Vinewood Hills (north-east). Its lower southern
+  // slope is inside the island's bounds, so you can walk or drive up to the sign; the summit
+  // is scenery. Heights are analytic so cars, people and the camera can follow the ground.
+  const MC = { x: 175, z: -HALF - 118 }, MR = 116, MH = 118;
+  const bell = (d, r) => (d >= r ? 0 : 0.5 + 0.5 * Math.cos((Math.PI * d) / r));
+  const mountainRaw = (x, z) => {
+    if (z > -HALF - 5) return 0;
+    // a broad east-west ridge with a rounded summit and two lower shoulders
+    let h = MH * Math.pow(bell(Math.hypot((x - MC.x) / 1.5, z - MC.z), MR), 1.15);
+    h += 48 * bell(Math.hypot(x - (MC.x - 100), z - (MC.z + 18)), 80);
+    h += 38 * bell(Math.hypot(x - (MC.x + 115), z - (MC.z - 8)), 75);
+    if (h <= 0) return 0;
+    // ridges and gullies running down the slopes
+    const n = Math.sin(x * 0.05 + Math.sin(z * 0.035) * 2.4) * 0.55 + Math.sin(z * 0.07 + x * 0.025) * 0.45;
+    h *= 1 + 0.1 * n * Math.min(1, h / 25);
+    // never reaches into the street grid
+    return h * THREE.MathUtils.smoothstep(-z, HALF + 6, HALF + 72);
+  };
+  // the landmark cuts through the haze: half the fog density on the hill and the sign
+  const lightFog = (mat) => {
+    mat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <fog_fragment>', `#ifdef USE_FOG
+        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth * 0.25);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+      #endif`);
+    };
+    mat.customProgramCacheKey = () => 'lightfog';
+    return mat;
+  };
+  city.terrain = (x, z) => (z > -HALF - 5 ? 0 : Math.max(0, mountainRaw(x, z) - 0.6));
+  {
+    const W = 2 * MR * 1.5 + 60, D = 2 * MR + 30, SX = 120, SZ = 76;
+    const geo = new THREE.PlaneGeometry(W, D, SX, SZ).rotateX(-HALF_PI);
+    const pos = geo.attributes.position, col = [];
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i) + MC.x, z = pos.getZ(i) + MC.z;
+      pos.setXYZ(i, x, mountainRaw(x, z) - 0.6, z);
+    }
+    geo.computeVertexNormals();
+    const nrm = geo.attributes.normal, c = new THREE.Color();
+    const sand = new THREE.Color(0xc7b48a), dry = new THREE.Color(0x7d7444), bush = new THREE.Color(0x46502a), rock = new THREE.Color(0x766d62);
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i), up = nrm.getY(i);
+      c.copy(sand).lerp(dry, THREE.MathUtils.smoothstep(y, 0.3, 3)).lerp(bush, THREE.MathUtils.smoothstep(y, 6, 40) * 0.8);
+      c.lerp(rock, THREE.MathUtils.smoothstep(1 - up, 0.28, 0.5));
+      const v = 0.92 + ((i * 2654435761) % 1000) / 1000 * 0.16; // a little speckle
+      col.push(c.r * v, c.g * v, c.b * v);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    const ground = TX.grass();
+    ground.repeat.set(45, 30);
+    const hill = new THREE.Mesh(geo, lightFog(std({ map: ground, color: 0xd8d0b8, vertexColors: true, roughness: 1 })));
+    hill.receiveShadow = true;
+    hill.castShadow = true;
+    scene.add(hill);
+    // scrub: one instanced mesh of squashed bushes on the gentler slopes
+    const r2 = TX.rng(4242);
+    const spots = [];
+    for (let k = 0; k < 1400 && spots.length < 520; k++) {
+      const x = MC.x + (r2() - 0.5) * W, z = MC.z + (r2() - 0.5) * D;
+      const h = mountainRaw(x, z) - 0.6;
+      if (h < 2) continue;
+      spots.push([x, h, z, 0.8 + r2() * 1.6, r2() * 6.28]);
+    }
+    const bushes = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), lightFog(std({ color: 0x3f4a26, roughness: 1, flatShading: true })), spots.length);
+    const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s4 = new THREE.Vector3(), p4 = new THREE.Vector3();
+    spots.forEach(([x, y, z, s, a], k) => {
+      bushes.setMatrixAt(k, m4.compose(p4.set(x, y + s * 0.3, z), q4.setFromAxisAngle(new THREE.Vector3(0, 1, 0), a), s4.set(s, s * 0.6, s)));
+    });
+    bushes.castShadow = true;
+    bushes.receiveShadow = true;
+    scene.add(bushes);
+
+    // the sign: chunky white block letters on posts, facing the city (south, +Z)
+    const LW = 7.6, LH = 11.5, T = 1.75, GAP = 2.3, DEPTH = 0.4;
+    const white = lightFog(nightEmissive(std({ color: 0xf4f2ec, emissive: 0xffffff, roughness: 0.55 }), 0, 0.45));
+    const strut = std({ color: 0x3a3a3c, roughness: 0.7, metalness: 0.5 });
+    // strokes per letter in a 0..1 box: [x0, y0, x1, y1] (rectangles) or ['d', x0, y0, x1, y1] (diagonal bar)
+    const t = T / LW, th = T / LH;
+    const GLYPHS = {
+      S: [[0, 1 - th, 1, 1], [0, 0.5 - th / 2, 1, 0.5 + th / 2], [0, 0, 1, th], [0, 0.5, t, 1], [1 - t, 0, 1, 0.5]],
+      O: [[0, 1 - th, 1, 1], [0, 0, 1, th], [0, 0, t, 1], [1 - t, 0, 1, 1]],
+      L: [[0, 0, t, 1], [0, 0, 1, th]],
+      C: [[0, 1 - th, 1, 1], [0, 0, 1, th], [0, 0, t, 1]],
+      I: [[0.5 - t / 2, 0, 0.5 + t / 2, 1]],
+      T: [[0, 1 - th, 1, 1], [0.5 - t / 2, 0, 0.5 + t / 2, 1]],
+      Y: [['d', 0.06, 1, 0.5, 0.48], ['d', 0.94, 1, 0.5, 0.48], [0.5 - t / 2, 0, 0.5 + t / 2, 0.5]],
+    };
+    const text = 'SOL CITY';
+    const total = text.length * LW + (text.length - 1) * GAP;
+    const SZ0 = -HALF - 46; // just inside the island bounds
+    let lx = MC.x - total / 2 - 25;
+    const parts = [];
+    for (const ch of text) {
+      if (ch !== ' ') {
+        const base = Math.min(mountainRaw(lx + 0.5, SZ0), mountainRaw(lx + LW - 0.5, SZ0)) - 0.6;
+        for (const s of GLYPHS[ch]) {
+          if (s[0] === 'd') {
+            const [, x0, y0, x1, y1] = s;
+            const ax = lx + x0 * LW, ay = base + 1.2 + y0 * LH, bx = lx + x1 * LW, by = base + 1.2 + y1 * LH;
+            const len = Math.hypot(bx - ax, by - ay);
+            const g = new THREE.BoxGeometry(T, len, DEPTH).rotateZ(-Math.atan2(bx - ax, by - ay)).translate((ax + bx) / 2, (ay + by) / 2, SZ0);
+            parts.push(g);
+          } else {
+            const [x0, y0, x1, y1] = s;
+            parts.push(new THREE.BoxGeometry((x1 - x0) * LW, (y1 - y0) * LH, DEPTH).translate(lx + ((x0 + x1) / 2) * LW, base + 1.2 + ((y0 + y1) / 2) * LH, SZ0));
+          }
+        }
+        // two posts behind each letter, down into the slope
+        for (const px of [lx + 1.2, lx + LW - 1.2]) {
+          const g0 = mountainRaw(px, SZ0 - 1.2) - 0.6;
+          const top = base + 1.2 + LH * 0.8;
+          solid(strut, px, g0 - 1, SZ0 - 0.6, 0.25, top - g0 + 1, 0.25);
+        }
+        box(lx, lx + LW, SZ0 - 0.9, SZ0 + 0.3, base + 1.2 + LH);
+        mrect(lx, SZ0 - 1, LW, 2, '#f4f2ec');
+      }
+      lx += LW + GAP;
+    }
+    const sign = new THREE.Mesh(mergeGeometries(parts), white);
+    sign.castShadow = sign.receiveShadow = true;
+    scene.add(sign);
+    // the foothills on the minimap
+    for (let x = MC.x - 240; x < MC.x + 240; x += 4) {
+      for (let z = -MAP_EXT; z < -HALF; z += 4) {
+        const h = mountainRaw(x, z);
+        if (h < 1) continue;
+        const k = Math.min(1, h / 60);
+        mg.fillStyle = `rgb(${Math.round(196 - 90 * k)},${Math.round(180 - 70 * k)},${Math.round(130 - 60 * k)})`;
+        mg.fillRect((x + MAP_EXT) * MAP_PX, (z + MAP_EXT) * MAP_PX, 4 * MAP_PX, 4 * MAP_PX);
+      }
+    }
+  }
+
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), Sc = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
   const instanced = (geo, mat, list, fn, shadow = true) => {
     const m = new THREE.InstancedMesh(geo, mat, list.length);
@@ -1046,7 +1181,7 @@ export function buildCity(scene) {
   city.EXT = EXT;
   // quay deck is level with the roads; everything else off the grid is beach at sand level
   const baseGround = city.groundHeight;
-  city.groundHeight = (x, z) => (Math.abs(x) > HALF || Math.abs(z) > HALF ? (onQuay(x, z) ? 0 : -0.03) : baseGround(x, z));
+  city.groundHeight = (x, z) => (Math.abs(x) > HALF || Math.abs(z) > HALF ? (onQuay(x, z) ? 0 : Math.max(-0.03, city.terrain(x, z))) : baseGround(x, z));
   city.roadC = roadC;
   city.blockMin = blockMin;
 

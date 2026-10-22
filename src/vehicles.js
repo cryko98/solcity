@@ -170,6 +170,7 @@ class Vehicle {
     this.impact = 0;
     this.hb = false;
     this.hopY = this.hopV = 0; // explosions throw the car up
+    this.groundY = this.tPitch = this.tRoll = 0; // hills (Mount Sol)
     this.smokeAcc = this.fireAcc = this.tyreAcc = 0;
     if (data.health == null) data.health = 100;
     if (data.wrecked) this.burnOut();
@@ -280,6 +281,7 @@ class Vehicle {
     this.heading += this.angVel * dt;
     this.pos.addScaledVector(this.vel, dt);
     this.collideStatic(city);
+    this.followTerrain(dt, city);
 
     // visual suspension
     const aLong = (vf - this.prevVf) / Math.max(dt, 1e-4);
@@ -318,6 +320,28 @@ class Vehicle {
     this.lightPool.visible = this.lightCone.visible = lit && !!this.headMat && this.hopY < 0.3;
     if (this.tailMat) this.tailMat.emissiveIntensity = this.braking ? 5 : lit ? 1.2 : 0;
     this.sync();
+  }
+
+  // ride on the hill: height from the terrain, body tilted to the slope, gravity along it
+  followTerrain(dt, city) {
+    const ter = city.terrain;
+    const gy = ter ? ter(this.pos.x, this.pos.z) : 0;
+    let pitch = 0, roll = 0;
+    if (gy > 0.01 || this.groundY > 0.01) {
+      const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = -fz, rz = fx;
+      const slope = (ter(this.pos.x + fx * 1.4, this.pos.z + fz * 1.4) - ter(this.pos.x - fx * 1.4, this.pos.z - fz * 1.4)) / 2.8;
+      const side = (ter(this.pos.x - rx * 0.9, this.pos.z - rz * 0.9) - ter(this.pos.x + rx * 0.9, this.pos.z + rz * 0.9)) / 1.8;
+      // a bit more than real gravity: cars stall on slopes steeper than ~35 degrees and slide back
+      const g = (9.8 * 1.6 * slope) / Math.sqrt(1 + slope * slope);
+      this.vel.x -= fx * g * dt;
+      this.vel.z -= fz * g * dt;
+      pitch = THREE.MathUtils.clamp(-Math.atan(slope), -0.7, 0.7);
+      roll = THREE.MathUtils.clamp(Math.atan(side), -0.6, 0.6);
+    }
+    this.groundY = gy;
+    const k = Math.min(1, dt * 10);
+    this.tPitch += (pitch - this.tPitch) * k;
+    this.tRoll += (roll - this.tRoll) * k;
   }
 
   collideStatic(city) {
@@ -372,8 +396,8 @@ class Vehicle {
 
   sync() {
     this.object.position.copy(this.pos);
-    this.object.position.y = this.hopY;
-    this.object.rotation.y = this.heading;
+    this.object.position.y = this.groundY + this.hopY;
+    this.object.rotation.set(this.tPitch, this.heading, this.tRoll, 'YXZ');
     this.body.rotation.set(this.pitch, 0, this.roll);
     for (const w of this.wheels) {
       w.o.quaternion.copy(w.rest);
@@ -445,7 +469,7 @@ export class Vehicles {
         const k = near ? kn++ : kf++;
         _q.setFromAxisAngle(UP, c.yaw);
         if (specOf(c).bike) _q.multiply(_q2.setFromAxisAngle(Z_AXIS, -0.2)); // on the side stand
-        _m.compose(_p.set(c.x, 0, c.z), _q, _s);
+        _m.compose(_p.set(c.x, this.city.terrain ? this.city.terrain(c.x, c.z) : 0, c.z), _q, _s);
         for (const p of parts) {
           const inst = near ? p.near : p.far;
           inst.setMatrixAt(k, tmp.multiplyMatrices(_m, p.rel));

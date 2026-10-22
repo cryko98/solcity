@@ -368,7 +368,8 @@ export class Environment {
     this.audio?.rain?.(this.indoor ? rn * 0.25 : rn);
 
     // reflections: rebuild the environment map when the sky changed noticeably
-    const sig = `${Math.round(nk * 20)}|${Math.round(cl * 10)}|${Math.round(this.hour * 2)}|${this.flash > 0.5 ? 1 : 0}`;
+    // (coarse on purpose: every rebuild costs a few ms, so only real changes of the sky trigger one)
+    const sig = `${Math.round(nk * 12)}|${Math.round(cl * 6)}`;
     if ((this.envCool -= dt) <= 0 && sig !== this.envSig) {
       this.envSig = sig;
       this.envCool = 0.5;

@@ -284,6 +284,8 @@ Promise.all([
       hud.addMoney(amount);
       audio.cash();
     };
+    // compile every shader now, so nothing stalls the first time it comes into view
+    renderer.compile(scene, camera);
     loadingText.textContent = 'Click to play';
     overlay.classList.add('ready');
     window.__game = {
@@ -403,10 +405,12 @@ const QUALITY = [
   { name: 'LOW', ratio: 0.75, shadow: 1024, lamps: 2 },
 ];
 let quality = 0;
+let autoQuality = true;
 try {
   quality = Math.min(QUALITY.length - 1, Math.max(0, parseInt(localStorage.getItem('solcity.quality'), 10) || 0));
 } catch {}
-function setQuality(q, announce) {
+function setQuality(q, announce, auto = false) {
+  if (!auto) autoQuality = false;
   quality = q;
   const Q = QUALITY[q];
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.ratio));
@@ -424,9 +428,9 @@ function setQuality(q, announce) {
   try {
     localStorage.setItem('solcity.quality', String(q));
   } catch {}
-  if (announce) hud?.say(`Graphics: <em>${Q.name}</em>`, 2);
+  if (announce) hud?.say(`Graphics: <em>${Q.name}</em>${auto ? ' (auto, P to change)' : ''}`, 3);
 }
-if (quality) setQuality(quality, false);
+if (quality) setQuality(quality, false, true);
 
 // ------------------------------------------------------------------ save game
 const SAVE_KEY = 'solcity.save';
@@ -542,10 +546,26 @@ const tmp = new THREE.Vector3();
 
 let cinematic = null; // trailer mode: (camera) => void, overrides the follow camera
 
+// automatic quality: if the game runs below ~24 fps for a few seconds, drop the resolution
+// a step (until the player picks a quality with P)
+let perfT = 0, perfN = 0, perfWarm = 0;
+function measure(raw) {
+  if (!player || !overlay.classList.contains('hidden') || document.hidden || story?.cutscene) return void (perfWarm = 0);
+  if ((perfWarm += raw) < 6) return; // let shaders and textures settle first
+  perfT += raw;
+  perfN++;
+  if (perfT < 5) return;
+  const fps = perfN / perfT;
+  perfT = perfN = 0;
+  if (autoQuality && fps < 24 && quality < QUALITY.length - 1) setQuality(quality + 1, true, true);
+}
+
 function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(clock.getDelta(), 1 / 20);
+  const raw = clock.getDelta();
+  const dt = Math.min(raw, 1 / 20);
   if (window.__trailer) return; // the trailer recorder steps the game itself
+  measure(raw);
   step(dt);
   composer.render();
 }
