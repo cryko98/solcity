@@ -37,6 +37,8 @@ export class Weapons {
     this.cool = 0;
     this.reloading = 0;
     this.aiming = false;
+    this.readyT = 0; // hip fire: the hero squares up to the camera for a moment
+    this.queued = 0; // a shot waiting for the hero to turn round
     this.onShot = null; // (pos) => void  (gunfire is a crime when heard)
     this.makeFx();
     this.makePickups(heroScene);
@@ -300,9 +302,47 @@ export class Weapons {
     return best;
   }
 
+  // can a shot from o reach this person without a wall in between?
+  clear(o, p) {
+    const to = new THREE.Vector3(p.x, p.y + 1.25, p.z).sub(o), d = to.length();
+    return this.city.raycast(o, to.normalize(), d) >= d - 0.5;
+  }
+
+  // the person nearest the crosshair within maxAngle (radians), hostile ones first
+  crossTarget(maxAngle, range) {
+    const cam = this.camera.position, cd = new THREE.Vector3();
+    this.camera.getWorldDirection(cd);
+    let best = null, bs = Infinity;
+    for (const p of this.peds.list) {
+      if (p.state === 'down' || p.state === 'riding' || p.invulnerable || p.state === 'seated' && p.keep) continue;
+      const v = new THREE.Vector3(p.x - cam.x, p.y + 1.25 - cam.y, p.z - cam.z), d = v.length();
+      if (d > range || d < 1) continue;
+      const ang = v.angleTo(cd);
+      if (ang > maxAngle) continue;
+      const hostile = p.hostile || p.state === 'fight' || p.state === 'cop';
+      const score = ang * (hostile ? 0.5 : 1) + d * 0.002;
+      if (score < bs && this.clear(cam, p)) {
+        bs = score;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  // right mouse pressed: swing the view onto whoever is close to the crosshair (assisted aim)
+  lockOn() {
+    const w = WEAPONS[this.current], t = this.crossTarget(0.3, Math.min(w.range, 45));
+    if (!t) return;
+    const cam = this.camera.position, dx = t.x - cam.x, dz = t.z - cam.z, dy = t.y + 1.3 - cam.y;
+    this.follow.assistTo(Math.atan2(dx, dz), Math.atan2(-dy, Math.hypot(dx, dz)));
+  }
+
   aimDirection(muzzle, w) {
     const P = this.player;
-    if (this.aiming) {
+    if (this.aiming || this.readyT > 0) {
+      // a little magnetism: a shot that just grazes someone hits them (more when firing from the hip)
+      const t = this.crossTarget(this.aiming ? 0.035 : 0.1, w.range);
+      if (t) return new THREE.Vector3(t.x - muzzle.x, t.y + 1.25 - muzzle.y, t.z - muzzle.z).normalize();
       // through the crosshair: from the camera, then from the muzzle to whatever the camera ray hits
       const cd = new THREE.Vector3();
       this.camera.getWorldDirection(cd);
@@ -310,9 +350,6 @@ export class Weapons {
       const aimPt = this.camera.position.clone().addScaledVector(cd, 1.5 + hit.t);
       return aimPt.sub(muzzle).normalize();
     }
-    // hip fire: lock on to the nearest person in front, like GTA's auto-aim
-    const t = this.peds.target(P.position, P.yaw, 25);
-    if (t) return new THREE.Vector3(t.x - muzzle.x, t.y + 1.25 - muzzle.y, t.z - muzzle.z).normalize();
     return new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
   }
 
@@ -340,6 +377,7 @@ export class Weapons {
       if (i === 0 || Math.random() < 0.35) this.tracer(muzzle, at);
       if (hit.ped) {
         this.impact(at, true);
+        this.hitMark();
         const wasUp = hit.ped.state !== 'down';
         this.peds.shot(hit.ped, w.dmg, d);
         if (wasUp && hit.ped.state === 'down') {
@@ -367,6 +405,14 @@ export class Weapons {
     this.onShot?.(this.player.position);
     if (s.mag === 0 && s.reserve > 0) this.reload();
     this.updateHud();
+  }
+
+  hitMark() {
+    const el = document.getElementById('crosshair');
+    if (!el) return;
+    el.classList.remove('hit');
+    void el.offsetWidth;
+    el.classList.add('hit');
   }
 
   // an armed officer fires at the player: visible tracer, 35% chance to hit
@@ -406,10 +452,25 @@ export class Weapons {
     if (input.pressed('KeyR') && onFoot) this.reload();
 
     const armed = !!this.current && onFoot;
-    this.aiming = armed && input.mouse(2) && !this.player.overlay;
-    this.player.aiming = this.aiming;
+    const aim = armed && input.mouse(2) && !this.player.overlay;
+    if (aim && !this.aiming) this.lockOn();
+    this.aiming = aim;
+    const w0 = WEAPONS[this.current];
+    const trigger = armed && !this.player.overlay && (w0?.auto ? input.mouse(0) : input.pressed('Mouse0'));
+    // firing without aiming: the hero turns to where the camera looks and shoots at the crosshair
+    if (trigger && !this.aiming) this.readyT = 1.1;
+    this.readyT = armed && !this.aiming ? this.readyT - dt : 0;
+    const ready = this.readyT > 0;
+    this.player.aiming = this.aiming || ready;
     this.follow.setAim(this.aiming);
-    document.getElementById('crosshair')?.classList.toggle('show', this.aiming);
+    const ch = document.getElementById('crosshair');
+    if (ch) {
+      ch.classList.toggle('show', this.aiming || ready);
+      ch.classList.toggle('hip', ready);
+      const over = (this.aiming || ready) && !!this.crossTarget(0.035, w0 ? w0.range : 0);
+      ch.classList.toggle('target', over);
+      this.follow.slow = over && this.aiming;
+    }
 
     if (this.reloading > 0 && (this.reloading -= dt) <= 0) {
       const w = WEAPONS[this.current], s = this.inv[this.current];
@@ -418,9 +479,15 @@ export class Weapons {
       s.reserve -= n;
       this.updateHud();
     }
-    if (armed && !this.player.overlay) {
-      const w = WEAPONS[this.current];
-      if (w.auto ? input.mouse(0) : input.pressed('Mouse0')) this.fire();
+    // shoot once the hero faces the way the camera looks (a hip shot waits a moment for the turn)
+    if (trigger) this.queued = 0.35;
+    this.queued -= dt;
+    if (armed && !this.player.overlay && this.queued > 0) {
+      const off = Math.abs(Math.atan2(Math.sin(this.player.yaw - this.follow.yaw), Math.cos(this.player.yaw - this.follow.yaw)));
+      if (off < 0.45) {
+        this.fire();
+        this.queued = 0;
+      }
     }
 
     // effects

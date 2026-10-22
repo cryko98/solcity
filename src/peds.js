@@ -811,7 +811,7 @@ export class Peds {
     else if (p.overlay) a.target = { [p.overlay.name]: 1 };
     else if (p.state === 'flee') a.target = { run: 1 };
     else if (p.state === 'fight') a.target = p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
-    else if (p.state === 'cop' && p.aimingGun && a.actions.pistolaim) a.target = { pistolaim: 1 };
+    else if ((p.state === 'cop' || p.state === 'contact') && p.aimingGun && a.actions.pistolaim) a.target = { pistolaim: 1 };
     else if (p.state === 'cop') a.target = p.cur > 2.4 ? { run: 1 } : p.cur > 0.4 ? { walk: 1 } : { guard: 1 };
     else if (p.state === 'riding') a.target = { drive: 1 };
     else if (p.state === 'board') a.target = p.cur > 2.2 ? { run: 1 } : { walk: 1 };

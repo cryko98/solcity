@@ -112,9 +112,10 @@ const SCRIPT = {
       [PLAYER, 'Want me to ask them nicely to leave?'],
       ['VINCE', 'I want them carried out. Every one of them.'],
       ['VINCE', 'Marco and Sal Russo think they own this city because they own the banks. Banks!'],
-      ['VINCE', 'Go. Clear my pier.'],
+      ['VINCE', "They carry guns. Fists won't do it: get yourself something at Ammu-Nation first."],
+      ['VINCE', 'Then go. Clear my pier.'],
     ],
-    text: 'Clear the <em>Russo crew</em> off the north pier.',
+    text: 'Clear the <em>Russo crew</em> off the north pier.', armed: 2,
   },
   diaz3: {
     title: 'DIRTY MONEY', pay: 1500, pose: 'stand',
@@ -158,10 +159,11 @@ const SCRIPT = {
       ['ZARA', 'The Russos know it was you. They are holed up in their club with everyone they have left.'],
       [PLAYER, 'Then I go to them.'],
       ['ZARA', "Marco runs when it gets hot. Don't let him get away."],
+      ['ZARA', 'Every one of them will be armed. Stock up at Ammu-Nation before you go.'],
       ['ZARA', 'Finish this, and Sol City runs on DaCity. And DaCity looks after its friends.'],
       [PLAYER, 'See you at the top, Zara.'],
     ],
-    text: 'Take out the <em>Russo crew</em> at their club.',
+    text: 'Take out the <em>Russo crew</em> at their club.', armed: 4,
   },
 };
 
@@ -513,12 +515,16 @@ export class Story {
         const g = ped.add('male', x0 + (k * 34) / (n - 1), z0 + 1.6 + (k % 2) * 1.4, Math.PI);
         g.state = 'contact';
         g.keep = true;
+        g.hostile = true;
+        // every other one carries a pistol and shoots from where he stands
+        g.gunman = k % 2 === 0 && goons.filter((q) => q.gunman).length < (m.armed || 0);
+        if (g.gunman) this.arm(g);
         this.dress(g, GOON);
         goons.push(g);
       }
       return goons;
     };
-    const fightCrew = (goons) => {
+    const fightCrew = (goons, dt) => {
       const driving = !!this.getDriving(), p = me();
       for (const g of goons) {
         if (g.beaten) continue;
@@ -527,7 +533,15 @@ export class Story {
           continue;
         }
         const d = Math.hypot(p.x - g.x, p.z - g.z);
-        if (!driving && d < 15) {
+        if (g.gunman && d > 2.5) {
+          // stand and shoot when he can see you
+          if (g.state !== 'contact') g.state = 'contact';
+          g.aimingGun = d < 34 && this.inSight(g, p);
+          if (g.aimingGun && (g.fireTimer = (g.fireTimer ?? 1 + Math.random()) - dt) <= 0) {
+            g.fireTimer = 1.8 + Math.random() * 1.5;
+            ped.onCopFire?.(g);
+          }
+        } else if (!driving && d < 15) {
           if (g.state !== 'fight') {
             g.state = 'fight';
             g.attackTimer = 0.3 + Math.random() * 0.7;
@@ -693,8 +707,8 @@ export class Story {
       ];
     } else if (m.type === 'gang') {
       const goons = crew(spots[0], m.goons);
-      ms.steps = [S(m.text, () => (fightCrew(goons) ? 'next' : null)), loseCops];
-      ms.cleanup = () => goons.forEach((g) => (g.keep = false));
+      ms.steps = [this.gunShopStep(me), S(m.text, (dt) => (fightCrew(goons, dt) ? 'next' : null)), loseCops];
+      ms.cleanup = () => this.disarm(goons);
     } else if (m.type === 'collect') {
       const bags = spots.map((s) => {
         const g = new THREE.Group();
@@ -748,7 +762,8 @@ export class Story {
       const goons = crew(spots[0], m.goons);
       let chase = null;
       ms.steps = [
-        S(m.text, () => (fightCrew(goons) ? 'next' : null)),
+        this.gunShopStep(me),
+        S(m.text, (dt) => (fightCrew(goons, dt) ? 'next' : null)),
         S('<em>Marco Russo</em> is getting away. Stop his car!', (dt) => this.chaseStep(dt, chase, 'Marco Russo got away.'), () => {
           const s = this.roadside(m.where[0], m.where[1], 47);
           const car = v.spawn({ x: s.x, z: s.z, yaw: s.yaw, color: 0x111114, model: 'lux', ai: { suspect: true, ctl: { throttle: 0, steer: 0, handbrake: false } } });
@@ -758,11 +773,65 @@ export class Story {
         }),
       ];
       ms.cleanup = () => {
-        goons.forEach((g) => (g.keep = false));
+        this.disarm(goons);
         if (ms.data.car?.ai) ms.data.car.ai = null;
       };
     }
     this.enterStep(0);
+  }
+
+  // first step of an armed job: buy a gun or ammo at an Ammu-Nation (it has to be bought now)
+  gunShopStep(me) {
+    return {
+      text: "You'll need firepower: buy a gun or ammo at <em>Ammu-Nation</em>.",
+      enter: () => (this.boughtGun = false),
+      update: () => {
+        if (this.boughtGun) return this.shop?.inside ? null : 'next';
+        if (this.shop?.inside) {
+          this.arrow.visible = false;
+          this.hud.route = null;
+          return null;
+        }
+        const shops = (this.shop?.branches || []).filter((b) => b.type === 'gun');
+        if (!shops.length) return 'next';
+        const p = me();
+        const near = shops.reduce((a, b) => (Math.hypot(a.door.x - p.x, a.door.z - p.z) < Math.hypot(b.door.x - p.x, b.door.z - p.z) ? a : b));
+        this.arrowOn(near.door.x, 3.4, near.door.z);
+        this.hud.blips = shops.map((b) => ({ x: b.door.x, z: b.door.z, color: '#ff4040' }));
+        this.routeTo(p, near.door);
+        this.mission.rows = [['AMMU-NATION', 'Buy a gun or ammo']];
+        return null;
+      },
+    };
+  }
+
+  // only officers' bodies come with a pistol: give a gunman a copy of the hero's, in the same hand
+  arm(g) {
+    let gun = g.body.userData.gun;
+    if (!gun) {
+      const src = this.player.model.getObjectByName('Weapon_Pistol'), hand = g.body.getObjectByName(src?.parent?.name || 'hand.R');
+      if (!src || !hand) return;
+      gun = src.clone(true);
+      gun.traverse((o) => (o.visible = true));
+      hand.add(gun);
+      g.body.userData.gun = gun;
+    }
+    gun.visible = true;
+  }
+
+  // can this gunman see the player? (no building in between)
+  inSight(g, p) {
+    const o = new THREE.Vector3(g.x, g.y + 1.5, g.z), d = new THREE.Vector3(p.x - g.x, (p.y ?? 0) + 1.2 - g.y - 1.5, p.z - g.z), L = d.length();
+    return this.city.raycast(o, d.normalize(), L) >= L - 0.6;
+  }
+
+  disarm(goons) {
+    for (const g of goons) {
+      g.keep = false;
+      g.hostile = false;
+      g.aimingGun = false;
+      if (g.body.userData.gun) g.body.userData.gun.visible = false;
+    }
   }
 
   // follow and stop a fleeing car (chase / finale)

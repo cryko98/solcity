@@ -68,6 +68,10 @@
     #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
     #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
     #crosshair::after { top: 10px; left: 0; height: 2px; width: 22px; }
+    #crosshair.hip.show { opacity: .55; transform: scale(.8); }
+    #crosshair.target::before, #crosshair.target::after { background: #ff3b3b; }
+    #crosshair.hit { animation: hitmark .18s ease-out; }
+    @keyframes hitmark { 0% { transform: rotate(45deg) scale(1.35); filter: drop-shadow(0 0 3px #ff3b3b); } 100% { transform: none; } }
     #money-add { font: 26px Anton, Impact, sans-serif; color: var(--money); text-shadow: var(--shadow); opacity: 0; }
     #money-add.show { animation: cashpop 1.6s ease-out; }
     @keyframes cashpop { 0% { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }

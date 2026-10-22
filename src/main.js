@@ -192,6 +192,10 @@ Promise.all([
     // DaCity rewards (only when the game runs on the Sol City server, see server/README.md)
     dacity = new DaCity({ hud });
     story.dacity = dacity;
+    story.shop = shop;
+    shop.onBuy = (b) => {
+      if (b.type === 'gun') story.boughtGun = true;
+    };
     story.onMissionStart = (id) => dacity.start('story', id);
     story.onMissionEnd = (id, passed) => dacity.finish(passed);
     races.onStart = (r) => dacity.start('race', r.id);
@@ -719,7 +723,7 @@ function step(dt) {
     gunfireCooldown -= dt;
     shop.update(dt, input, !driving && !player.dead && !player.busted);
     weapons.update(dt, entry.active ? NO_INPUT : input, { onFoot: !driving && !player.dead && !player.busted && !entry.active });
-    player.aimPitch = follow.pitch;
+    player.aimPitch = follow.viewPitch;
     // walking to a car door: the entry sequence steers the hero
     player.update(dt, entry.steering ? entry.input : entry.active ? NO_INPUT : input, entry.steering ? entry.yaw : follow.yaw, vehicles, peds);
     // health slowly comes back once you're out of a fight

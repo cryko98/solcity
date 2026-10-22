@@ -779,6 +779,7 @@ export class Shops {
     }
     this.audio.cash();
     this.hud.addMoney(-it.price);
+    this.onBuy?.(b, it);
     this.show(b);
   }
 

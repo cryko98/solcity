@@ -388,7 +388,7 @@ export class Player {
       this.moveSpeed = ROLL_SPEED * (k < 0.75 ? 1 - k * 0.35 : (1 - k) * 2.6);
     } else if (this.aiming && this.grounded) {
       this.yaw = dampAngle(this.yaw, camYaw, 20, dt);
-      const tgt = hasInput ? WALK * 1.05 : 0;
+      const tgt = hasInput ? (running ? RUN * 0.6 : WALK * 1.25) : 0; // Shift: a jog with the gun up
       this.moveSpeed += (tgt - this.moveSpeed) * (1 - Math.exp(-8 * dt));
       const len = Math.hypot(mx, mz) || 1;
       this.strafe = hasInput ? [mx / len, mz / len] : this.strafe || [0, 0];

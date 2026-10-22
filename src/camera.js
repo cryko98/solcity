@@ -23,6 +23,18 @@ export class FollowCamera {
     this.shake = 0;
     this.aim = false;
     this.aimK = 0;
+    this.recoil = 0; // view kick from a shot; it settles back by itself
+    this.assist = null; // aim assist: turn onto a target { yaw, pitch, t }
+    this.slow = false; // crosshair over a target: finer mouse
+  }
+
+  // the pitch the camera actually looks with (recoil included)
+  get viewPitch() {
+    return THREE.MathUtils.clamp(this.pitch - this.recoil, -0.35, 1.15);
+  }
+
+  assistTo(yaw, pitch, t = 0.14) {
+    this.assist = { yaw, pitch: THREE.MathUtils.clamp(pitch, -0.35, 1.15), t };
   }
 
   setAim(on) {
@@ -30,7 +42,7 @@ export class FollowCamera {
   }
 
   kick(amount) {
-    this.pitch = Math.max(-0.35, this.pitch - amount); // muzzle climb: the view kicks up
+    this.recoil = Math.min(0.22, this.recoil + amount); // muzzle climb: the view kicks up, then settles
   }
 
   setMode(name) {
@@ -43,13 +55,22 @@ export class FollowCamera {
   update(dt, input, subject) {
     const M = this.mode;
     const m = input.consumeMouse();
+    // aiming through the narrower lens: slower mouse, slower still over a target
+    const sens = (1 - 0.42 * this.aimK) * (this.slow ? 0.6 : 1);
     if (m.dx || m.dy) {
-      this.yaw -= m.dx * 0.0026;
-      this.pitch = THREE.MathUtils.clamp(this.pitch + m.dy * 0.0022, -0.35, 1.15);
+      this.yaw -= m.dx * 0.0026 * sens;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + m.dy * 0.0022 * sens, -0.35, 1.15);
       this.idleTime = 0;
     } else {
       this.idleTime += dt;
     }
+    if (this.assist) {
+      const a = this.assist, k = Math.min(1, dt / Math.max(a.t, dt));
+      this.yaw += Math.atan2(Math.sin(a.yaw - this.yaw), Math.cos(a.yaw - this.yaw)) * k;
+      this.pitch += (a.pitch - this.pitch) * k;
+      if ((a.t -= dt) <= 0) this.assist = null;
+    }
+    this.recoil *= Math.exp(-7 * dt);
     this.zoom = THREE.MathUtils.clamp(this.zoom + m.wheel * 0.004, M.minZoom, M.maxZoom);
 
     // drift back behind the subject while it moves and the mouse is untouched
@@ -72,8 +93,8 @@ export class FollowCamera {
     // aiming: closer, over the right shoulder, narrower view
     this.aimK += ((this.aim ? 1 : 0) - this.aimK) * Math.min(1, dt * 10);
     if (this.aim) this.idleTime = 0;
-    const cp = Math.cos(this.pitch);
-    this.dir.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+    const vp = this.viewPitch, cp = Math.cos(vp);
+    this.dir.set(-Math.sin(this.yaw) * cp, Math.sin(vp), -Math.cos(this.yaw) * cp);
     // speed pulls the camera back a touch in cars
     const want0 = THREE.MathUtils.lerp(this.zoom + (M === MODES.car ? Math.min(3, Math.abs(subject.speed) * 0.06) : 0), 2.1, this.aimK);
     const hit = this.city.raycast(this.target, this.dir, want0 + 0.3) - 0.3;

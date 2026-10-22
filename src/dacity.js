@@ -54,7 +54,7 @@ export class DaCity {
     } catch {
       return; // no reward server: stay hidden
     }
-    this.el.style.display = 'flex';
+    this.el.style.display = 'inline-flex';
     if (this.session) {
       try {
         this.show(await this.call('GET', '/me'));
@@ -64,11 +64,12 @@ export class DaCity {
     } else this.show(null);
   }
 
-  // ---------------------------------------------------------------- UI: a chip under the money
+  // ---------------------------------------------------------------- UI: a chip at the end of the top-right column
+  // (under clock, money, stars and weapon, so it never covers them)
   buildUi() {
     const el = (this.el = document.createElement('div'));
     el.id = 'dacity';
-    el.style.cssText = 'position:fixed;right:24px;top:150px;display:none;align-items:center;gap:8px;z-index:6;font:700 13px Inter,sans-serif;' +
+    el.style.cssText = 'margin-top:8px;display:none;align-items:center;gap:8px;font:700 13px Inter,sans-serif;' +
       'background:rgba(0,0,0,.55);border:1px solid rgba(255,210,63,.5);border-radius:18px;padding:5px 12px;color:#fff;pointer-events:auto';
     el.innerHTML = '<span style="font:16px Anton,Impact,sans-serif;letter-spacing:1px;color:#ffd23f">DACITY</span><b class="amt"></b>' +
       '<button style="font:700 12px Inter,sans-serif;background:#ffd23f;border:0;border-radius:12px;padding:4px 10px;cursor:pointer">Connect wallet</button>';
@@ -78,7 +79,7 @@ export class DaCity {
       else this.connect();
     });
     el.addEventListener('mousedown', (e) => e.stopPropagation());
-    document.body.appendChild(el);
+    (document.getElementById('stats') || document.body).appendChild(el);
     const t = (this.toastEl = document.createElement('div'));
     t.style.cssText = 'position:fixed;left:50%;top:22%;transform:translateX(-50%);font:42px Anton,Impact,sans-serif;color:#ffd23f;' +
       'text-shadow:0 3px 0 #000,0 0 18px rgba(0,0,0,.6);opacity:0;transition:opacity .4s;pointer-events:none;z-index:7;text-align:center';
