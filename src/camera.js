@@ -33,8 +33,9 @@ export class FollowCamera {
     return THREE.MathUtils.clamp(this.pitch - this.recoil, -0.35, 1.15);
   }
 
-  assistTo(yaw, pitch, t = 0.14) {
-    this.assist = { yaw, pitch: THREE.MathUtils.clamp(pitch, -0.35, 1.15), t };
+  // aim assist: aim() -> { yaw, pitch } (null to stop), asked again every frame for t seconds
+  assistTo(aim, t = 0.2) {
+    this.assist = { aim, t };
   }
 
   setAim(on) {
@@ -65,10 +66,15 @@ export class FollowCamera {
       this.idleTime += dt;
     }
     if (this.assist) {
-      const a = this.assist, k = Math.min(1, dt / Math.max(a.t, dt));
-      this.yaw += Math.atan2(Math.sin(a.yaw - this.yaw), Math.cos(a.yaw - this.yaw)) * k;
-      this.pitch += (a.pitch - this.pitch) * k;
-      if ((a.t -= dt) <= 0) this.assist = null;
+      const a = this.assist, want = a.aim();
+      // a real mouse movement takes over at once
+      if (!want || Math.abs(m.dx) + Math.abs(m.dy) > 25) this.assist = null;
+      else {
+        const k = 1 - Math.exp(-dt * 22);
+        this.yaw += Math.atan2(Math.sin(want.yaw - this.yaw), Math.cos(want.yaw - this.yaw)) * k;
+        this.pitch += (THREE.MathUtils.clamp(want.pitch, -0.35, 1.15) - this.pitch) * k;
+        if ((a.t -= dt) <= 0) this.assist = null;
+      }
     }
     this.recoil *= Math.exp(-7 * dt);
     this.zoom = THREE.MathUtils.clamp(this.zoom + m.wheel * 0.004, M.minZoom, M.maxZoom);

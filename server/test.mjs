@@ -143,7 +143,7 @@ ok(total === 40, `daily cap holds (${total} of 40)`);
 // ---- races: cooldown
 const race = W.RACES[0], route = W.raceRoute(race);
 const start = { x: (route[0].x + route[1].x) / 2, z: (route[0].z + route[1].z) / 2 };
-const rt = trace([start, ...route.slice(1)], 30);
+const rt = trace([start, ...route.slice(1)], 25);
 const C = wallet();
 run = runFor(C.addr, 'race', race.id);
 age(run, rt[rt.length - 1][0] + 1);
@@ -190,11 +190,33 @@ ok(r.ok && r.amount === 0, `race cooldown (${r.reason})`);
 {
   const G = wallet(), race2 = W.RACES[1], route2 = W.raceRoute(race2);
   const st = { x: (route2[0].x + route2[1].x) / 2, z: (route2[0].z + route2[1].z) / 2 };
-  const fast = trace([st, ...route2.slice(1)], 40);
+  // the countdown standing on the line, then the route at 33 m/s
+  const fast = [[0, st.x, st.z], [1, st.x, st.z], [2, st.x, st.z], [3, st.x, st.z], ...trace([st, ...route2.slice(1)], 33).slice(1).map(([t, x, z]) => [t + 4, x, z])];
   run = runFor(G.addr, 'race', race2.id);
   age(run, fast[fast.length - 1][0] + 1);
   r = await finishRun(G.addr, run, fast);
   ok(r.ok && r.amount > 0, `checkpoints crossed between samples count (${r.amount}${r.reason ? ', ' + r.reason : ''})`);
+}
+
+// ---- only $SOLCITY holders (MIN_HOLDING, 10 000 by default) earn DaCity
+{
+  const rw = await import('./rewards.mjs');
+  const H = wallet(), mm = W.storyById.rosa1, pp = [W.contactStand('rosa'), ...W.missionSpots(mm)];
+  const tr = trace(pp, 15);
+  if (tr[tr.length - 1][0] < W.missionMinSeconds(mm)) tr.push([W.missionMinSeconds(mm) + 0.5, tr[tr.length - 1][1], tr[tr.length - 1][2]]);
+  const real = rw.holdings.get;
+  rw.holdings.get = async () => 9999;
+  run = runFor(H.addr, 'story', 'rosa1');
+  age(run, tr[tr.length - 1][0] + 1);
+  r = await finishRun(H.addr, run, tr);
+  ok(r.ok && r.amount === 0 && /SOLCITY/.test(r.reason), `below 10 000 $SOLCITY earns nothing (${r.reason})`);
+  ok(!(await rw.eligibility(H.addr)).eligible, 'non-holder shown as not eligible');
+  rw.holdings.get = async () => 10000;
+  run = runFor(H.addr, 'story', 'rosa1');
+  age(run, tr[tr.length - 1][0] + 1);
+  r = await finishRun(H.addr, run, tr);
+  ok(r.ok && r.amount === 10, `a holder earns, and the mission can still be played for it later (${r.amount})`);
+  rw.holdings.get = real;
 }
 
 // ---- HTTP: the game is served, secrets are not
@@ -210,6 +232,23 @@ ok((await get('/server/.env.testprobe')) === 404, 'server files not served');
 ok((await get('/server/data/rewards.sqlite')) === 404, 'database not served');
 ok((await get('/src/../server/index.mjs')) === 404, 'path traversal blocked');
 ok((await get('/.git/config')) === 404, 'git not served');
+// raw paths, exactly as an attacker sends them (fetch would clean them up first)
+const http = await import('node:http');
+const raw = (p) => new Promise((res) => {
+  const r = http.request({ host: '127.0.0.1', port: 18765, path: p }, (x) => {
+    let body = '';
+    x.on('data', (c) => (body += c));
+    x.on('end', () => res({ status: x.statusCode, body }));
+  });
+  r.on('error', () => res({ status: 0, body: '' }));
+  r.end();
+});
+for (const p of ['/src/%2e%2e/server/.env.testprobe', '/src/../server/.env.testprobe', '/src/%2e%2e/%2e%2e/server/config.mjs', '/src/..%2fserver/.env.testprobe', '/src/%5c..%5cserver/.env.testprobe', '/src/%2e%2e/.git/config']) {
+  const r2 = await raw(p);
+  ok(r2.status === 404 && !r2.body.includes('SECRET'), `traversal ${p} blocked (${r2.status})`);
+}
+ok((await raw('/%E0%A4%A')).status === 400, 'malformed URL answered, not crashed');
+ok((await get('/src/main.js')) === 200, 'server still up after bad requests');
 const cfg = await fetch('http://127.0.0.1:18765/api/config').then((x) => x.json()).catch(() => null);
 ok(cfg && cfg.enabled && cfg.dryRun, 'api config answers (dry run)');
 ok((await fetch('http://127.0.0.1:18765/api/me').then((x) => x.status)) === 401, 'api needs sign-in');

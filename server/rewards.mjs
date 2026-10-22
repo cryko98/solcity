@@ -18,13 +18,23 @@ export function startRun(wallet, kind, ref) {
   return { run: id };
 }
 
-const sumToday = (wallet) =>
-  db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE wallet = ? AND day = ? AND status != 'capped'").get(wallet, today()).s;
-const sumLifetime = (wallet) => db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE wallet = ? AND status != 'capped'").get(wallet).s;
-const sumGlobalToday = () => db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE day = ? AND status != 'capped'").get(today()).s;
+// what counts against the limits: everything earned, except capped rows, and (once live) the
+// test-mode rows from DRY_RUN
+const COUNTS = () => (config.dryRun ? "status != 'capped'" : "status NOT IN ('capped', 'dry')");
+const sumToday = (wallet) => db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE wallet = ? AND day = ? AND ${COUNTS()}`).get(wallet, today()).s;
+const sumLifetime = (wallet) => db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE wallet = ? AND ${COUNTS()}`).get(wallet).s;
+const sumGlobalToday = () => db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE day = ? AND ${COUNTS()}`).get(today()).s;
+const paidForMission = (wallet, ref) =>
+  db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE wallet = ? AND kind = 'story' AND ref = ? AND ${COUNTS()}`).get(wallet, ref).s;
 
-// holding check (anti multi-wallet): filled in by the payout module when an RPC is available
+// filled in by the payout module when an RPC is available:
+//   holdings.get(wallet) -> DaCity the wallet holds (null if it can't be checked right now)
+//   pot.available()      -> how much more may still be promised from the pot (Infinity = no pot rule)
 export const holdings = { get: async () => Infinity };
+export const pot = { available: async () => Infinity };
+
+const closeRun = (runId, status, reason = null) =>
+  db.prepare("UPDATE runs SET status = ?, finished = ?, reason = ? WHERE id = ? AND status = 'open'").run(status, Date.now(), reason, runId).changes === 1;
 
 export async function finishRun(wallet, runId, trace) {
   const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
@@ -34,31 +44,35 @@ export async function finishRun(wallet, runId, trace) {
   const elapsed = (Date.now() - run.started) / 1000;
   const why = checkTrace(trace, plan, elapsed);
   if (why) {
-    db.prepare("UPDATE runs SET status = 'rejected', finished = ?, reason = ? WHERE id = ?").run(Date.now(), why, runId);
+    if (!closeRun(runId, 'rejected', why)) return { error: 'run already closed' };
     return { ok: false, reason: why };
   }
   let base = 0;
   if (run.kind === 'story') base = Number(config.storyRewards[run.ref] || 0);
   if (run.kind === 'race') base = config.raceReward * (elapsed <= plan.gold ? 2 : 1);
   const hold = config.minHolding > 0 ? await holdings.get(wallet) : Infinity;
+  const potLeft = await pot.available();
 
   return tx(() => {
-    db.prepare("UPDATE runs SET status = 'done', finished = ? WHERE id = ?").run(Date.now(), runId);
+    // closing the run is the lock: two finishes of the same run can't both get past this
+    if (!closeRun(runId, 'done')) return { error: 'run already closed' };
     let amount = base, reason = null;
     if (run.kind === 'story') {
-      const done = db.prepare("SELECT 1 FROM completions WHERE wallet = ? AND kind = 'story' AND ref = ?").get(wallet, run.ref);
-      if (done) return { ok: true, amount: 0, reason: 'already rewarded for this mission' };
+      // a mission pays its reward once; if a cap cut it short, playing it again pays the rest
+      amount = Math.max(0, base - paidForMission(wallet, run.ref));
+      if (amount <= 0) return { ok: true, amount: 0, reason: 'already rewarded for this mission' };
     } else if (run.kind === 'race') {
-      const paidToday = db.prepare("SELECT COUNT(*) AS n FROM rewards WHERE wallet = ? AND kind = 'race' AND ref = ? AND day = ? AND status != 'capped'").get(wallet, run.ref, today()).n;
-      const last = db.prepare("SELECT MAX(created) AS t FROM rewards WHERE wallet = ? AND kind = 'race' AND status != 'capped'").get(wallet).t;
+      const paidToday = db.prepare(`SELECT COUNT(*) AS n FROM rewards WHERE wallet = ? AND kind = 'race' AND ref = ? AND day = ? AND ${COUNTS()}`).get(wallet, run.ref, today()).n;
+      const last = db.prepare(`SELECT MAX(created) AS t FROM rewards WHERE wallet = ? AND kind = 'race' AND ${COUNTS()}`).get(wallet).t;
       if (paidToday >= config.raceDailyPerRace) [amount, reason] = [0, 'daily limit for this race reached'];
       else if (last && Date.now() - last < config.raceCooldownSec * 1000) [amount, reason] = [0, 'race cooldown'];
     }
-    db.prepare('INSERT INTO completions (wallet, kind, ref, run, day, created) VALUES (?, ?, ?, ?, ?, ?)').run(wallet, run.kind, run.ref, runId, today(), Date.now());
-    if (amount > 0 && hold < config.minHolding) [amount, reason] = [0, `hold at least ${config.minHolding} DaCity to earn`];
+    db.prepare('INSERT OR IGNORE INTO completions (wallet, kind, ref, run, day, created) VALUES (?, ?, ?, ?, ?, ?)').run(wallet, run.kind, run.ref, runId, today(), Date.now());
+    if (amount > 0 && hold === null) [amount, reason] = [0, `couldn't check your $${config.holdTicker} balance, play it again later`];
+    else if (amount > 0 && hold < config.minHolding) [amount, reason] = [0, `hold at least ${config.minHolding.toLocaleString('en-US')} $${config.holdTicker} to earn DaCity`];
     if (amount > 0) {
-      const room = Math.min(config.walletDailyCap - sumToday(wallet), config.walletLifetimeCap - sumLifetime(wallet), config.globalDailyBudget - sumGlobalToday());
-      if (room <= 0) [amount, reason] = [0, 'daily limit reached, come back tomorrow'];
+      const room = Math.min(config.walletDailyCap - sumToday(wallet), config.walletLifetimeCap - sumLifetime(wallet), config.globalDailyBudget - sumGlobalToday(), potLeft);
+      if (!(room > 0)) [amount, reason] = [0, potLeft <= 0 ? 'the reward pot is empty right now, come back later' : 'daily limit reached, come back tomorrow'];
       else if (amount > room) [amount, reason] = [Math.floor(room * 100) / 100, 'partly capped'];
     }
     if (amount > 0) {
@@ -68,13 +82,20 @@ export async function finishRun(wallet, runId, trace) {
   });
 }
 
+// can this wallet earn DaCity at all? (holds enough $SOLCITY)
+export async function eligibility(wallet) {
+  if (!(config.minHolding > 0)) return { eligible: true };
+  const holding = await holdings.get(wallet);
+  return { eligible: holding !== null && holding >= config.minHolding, holding: holding === Infinity ? null : holding };
+}
+
 export function walletSummary(wallet) {
   const q = (status) => db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM rewards WHERE wallet = ? AND status = ?').get(wallet, status).s;
   return {
     wallet,
     paid: q('paid'),
     pending: q('queued') + q('sending'),
-    dryRun: q('dry'), // DRY_RUN: earned, would have been sent
+    dryRun: config.dryRun ? q('dry') : 0, // DRY_RUN: earned, would have been sent
     today: sumToday(wallet),
     dailyCap: config.walletDailyCap,
     story: db.prepare("SELECT ref FROM completions WHERE wallet = ? AND kind = 'story'").all(wallet).map((r) => r.ref),

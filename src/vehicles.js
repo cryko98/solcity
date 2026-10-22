@@ -578,7 +578,7 @@ export class Vehicles {
     if ((this.sweepTimer = (this.sweepTimer || 0) - dt) <= 0) {
       this.sweepTimer = 3;
       for (const c of [...this.cars]) {
-        if (!c.spawned || c.vehicle || c.owned) continue;
+        if (!c.spawned || c.vehicle || c.owned || c.keep) continue; // keep: a story mission needs it
         if ((c.x - cam.x) ** 2 + (c.z - cam.z) ** 2 < 190 * 190) continue;
         const b = this.batches[c.model];
         if (b) b.list.splice(b.list.indexOf(c), 1);

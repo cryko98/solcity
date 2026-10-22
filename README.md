@@ -19,8 +19,9 @@ rewards** for story missions and races, run `server/index.mjs` instead: see
 ## DaCity rewards
 
 On the Sol City server a **Connect wallet** chip appears at the top right. Sign in once with Phantom
-(a signature only, no funds move) and every story mission pays DaCity once, and street races pay
-a little every day. The game records where you drive while a mission runs; the server checks that
+(a signature only, no funds move). Wallets holding at least 10 000 **$SOLCITY** earn DaCity: every
+story mission pays once, and street races pay a little every day. Everybody else plays for
+in-game dollars. The game records where you drive while a mission runs; the server checks that
 trace against the mission's places (`src/shared/world.mjs`, shared by game and server), its own clock
 and believable speeds before it queues a payout, with per-wallet and global daily caps on top.
 Dollars in the game are not exchangeable: they live in the browser and could be edited.

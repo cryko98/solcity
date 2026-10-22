@@ -299,12 +299,16 @@ export class Player {
   respawn(pos, yaw) {
     this.health = 100;
     this.armor = 0;
-    this.armor = 0;
     this.dead = false;
-    this.busted = false;
     this.busted = false;
     this.overlay = null;
     this.combo = 0;
+    // nothing carried over from the moment of death (mid-jump, mid-fight)
+    this.vy = 0;
+    this.grounded = true;
+    this.vel?.set(0, 0, 0);
+    this.push?.set(0, 0, 0);
+    this.moveSpeed = 0;
     this.position.copy(pos);
     this.yaw = yaw;
     this.object.rotation.y = yaw;
@@ -405,6 +409,7 @@ export class Player {
     } else if (punching && !(this.findTarget && this.findTarget())) {
       this.moveSpeed *= Math.exp(-9 * dt);
     }
+    if (this.aiming && !this.grounded && !rolling) this.yaw = dampAngle(this.yaw, camYaw, 20, dt);
     this.yawRate = wrap(this.yaw - prevYaw) / Math.max(dt, 1e-4);
     if (this.grounded && this.aiming && !rolling) this.vel.set(this.strafe[0] * this.moveSpeed, 0, this.strafe[1] * this.moveSpeed);
     else if (this.grounded) this.vel.set(Math.sin(this.yaw) * this.moveSpeed, 0, Math.cos(this.yaw) * this.moveSpeed);

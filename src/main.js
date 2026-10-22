@@ -193,8 +193,8 @@ Promise.all([
     dacity = new DaCity({ hud });
     story.dacity = dacity;
     story.shop = shop;
-    shop.onBuy = (b) => {
-      if (b.type === 'gun') story.boughtGun = true;
+    shop.onBuy = (b, it) => {
+      if (b.type === 'gun' && it.it?.key !== 'armor') story.boughtGun = true; // a gun or ammo, not a vest
     };
     story.onMissionStart = (id) => dacity.start('story', id);
     story.onMissionEnd = (id, passed) => dacity.finish(passed);

@@ -33,7 +33,21 @@ CREATE TABLE IF NOT EXISTS rewards (
 );
 CREATE INDEX IF NOT EXISTS rewards_status ON rewards(status);
 CREATE INDEX IF NOT EXISTS rewards_wallet_day ON rewards(wallet, day);
+CREATE INDEX IF NOT EXISTS rewards_day_status ON rewards(day, status);
+CREATE INDEX IF NOT EXISTS rewards_story ON rewards(wallet, kind, ref);
 `);
+// added later: the last block height at which a sent transaction can still land
+try {
+  db.exec('ALTER TABLE rewards ADD COLUMN valid_until INTEGER');
+} catch {}
+
+// old sign-in nonces, logins and finished runs are only needed for a while
+export function prune() {
+  const month = Date.now() - 30 * 86400000;
+  db.prepare('DELETE FROM nonces WHERE created < ?').run(Date.now() - 3600000);
+  db.prepare('DELETE FROM logins WHERE created < ?').run(month);
+  db.prepare("DELETE FROM runs WHERE started < ? AND status != 'open'").run(month);
+}
 
 export const today = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
 

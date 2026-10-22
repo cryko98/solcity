@@ -8,7 +8,7 @@
 //   - it passes through every place the run takes you, in order
 // Faking all that means actually driving the route in real time; with the daily caps on top a
 // bot can't earn more than a player.
-import { storyById, missionSpots, missionMinSeconds, contactStand, RACES, raceRoute, raceMinSeconds, MAX_SPEED, RACE_CP_RADIUS } from '../src/shared/world.mjs';
+import { storyById, missionSpots, missionMinSeconds, contactStand, RACES, raceRoute, raceMinSeconds, MAX_SPEED, RACE_CP_RADIUS, CHASE_MIN_TRAVEL } from '../src/shared/world.mjs';
 
 export const MAX_SAMPLES = 4000;
 
@@ -16,7 +16,7 @@ export function runPlan(kind, ref) {
   if (kind === 'story') {
     const m = storyById[ref];
     if (!m) return null;
-    return { start: { ...contactStand(m.contact), r: 30 }, spots: missionSpots(m), minSec: missionMinSeconds(m), maxSec: 45 * 60 };
+    return { start: { ...contactStand(m.contact), r: 30 }, spots: missionSpots(m), minSec: missionMinSeconds(m), maxSec: 45 * 60, minTravel: m.type === 'chase' ? CHASE_MIN_TRAVEL : 0 };
   }
   if (kind === 'race') {
     const r = RACES.find((q) => q.id === ref);
@@ -53,6 +53,11 @@ export function checkTrace(trace, plan, elapsedSec) {
     if (dt < 0.2 && d > 1) return 'samples too close together';
     if (d / Math.max(dt, 0.2) > MAX_SPEED) return 'moved impossibly fast';
     if (dt > 6 && d > 8) return 'gap in the trace while moving';
+  }
+  if (plan.minTravel) {
+    let travel = 0;
+    for (let k = 1; k < trace.length; k++) travel += Math.hypot(trace[k][1] - trace[k - 1][1], trace[k][2] - trace[k - 1][2]);
+    if (travel < plan.minTravel) return 'did not go anywhere';
   }
   // starts at the right place
   const [, sx, sz] = trace[0];

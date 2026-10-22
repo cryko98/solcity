@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, checkConfig } from './config.mjs';
 import { makeNonce, useNonce, verifySignature, issueSession, readSession, isWallet, ipWalletsToday, recordLogin, walletSeenFromIpToday, checkTurnstile } from './auth.mjs';
-import { startRun, finishRun, walletSummary } from './rewards.mjs';
+import { startRun, finishRun, walletSummary, eligibility } from './rewards.mjs';
 import { startPayouts } from './payout.mjs';
 import { STORY, RACES } from '../src/shared/world.mjs';
 
@@ -31,14 +31,23 @@ const SECURITY = {
 };
 
 function serveStatic(req, res, url) {
-  const rel = url === '/' ? '/index.html' : url;
+  // url is already decoded: refuse anything that could step out of the allowed folders
+  // (/src/../server/.env, encoded as %2e%2e, backslashes on Windows, NUL bytes)
+  const BACKSLASH = String.fromCharCode(92), NUL = String.fromCharCode(0);
+  if (url.split('/').some((seg) => seg === '..' || seg === '.') || url.includes(BACKSLASH) || url.includes(NUL)) return send(res, 404, 'Not found');
+  const rel = path.posix.normalize(url === '/' ? '/index.html' : url);
   if (!PUBLIC.some((p) => (p.endsWith('/') ? rel.startsWith(p) : rel === p))) return send(res, 404, 'Not found');
-  const file = path.normalize(path.join(config.gameRoot, rel));
-  if (!file.startsWith(config.gameRoot + path.sep)) return send(res, 403, 'Forbidden');
+  const file = path.join(config.gameRoot, rel);
+  const inside = path.relative(config.gameRoot, file);
+  if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return send(res, 404, 'Not found');
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return send(res, 404, 'Not found');
-    res.writeHead(200, { ...SECURITY, 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Content-Length': st.size, 'Cache-Control': 'no-cache' });
-    fs.createReadStream(file).pipe(res);
+    const stream = fs.createReadStream(file);
+    stream.on('error', () => (res.headersSent ? res.destroy() : send(res, 404, 'Not found')));
+    stream.once('open', () => {
+      res.writeHead(200, { ...SECURITY, 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Content-Length': st.size, 'Cache-Control': 'no-cache' });
+      stream.pipe(res);
+    });
   });
 }
 
@@ -85,7 +94,15 @@ setInterval(() => {
   for (const [k, b] of buckets) if (now - b.t > 120000) buckets.delete(k);
 }, 60000).unref();
 
-const clientIp = (req) => (config.trustProxy && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : req.socket.remoteAddress) || '?';
+// behind a proxy: the LAST X-Forwarded-For entry is the one our proxy added (earlier ones come
+// from the client and can be anything)
+const clientIp = (req) => {
+  if (config.trustProxy && req.headers['x-forwarded-for']) {
+    const list = String(req.headers['x-forwarded-for']).split(',').map((s) => s.trim()).filter(Boolean);
+    if (list.length) return list[list.length - 1].slice(0, 64);
+  }
+  return req.socket.remoteAddress || '?';
+};
 const authed = (req) => readSession((req.headers.authorization || '').replace(/^Bearer /, ''));
 
 // ------------------------------------------------------------------ API
@@ -96,7 +113,7 @@ async function api(req, res, url) {
   if (req.method === 'GET' && url === '/api/config') {
     return json(res, 200, {
       enabled: true, dryRun: config.dryRun, mint: config.tokenMint || null, turnstileSiteKey: config.turnstileSiteKey || null,
-      storyRewards: config.storyRewards, raceReward: config.raceReward, dailyCap: config.walletDailyCap, minHolding: config.minHolding,
+      storyRewards: config.storyRewards, raceReward: config.raceReward, dailyCap: config.walletDailyCap, minHolding: config.minHolding, holdTicker: config.holdTicker,
       story: STORY.map((m) => m.id), races: RACES.map((r) => r.id),
     });
   }
@@ -104,7 +121,7 @@ async function api(req, res, url) {
     if (limited(ip, 'nonce', 10)) return json(res, 429, { error: 'too many requests' });
     const { wallet } = await readBody(req, 4096);
     if (!isWallet(wallet)) return json(res, 400, { error: 'bad wallet address' });
-    return json(res, 200, makeNonce(wallet, req.headers.host || 'sol-city'));
+    return json(res, 200, makeNonce(wallet, config.publicDomain || String(req.headers.host || 'sol-city').slice(0, 100)));
   }
   if (req.method === 'POST' && url === '/api/login') {
     if (limited(ip, 'login', 10)) return json(res, 429, { error: 'too many requests' });
@@ -117,12 +134,12 @@ async function api(req, res, url) {
       return json(res, 429, { error: 'too many wallets from this connection today' });
     }
     recordLogin(wallet, ip);
-    return json(res, 200, { token: issueSession(wallet), summary: walletSummary(wallet) });
+    return json(res, 200, { token: issueSession(wallet), summary: { ...walletSummary(wallet), ...(await eligibility(wallet)) } });
   }
 
   const wallet = authed(req);
   if (!wallet) return json(res, 401, { error: 'sign in first' });
-  if (req.method === 'GET' && url === '/api/me') return json(res, 200, walletSummary(wallet));
+  if (req.method === 'GET' && url === '/api/me') return json(res, 200, { ...walletSummary(wallet), ...(await eligibility(wallet)) });
   if (req.method === 'POST' && url === '/api/run/start') {
     const { kind, ref } = await readBody(req, 4096);
     if (!['story', 'race'].includes(kind) || typeof ref !== 'string') return json(res, 400, { error: 'bad run' });
@@ -135,15 +152,20 @@ async function api(req, res, url) {
     if (typeof run !== 'string') return json(res, 400, { error: 'bad run' });
     const r = await finishRun(wallet, run, trace);
     if (r.ok === false) console.log(`run rejected: ${wallet} ${r.reason}`);
-    return json(res, r.error ? 400 : 200, { ...r, summary: walletSummary(wallet) });
+    return json(res, r.error ? 400 : 200, { ...r, summary: { ...walletSummary(wallet), ...(await eligibility(wallet)) } });
   }
   return json(res, 404, { error: 'not found' });
 }
 
 // ------------------------------------------------------------------ server
 const server = http.createServer(async (req, res) => {
-  const url = decodeURIComponent((req.url || '/').split('?')[0]);
   try {
+    let url;
+    try {
+      url = decodeURIComponent((req.url || '/').split('?')[0]);
+    } catch {
+      return send(res, 400, 'Bad request');
+    }
     if (url.startsWith('/api/')) return await api(req, res, url);
     if (req.method === 'POST' && url.startsWith('/capture/') && config.allowCapture) {
       // dev only: the trailer recorder's frame upload
@@ -152,6 +174,8 @@ const server = http.createServer(async (req, res) => {
       const dir = path.join(config.gameRoot, 'captures', 'trailer');
       fs.mkdirSync(dir, { recursive: true });
       const out = fs.createWriteStream(path.join(dir, name));
+      let size = 0;
+      req.on('data', (c) => (size += c.length) > 20e6 && req.destroy());
       req.pipe(out);
       out.on('finish', () => send(res, 200, 'ok'));
       return;
@@ -162,6 +186,10 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) json(res, 400, { error: e.message === 'body too large' || e.message === 'bad json' ? e.message : 'bad request' });
   }
 });
+// a bug in one request must never take the whole server (and its payouts) down
+process.on('unhandledRejection', (e) => console.error('unhandled:', e));
+process.on('uncaughtException', (e) => console.error('uncaught:', e));
+
 server.listen(config.port, config.host, () => {
   console.log(`Sol City on http://localhost:${config.port}  (rewards ${config.dryRun ? 'DRY RUN - nothing is sent' : 'LIVE'})`);
   startPayouts();

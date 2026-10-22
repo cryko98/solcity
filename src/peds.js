@@ -462,6 +462,7 @@ export class Peds {
 
   // hit by a bullet: dmg in the same units as punches (6 = down)
   shot(p, dmg, dir) {
+    if (p.life) this.endLife(p); // off the bench / out of the chat
     p.hits += dmg;
     const ko = p.hits >= KO_HITS;
     this.onCrime?.(ko ? (p.cop ? 'ko_cop' : 'ko') : p.cop ? 'assault_cop' : 'shooting', p);
@@ -726,8 +727,13 @@ export class Peds {
   }
 
   // chase the player (on foot or in a car) and try to take them down
+  canSee(p, x, z) {
+    const o = new THREE.Vector3(p.x, p.y + 1.5, p.z), d = new THREE.Vector3(x - p.x, 0, z - p.z), L = d.length();
+    return L < 0.5 || this.city.raycast(o, d.normalize(), L) >= L - 0.8;
+  }
+
   updateCop(p, dt, player) {
-    if (!player || player.dead) {
+    if (!player || player.dead || player.busted) {
       this.move(p, 0, p.yaw, dt);
       return;
     }
@@ -746,7 +752,8 @@ export class Peds {
         p.x -= (dx / d) * 1.2 * dt;
         p.z -= (dz / d) * 1.2 * dt;
       }
-      p.aimingGun = !busy && d < 22;
+      // only at a player he can see: never through a building
+      p.aimingGun = !busy && d < 22 && this.canSee(p, tx, tz);
       if (p.aimingGun && (p.fireTimer = (p.fireTimer ?? 1.8) - dt) <= 0) {
         p.fireTimer = 1.6 + Math.random() * 1.4;
         this.onCopFire?.(p);

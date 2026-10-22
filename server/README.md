@@ -23,6 +23,9 @@ SQLite file; no other services are needed.
   * it passes through every place of that mission / every race checkpoint, in order.
     The places come from `src/shared/world.mjs`, the same file the game builds its
     missions from.
+* Only wallets holding at least `MIN_HOLDING` (10 000) **$SOLCITY** (`SOLCITY_MINT`) earn
+  DaCity; the chip in the game tells everybody else what they need. Without it the game is
+  the same, with in-game dollars only. Balances are checked on the chain (cached 10 minutes).
 * Story missions pay **once per wallet**. Races pay up to `RACE_DAILY_PER_RACE` times per
   race per day, with a cooldown, gold pays double.
 * On top: per-wallet daily and lifetime caps, a **global daily budget** (the most the whole
@@ -32,13 +35,27 @@ SQLite file; no other services are needed.
   transfer's signature is stored **before** it is sent, so a crash or restart never pays
   twice: on start-up it checks the chain for anything that was in flight.
 
-What it cannot do: no browser game is 100% cheat proof. Someone who scripts a bot that
-really drives the routes in real time can earn what a player earns, but no more than the
-caps allow. The caps are the real protection of the pot: tune them to what you are
-willing to pay per wallet per day.
+What it cannot do: no browser game is cheat proof. The game runs on the player's computer,
+so a determined cheater can script a believable trace and only has to wait as long as a
+real player would. The checks make that slow and fiddly; the **caps are the real
+protection of the pot**. Tune them to what you are willing to pay per wallet per day, and
+against farms of many wallets the $SOLCITY holding requirement (`MIN_HOLDING`) is the
+strongest tool: every extra wallet costs 10 000 tokens. Turnstile helps against bots.
 
 Default numbers: the story pays 315 DaCity in total per wallet, races 3 (gold 6), at most
-120 per wallet per day, 2000 per wallet ever, 20 000 for the whole game per day.
+120 per wallet per day, 2000 per wallet ever, 5000 for the whole game per day. A wallet's
+first payout is sent once it has earned `MIN_PAYOUT` (20), because creating its token
+account costs the payout wallet about 0.002 SOL.
+
+### How much of the pot can go out
+
+The simplest way: only put into the payout wallet what you want players to be able to earn.
+The server never sends more than that wallet holds.
+
+Or let the server do it: with `POT_FULL_UNTIL` set, the pot is everything the payout wallet
+has ever received (its balance + what it already paid). Up to `POT_FULL_UNTIL` tokens all of
+it can be earned; of anything above, only `POT_SHARE_AFTER` (e.g. 0.5). When nothing is
+left to promise, players are told the pot is empty for now and nothing is queued.
 
 ## Setup (Linux server)
 
@@ -58,7 +75,8 @@ node index.mjs       # first start, in DRY_RUN
 
 1. `SESSION_SECRET`: 64 random hex characters:
    `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-2. `DACITY_MINT`: the token's mint address.
+2. `DACITY_MINT`: the DaCity mint (already filled in). `SOLCITY_MINT`: the $SOLCITY contract
+   address, once the token is launched (the server won't go live without it).
 3. `TREASURY_SECRET_KEY`: create a **new, separate hot wallet** only for payouts
    (`solana-keygen new -o payout.json`, then paste the JSON array, or a base58 secret key).
    Send it a little SOL for fees and only a few days' worth of DaCity. Refill it by hand.
@@ -101,7 +119,10 @@ journalctl -u solcity -f     # log: payouts, rejected runs, problems
 ### HTTPS in front (required)
 
 Wallets only sign on HTTPS pages. Put nginx or Caddy in front, keep the Node server on
-`HOST=127.0.0.1` and set `TRUST_PROXY=true` so the per-IP limits see the player's IP.
+`HOST=127.0.0.1` and set `TRUST_PROXY=true` so the per-IP limits see the player's IP (the
+server takes the **last** X-Forwarded-For entry, the one your proxy adds; never expose port
+8080 to the internet with `TRUST_PROXY=true`, or anyone can fake their IP). Set
+`PUBLIC_DOMAIN` to your site's name for the sign-in message.
 
 Caddy (gets the certificate by itself), `/etc/caddy/Caddyfile`:
 
@@ -145,6 +166,11 @@ Only the game: `/index.html`, `/src/`, `/assets/`, `/SolCity_Trailer.mp4`. Every
 * **Rejected runs** and why: `SELECT reason, COUNT(*) FROM runs WHERE status='rejected' GROUP BY 1;`
   Lots of one reason from one wallet = someone trying to cheat.
 * Changing `SESSION_SECRET` signs everybody out.
+* Going live after testing: rewards earned in DRY_RUN stay marked `dry` and are never sent
+  and don't count toward the caps. To start clean, stop the server and delete
+  `data/rewards.sqlite`.
+* A payout that can't be confirmed (RPC trouble) stays `sending` until its blockhash
+  expires (a minute or two), then it is checked again: nothing is ever sent twice.
 * Changing reward numbers: edit `.env`, restart. Changing **where** a mission happens
   must be done in `src/shared/world.mjs` (game and server both read it).
 

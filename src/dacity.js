@@ -86,8 +86,15 @@ export class DaCity {
     document.body.appendChild(t);
   }
 
+  // what a wallet needs to earn DaCity (only $SOLCITY holders do; everyone plays for dollars)
+  get need() {
+    const n = this.cfg?.minHolding || 0;
+    return n ? `${n >= 1000 && n % 1000 === 0 ? n / 1000 + 'k' : n.toLocaleString('en-US')} $${this.cfg.holdTicker || 'SOLCITY'}` : '';
+  }
+
   show(summary) {
     this.summary = summary;
+    this.summaryAt = Date.now();
     const amt = this.el.querySelector('.amt'), btn = this.el.querySelector('button');
     if (!this.session || !summary) {
       amt.textContent = '';
@@ -96,7 +103,8 @@ export class DaCity {
       return;
     }
     const pend = summary.pending + (summary.dryRun || 0);
-    amt.textContent = `${summary.paid}${pend ? ` (+${pend} pending)` : ''}`;
+    amt.textContent = summary.eligible === false ? `needs ${this.need}` : `${summary.paid}${pend ? ` (+${pend} pending)` : ''}`;
+    amt.style.color = summary.eligible === false ? '#ff9a9a' : '';
     btn.textContent = summary.wallet.slice(0, 4) + '…' + summary.wallet.slice(-4);
     btn.title = 'Click to disconnect';
   }
@@ -129,7 +137,9 @@ export class DaCity {
         localStorage.setItem(KEY, JSON.stringify(this.session));
       } catch {}
       this.show(summary);
-      this.hud.say(`Wallet connected. Story missions and races now earn <em>DaCity</em>.${this.cfg.dryRun ? ' (test mode)' : ''}`, 4);
+      this.hud.say(summary.eligible === false
+        ? `Wallet connected. Hold at least <em>${this.need}</em> to earn DaCity; until then you play for dollars.`
+        : `Wallet connected. Story missions and races now earn <em>DaCity</em>.${this.cfg.dryRun ? ' (test mode)' : ''}`, 5);
     } catch (e) {
       this.hud.say(`Wallet: ${e.message || e}`, 4);
     }
@@ -162,9 +172,22 @@ export class DaCity {
   async start(kind, ref) {
     this.run = null;
     if (!this.enabled || !this.session) return;
+    const ticket = (this.pending = {});
+    // not a holder: no run at all, unless they may have bought in since the last look
+    if (this.summary?.eligible === false) {
+      if (Date.now() - (this.summaryAt || 0) < 300000) return;
+      try {
+        this.show(await this.call('GET', '/me'));
+      } catch {}
+      if (this.summary?.eligible === false || this.pending !== ticket) return;
+    }
     try {
       const { run } = await this.call('POST', '/run/start', { kind, ref });
-      this.run = { id: run, kind, ref, t0: performance.now(), next: 0, last: -1, trace: [] };
+      // ended or replaced while the server was answering: forget it (the server drops it on the next start)
+      if (this.pending !== ticket) return;
+      this.pending = null;
+      this.run = { id: run, kind, ref, t0: performance.now(), next: 0, last: -1, trace: [] }; // the clock starts after the server's
+      this.sample(0);
     } catch (e) {
       console.warn('DaCity run start:', e.message);
     }
@@ -195,6 +218,7 @@ export class DaCity {
   }
 
   async finish(passed) {
+    this.pending = null;
     if (passed) this.mark();
     const r = this.run;
     this.run = null;

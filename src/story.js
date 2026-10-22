@@ -118,7 +118,7 @@ const SCRIPT = {
     text: 'Clear the <em>Russo crew</em> off the north pier.', armed: 2,
   },
   diaz3: {
-    title: 'DIRTY MONEY', pay: 1500, pose: 'stand',
+    title: 'DIRTY MONEY', pay: 2750, pose: 'stand',
     lines: [
       ['DIAZ', 'The Russos pay half the precinct. Every Friday a bagman drops cash on five corners.'],
       ['DIAZ', 'Today the bagman had an accident. The bags are still sitting there.'],
@@ -480,7 +480,16 @@ export class Story {
     this.mission = ms;
     this.showTitle(m.title);
     this.onMissionStart?.(m.id);
-    const v = this.vehicles, ped = this.peds, city = this.city;
+    const ped = this.peds, city = this.city;
+    // mission cars stay in the world (far-away parked cars are normally swept away) until the end
+    const mcars = [];
+    const v = { spawn: (d) => {
+      const c = this.vehicles.spawn({ ...d, keep: true });
+      mcars.push(c);
+      return c;
+    } };
+    ms.release = () => mcars.forEach((c) => (c.keep = false));
+    ms.gone = (c) => !this.vehicles.cars.includes(c);
     const spots = missionSpots(m); // the same places the reward server checks
     const S = (text, update, enter) => ({ text, update, enter });
     const at = (pos, r) => {
@@ -494,7 +503,7 @@ export class Story {
     const me = () => this.getDriving()?.vehicle.pos || this.player.position;
     // step: get into a mission vehicle
     const getIn = (car, text, wreck, y = 3) => S(text, () => {
-      if (car.wrecked) return 'fail:' + wreck;
+      if (car.wrecked || ms.gone(car)) return 'fail:' + wreck;
       const p = posOf(car);
       this.arrowOn(p.x, y, p.z);
       this.hud.blips = [{ x: p.x, z: p.z, color: '#4fa3ff' }];
@@ -587,6 +596,7 @@ export class Story {
           if (this.getDriving() !== van) return backTo(van);
           this.arrow.visible = false;
           this.goalOn(dest);
+          this.hud.blips = [{ x: dest.x, z: dest.z, color: '#ffd23f' }];
           this.routeTo(van.vehicle.pos, dest);
           return stoppedAt(van.vehicle, dest, 7) ? 'next' : null;
         }, () => (ms.data.time = Math.round(Math.hypot(posOf(van).x - dest.x, posOf(van).z - dest.z) * 1.4 / 11 + 25))),
@@ -613,7 +623,7 @@ export class Story {
       ms.data.car = car;
       ms.steps = [
         S(m.stealText, () => {
-          if (car.wrecked) return 'fail:The car was destroyed.';
+          if (car.wrecked || ms.gone(car)) return 'fail:The car was destroyed.';
           const p = posOf(car);
           this.arrowOn(p.x, 2.6, p.z);
           this.hud.blips = [{ x: p.x, z: p.z, color: '#4fa3ff' }];
@@ -624,10 +634,11 @@ export class Story {
           return 'next';
         }),
         S(m.dropText, () => {
-          if (car.wrecked || car.health < minHealth) return 'fail:The car is too damaged.';
+          if (car.wrecked || ms.gone(car) || car.health < minHealth) return 'fail:The car is too damaged.';
           if (this.getDriving() !== car) return backTo(car, 2.6);
           this.arrow.visible = false;
           this.goalOn(drop);
+          this.hud.blips = [{ x: drop.x, z: drop.z, color: '#ffd23f' }];
           this.routeTo(car.vehicle.pos, drop);
           ms.rows = this.wanted.level ? [['COPS', 'Lose them first']] : null;
           return stoppedAt(car.vehicle, drop, 6) ? (this.wanted.level ? null : 'next') : null;
@@ -642,6 +653,7 @@ export class Story {
         if (d < 70 || d > 160) continue;
         car = v.spawn({ x: p.x, z: p.z, yaw: Math.atan2(p.x - P.x, p.z - P.z), color: 0x8a8f96, model: 'sedan', ai: { suspect: true, ctl: { throttle: 0, steer: 0, handbrake: false } } });
       }
+      if (!car) car = v.spawn({ x: city.roadC(0), z: city.roadC(0), yaw: 0, color: 0x8a8f96, model: 'sedan', ai: { suspect: true, ctl: { throttle: 0, steer: 0, handbrake: false } } });
       const chase = this.chaser(car);
       ms.data.car = car;
       ms.data.time = 150;
@@ -736,7 +748,6 @@ export class Story {
             if (Math.hypot(p.x - b.x, p.z - b.z) < (this.getDriving() ? 4.5 : 3)) {
               b.got = true;
               b.g.visible = b.beam.visible = false;
-              this.hud.addMoney(250);
               this.audio.cash();
               this.dacity?.mark();
             }
@@ -784,7 +795,14 @@ export class Story {
   gunShopStep(me) {
     return {
       text: "You'll need firepower: buy a gun or ammo at <em>Ammu-Nation</em>.",
-      enter: () => (this.boughtGun = false),
+      enter: () => {
+        this.boughtGun = false;
+        // broke (a fine, a hospital bill): the contact puts up the price of a pistol
+        if (this.hud.money < 150) {
+          this.hud.addMoney(150 - this.hud.money);
+          setTimeout(() => this.hud.say('Here is some cash for it. <em>Don’t</em> spend it on tacos.', 3.5), 2600);
+        }
+      },
       update: () => {
         if (this.boughtGun) return this.shop?.inside ? null : 'next';
         if (this.shop?.inside) {
@@ -831,6 +849,7 @@ export class Story {
       g.hostile = false;
       g.aimingGun = false;
       if (g.body.userData.gun) g.body.userData.gun.visible = false;
+      if (g.state !== 'down' && this.peds.list.includes(g)) this.peds.rejoin(g);
     }
   }
 
@@ -895,6 +914,7 @@ export class Story {
   finish(passed, reason) {
     const ms = this.mission;
     ms.cleanup?.();
+    ms.release?.();
     this.mission = null;
     this.needLeave = true; // step out of the ring before the next scene can start
     this.clearMarkers();
@@ -958,10 +978,12 @@ export class Story {
         if (ms.i + 1 >= ms.steps.length) return this.finish(true);
         this.goal.visible = this.arrow.visible = false;
         this.hud.route = null;
+        this.hud.blips = [];
         this.enterStep(ms.i + 1);
       } else if (r === 'back') {
         this.goal.visible = this.arrow.visible = false;
         this.hud.route = null;
+        this.hud.blips = [];
         this.enterStep(ms.i - 1);
       }
       else if (r && r.startsWith('fail:')) this.finish(false, r.slice(5));

@@ -128,7 +128,7 @@ export function missionMinSeconds(m) {
   const pts = [contactStand(m.contact), ...missionSpots(m)];
   let d = 0;
   for (let k = 1; k < pts.length; k++) d += Math.max(0, Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z) - pts[k].r);
-  const extra = { beat: 8, deliver: 6, destroy: 6, steal: 8, chase: 25, evidence: 15, route: 10, gang: 25, collect: 10, finale: 45 }[m.type] || 10;
+  const extra = { beat: 8, deliver: 6, destroy: 6, steal: 8, chase: 12, evidence: 15, route: 10, gang: 25, collect: 10, finale: 45 }[m.type] || 10;
   return Math.max(15, d / 55 + extra);
 }
 
@@ -136,5 +136,10 @@ export function raceMinSeconds(r) {
   const route = raceRoute(r);
   let d = 0;
   for (let k = 1; k < route.length; k++) d += Math.hypot(route[k].x - route[k - 1].x, route[k].z - route[k - 1].z);
-  return Math.max(15, d / 60);
+  // the 3.5 s countdown, then the route at 34 m/s on average: faster than a supercar can
+  // take the corners (gold is 22 m/s)
+  return 3.5 + d / 34;
 }
+
+// a getaway chase has no fixed places, but you have to have driven after the car
+export const CHASE_MIN_TRAVEL = 120; // Eddie starts at least 70 m away

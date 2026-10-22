@@ -144,6 +144,8 @@ export class Traffic {
       if (p.stop && this.light(p.stop) !== 'go' && ahead > -0.5 && !(this.light(p.stop) === 'amber' && ahead < 6)) break;
       ai.points.shift();
     }
+    // shoved far off its lane (a crash, a police ram) it can be past every queued point
+    if (!ai.points.length) this.extend(ai);
 
     let target = ai.halt ? 0 : CRUISE; // someone is going for the door
     // red light: brake to the stop point
