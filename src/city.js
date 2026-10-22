@@ -4,9 +4,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as TX from './textures.js';
 import { colorFor } from './vehicles.js';
+import * as W from './shared/world.mjs';
 
-const NS_NAMES = ['Harbor Rd', 'Palm Ave', 'Ocean Dr', 'Sunset Blvd', 'Main St', 'Vine St', 'Cypress Ave', 'Union Ave', 'Bayview Rd'];
-const EW_NAMES = ['Pier St', '1st St', 'Mission St', 'Grand Ave', 'Market St', 'Elm St', 'Bay St', 'Pine St', 'Canal St'];
+const NS_NAMES = ['Harbor Rd', 'Palm Ave', 'Ocean Dr', 'Coral Way', 'Sunset Blvd', 'Main St', 'Vine St', 'Cypress Ave', 'Union Ave', 'Seaside Ave', 'Bayview Rd'];
+const EW_NAMES = ['Pier St', '1st St', 'Mission St', 'Grand Ave', 'Lake St', 'Market St', 'Elm St', 'Bay St', 'Pine St', 'Flamingo Rd', 'Canal St'];
 const SHOPS = ['LIQUOR', 'PAWN SHOP', '24/7', 'TACOS', 'LAUNDRY', 'PIZZA', 'BAR', 'MOTEL', 'DONUTS', 'TATTOO',
   'PHARMACY', 'CHECKS CASHED', 'NAILS', 'AUTO PARTS', 'DINER', 'ARCADE', 'RECORDS', 'NOODLES', 'GYM', 'CLUB'];
 const NEON = ['#ff3b6b', '#34e6ff', '#ffd23f', '#7cff5b', '#ff8a2b', '#d36bff'];
@@ -34,11 +35,9 @@ const faceYaw = (nx, nz) => Math.atan2(nx, nz);
 
 export function buildCity(scene) {
   const rand = TX.rng(20261022);
-  const N = 8, BLOCK = 50, ROAD = 14, SW = 4, CURB = 0.15;
-  const PITCH = BLOCK + ROAD, SIZE = N * PITCH + ROAD, HALF = SIZE / 2;
-  const roadC = (i) => -HALF + ROAD / 2 + i * PITCH;
-  const blockMin = (i) => -HALF + ROAD + i * PITCH;
-  const PARKS = new Set(['4,3', '1,6']);
+  // the grid is shared with the reward server (src/shared/world.mjs)
+  const { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, roadC, blockMin } = W;
+  const PARKS = new Set(['4,3', '1,6', '6,8']);
 
   const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [], benches: [] };
 

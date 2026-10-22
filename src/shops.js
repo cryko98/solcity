@@ -39,10 +39,10 @@ const CLOTHES = [
 
 // branches: [type, name, block i, block j]
 const BRANCHES = [
-  ['gun', 'AMMU-NATION', 4, 4], ['gun', 'AMMU-NATION', 1, 1], ['gun', 'AMMU-NATION', 6, 5],
+  ['gun', 'AMMU-NATION', 4, 4], ['gun', 'AMMU-NATION', 2, 2], ['gun', 'AMMU-NATION', 6, 5],
   ['food', 'BURGER SOL', 2, 6], ['food', 'TACO LOCO', 0, 4], ['food', 'PIZZA SOL', 5, 4],
-  ['clothes', 'SOL THREADS', 3, 6], ['clothes', 'SOL THREADS', 6, 7], ['clothes', 'SOL THREADS', 1, 3],
-  ['mart', '24/7', 0, 2], ['mart', '24/7', 7, 6],
+  ['clothes', 'SOL THREADS', 3, 6], ['clothes', 'SOL THREADS', 6, 7], ['clothes', 'SOL THREADS', 8, 4],
+  ['mart', '24/7', 0, 2], ['mart', '24/7', 7, 6], ['mart', '24/7', 5, 8], ['food', 'BURGER SOL', 9, 7],
 ];
 const STYLE = {
   gun: { sign: '#ff4040', awning: 0x8e1b1b },

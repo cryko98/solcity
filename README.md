@@ -12,6 +12,20 @@ node server.js
 Then open http://localhost:8080 (the page must be served over HTTP; opening
 `index.html` directly from disk cannot load the GLB models). Three.js is loaded from the jsDelivr CDN.
 
+`server.js` is the local development server. To host the game publicly, with **DaCity
+rewards** for story missions and races, run `server/index.mjs` instead: see
+[server/README.md](server/README.md).
+
+## DaCity rewards
+
+On the Sol City server a **Connect wallet** chip appears at the top right. Sign in once with Phantom
+(a signature only, no funds move) and every story mission pays DaCity once, and street races pay
+a little every day. The game records where you drive while a mission runs; the server checks that
+trace against the mission's places (`src/shared/world.mjs`, shared by game and server), its own clock
+and believable speeds before it queues a payout, with per-wallet and global daily caps on top.
+Dollars in the game are not exchangeable: they live in the browser and could be edited.
+Game side: `src/dacity.js`; server: `server/`.
+
 ## Controls
 
 | On foot | |
@@ -57,12 +71,12 @@ block the road ahead of you with armed officers behind them. Code: `src/police.j
 
 ## Shops
 
-Eleven shops you can walk into, spread over the districts (`src/shops.js`):
+Thirteen shops you can walk into, spread over the districts (`src/shops.js`):
 
-- **Ammu-Nation** (Downtown, Old Harbor, South Beach): pistol, SMG, shotgun (ammo if you own it), body armor.
-- **Restaurants**: Burger Sol (Little Havana), Taco Loco (Little Havana), Pizza Sol (South Beach): meals heal 25 / 50 / 100 HP.
-- **Sol Threads** clothes stores (Little Havana, South Beach, Old Harbor): tank tops and jeans in other colours for the hero (kept between sessions).
-- **24/7** stores (Old Harbor, South Beach): snacks, energy drinks, a first-aid kit and scratch cards.
+- **Ammu-Nation** (two Downtown, Old Harbor): pistol, SMG, shotgun (ammo if you own it), body armor.
+- **Restaurants**: Burger Sol (Little Havana, South Beach), Taco Loco (Old Harbor), Pizza Sol (Downtown): meals heal 25 / 50 / 100 HP.
+- **Sol Threads** clothes stores (Little Havana, South Beach, Vinewood Hills): tank tops and jeans in other colours for the hero (kept between sessions).
+- **24/7** stores (Old Harbor, two in South Beach): snacks, energy drinks, a first-aid kit and scratch cards.
 
 Each has a real shop front (door, fascia with a lit sign, awning, display windows) and its own furnished
 interior: Ammu-Nation's pegboard of guns and glass display counter, a diner with booths, a kitchen and a
@@ -93,14 +107,19 @@ Dying costs a $100 hospital bill.
 
 ## Story missions
 
-Three contacts give you jobs (yellow letter blips): **Rosa** (R, her cafe in Little Havana), **Vince** (V, his
-office in an Old Harbor warehouse) and **Lt. Diaz** (D, an interview room at the Downtown precinct). Walk into
+One story in twelve missions: Nico helps Little Havana, the docks and a crooked cop against the Russo brothers,
+and ends up working for **Zara**, the woman behind DaCity, the city's new money. Four contacts give the jobs
+(yellow letter blips, only the ones with work for you right now): **Rosa** (R, her cafe in Little Havana),
+**Vince** (V, his office in an Old Harbor warehouse), **Lt. Diaz** (D, an interview room at the Downtown precinct)
+and **Zara** (Z, her penthouse in South Beach, skyline window and a wall of DaCity charts). Walk into
 the yellow ring at their door: the screen fades and a cutscene plays inside their place (`src/interiors.js`):
 letterbox, shot / reverse-shot camera, typed dialogue with mumbled voices, the speaker talking with their hands
 and the listener nodding. In one scene per contact they sit at a table or desk. Space / click skips a line.
-Two missions per contact (beat up a racketeer, a timed delivery, torch a rival's car, steal a supercar without
-a scratch, stop a snitch's getaway car, grab evidence and shake off the cops); MISSION PASSED pays out and
-the progress is saved. During a mission the GPS line follows the streets and ordinary crimes don't raise
+Three missions per contact, in story order: beat up a racketeer, a timed delivery, torch a rival's car, steal a
+supercar without a scratch, stop a snitch's getaway car, grab evidence and shake off the cops, a coffee run to
+four cafes against the clock, clear a Russo crew off the pier, pick up five cash bags before the patrols do,
+steal the Russos' armored van, a bike run through five drops, and the finale: the crew at the Russo club, then
+Marco Russo's getaway car. MISSION PASSED pays out and the progress is saved. During a mission the GPS line follows the streets and ordinary crimes don't raise
 your wanted level. Talking / listening clips (sitting and standing) are made in `blender/build_character.py`.
 
 ## Police helicopter
@@ -118,7 +137,7 @@ makes the police lose you.
 
 ## Street races and stunt jumps
 
-Four checkpoint races (R markers, one per district): drive into the marker, press E, then hit every
+Five checkpoint races (R markers, one per district plus the beachfront): drive into the marker, press E, then hit every
 checkpoint before the clock runs out. Gold / silver / bronze pay $500 / $300 / $150; best times are kept.
 Yellow-black ramps on the beaches (J on the map) are stunt jumps: land them for a stunt bonus,
 double the first time.
@@ -158,7 +177,7 @@ Fare + tip for the time left, $200 bonus for every 5 fares in a row.
 
 Downtown (glass towers), South Beach (art deco + neon), Little Havana (colourful
 shophouses with balconies), Old Harbor (warehouses, container yards), Vinewood Hills
-(villas with pools), all on an island with a beach and the Port of Sol container terminal.
+(villas with pools), all on an island of 10 x 10 blocks with three parks, a beach and the Port of Sol container terminal.
 Vehicles: sedan, coupe, taxi (lit roof sign at night), supercar, luxury saloon, delivery van, police cruiser and a motorbike (`blender/build_car.py`,
 `blender/build_bike.py`), plus the police helicopter (`blender/build_heli.py`).
 Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove generated live with WebAudio.

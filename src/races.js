@@ -3,26 +3,11 @@
 // checkpoint (GPS line on the radar, light beams on the street) before the clock
 // runs out. Gold / silver / bronze pay out; best times are kept in localStorage.
 import * as THREE from 'three';
+import { RACES, raceRoute, RACE_CP_RADIUS } from './shared/world.mjs';
 
-const RACES = [
-  { name: 'Downtown Dash', start: [5, 4], seed: 11, len: 10 },
-  { name: 'Havana Nights', start: [2, 7], seed: 23, len: 12 },
-  { name: 'Harbor Run', start: [1, 1], seed: 37, len: 12 },
-  { name: 'Hills Sprint', start: [7, 2], seed: 52, len: 11 },
-];
-const CP_RADIUS = 10;
+// the routes are shared with the reward server, which checks a finished race against them
+const CP_RADIUS = RACE_CP_RADIUS;
 const PRIZE = { GOLD: 500, SILVER: 300, BRONZE: 150 };
-
-function rng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const fmt = (t) => {
   const d = Math.round(t * 10);
@@ -53,33 +38,8 @@ export class Races {
     this.makeMarkers();
   }
 
-  // a self-avoiding walk over the intersections, the same every session
   makeRoute(r) {
-    const N = this.city.N;
-    for (let tries = 0; tries < 50; tries++) {
-      const rand = rng(r.seed + tries * 101);
-      let [i, j] = r.start;
-      const seen = new Set([`${i},${j}`]);
-      const nodes = [[i, j]];
-      let dir = null;
-      while (nodes.length <= r.len) {
-        const opts = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([di, dj]) => {
-          const ni = i + di, nj = j + dj;
-          return ni >= 0 && nj >= 0 && ni <= N && nj <= N && !seen.has(`${ni},${nj}`);
-        });
-        if (!opts.length) break;
-        // keep going straight now and then, it makes for faster sections
-        let pick = opts[Math.floor(rand() * opts.length)];
-        if (dir && rand() < 0.4 && opts.some(([a, b]) => a === dir[0] && b === dir[1])) pick = dir;
-        dir = pick;
-        i += pick[0];
-        j += pick[1];
-        seen.add(`${i},${j}`);
-        nodes.push([i, j]);
-      }
-      if (nodes.length > r.len) return nodes.map(([a, b]) => ({ x: this.city.roadC(a), z: this.city.roadC(b) }));
-    }
-    throw new Error('no race route for ' + r.name);
+    return raceRoute(r);
   }
 
   makeMarkers() {
@@ -127,6 +87,7 @@ export class Races {
     this.race = r;
     this.vehicle = v;
     this.state = 'countdown';
+    this.onStart?.(r);
     this.t = 3.5;
     this.cp = 1;
     this.lastBeep = 4;
@@ -134,6 +95,7 @@ export class Races {
   }
 
   stop(msg) {
+    if (this.race && this.state !== 'idle' && !this.finishing) this.onAbandon?.(this.race);
     this.state = 'idle';
     this.race = null;
     this.vehicle = null;
@@ -154,10 +116,12 @@ export class Races {
         localStorage.setItem('solcity.race.' + r.name, String(time));
       } catch {}
     }
-    this.onFinish?.(medal);
+    this.onFinish?.(medal, r);
+    this.finishing = true;
     this.hud.addMoney(PRIZE[medal]);
     this.audio.cash();
     this.stop(`${r.name}: <em>${fmt(time)}</em> - ${medal}! +$${PRIZE[medal]}${record ? ' &nbsp;NEW RECORD' : ''}`);
+    this.finishing = false;
   }
 
   update(dt, { driving, input, wanted, blocked, dead }) {
@@ -220,6 +184,7 @@ export class Races {
       if (Math.hypot(v.pos.x - cp.x, v.pos.z - cp.z) < CP_RADIUS) {
         if (this.cp === r.route.length - 1) return this.finish();
         this.cp++;
+        this.onCheckpoint?.();
         this.timeLeft += 2; // a little time back per checkpoint
         this.audio.blip({ tone: 990, toneEnd: 1480, dur: 0.14, gain: 0.25 });
       } else if (this.timeLeft <= 0) return this.stop('Out of time. Race failed.');

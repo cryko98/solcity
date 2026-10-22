@@ -338,8 +338,9 @@ export class Environment {
     this.hemi.color.copy(L.hemiSky).lerp(gray, cl * 0.5);
     this.scene.fog.color.copy(L.fog).lerp(gray, cl * 0.7);
     this.scene.fog.density = 0.0042 + rn * 0.0065 + cl * 0.0012;
-    this.renderer.toneMappingExposure = L.exposure * (1 - cl * 0.08);
-    const bloomOn = nk > 0.2 || this.flash > 0.05;
+    this.renderer.toneMappingExposure = this.indoor ? 1 : L.exposure * (1 - cl * 0.08);
+    // a room is lit the same at any hour: no night exposure / bloom blowing out its bulbs
+    const bloomOn = !this.indoor && (nk > 0.2 || this.flash > 0.05);
     this.bloom.enabled = bloomOn;
     this.bloom.strength = L.bloom + this.flash * 0.3;
     this.bloom.threshold = L.thr;

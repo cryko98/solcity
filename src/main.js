@@ -29,6 +29,7 @@ import { PoliceHeli } from './heli.js';
 import { Shops } from './shops.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
+import { DaCity } from './dacity.js';
 import { CarEntry } from './carentry.js';
 
 const loadingBar = document.getElementById('loading-bar');
@@ -113,6 +114,7 @@ let heli = null;
 let shop = null;
 let vigilante = null;
 let story = null;
+let dacity = null;
 let packages = null;
 let birds = null;
 let entry = null;
@@ -187,6 +189,13 @@ Promise.all([
     vigilante = new Vigilante({ city, vehicles, hud, audio });
     story = new Story({ scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, weapons, env, follow, getDriving: () => driving });
     story.onSave = () => saveGame();
+    // DaCity rewards (only when the game runs on the Sol City server, see server/README.md)
+    dacity = new DaCity({ hud });
+    story.dacity = dacity;
+    story.onMissionStart = (id) => dacity.start('story', id);
+    story.onMissionEnd = (id, passed) => dacity.finish(passed);
+    races.onStart = (r) => dacity.start('race', r.id);
+    races.onAbandon = () => dacity.finish(false);
     entry = new CarEntry({ player, peds, city, audio, hud });
     entry.onEntered = (c) => seatPlayer(c);
     entry.onExited = (c, bailed) => {
@@ -216,7 +225,11 @@ Promise.all([
     };
     hud.stats = stats;
     stunts.onStunt = () => (stats.uniqueJumps = stunts.doneCount);
-    races.onFinish = () => stats.races++;
+    races.onFinish = () => {
+      stats.races++;
+      dacity.finish(true);
+    };
+    races.onCheckpoint = () => dacity.mark();
     vigilante.onStopped = () => stats.suspects++;
     taxiJobs.onFare = () => stats.fares++;
     if (heliModel) {
@@ -330,7 +343,7 @@ Promise.all([
     overlay.classList.add('ready');
     window.__game = {
       player, city, follow, camera, renderer, scene, input: mainInput, story: () => story, vehicles, traffic, peds, composer, bloom, audio, police, wanted, taxi: () => taxiJobs, weapons: () => weapons,
-      env, fx, spray: () => spray, packages: () => packages, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, hud, radio,
+      env, fx, spray: () => spray, packages: () => packages, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, dacity: () => dacity, hud, radio,
       state: () => ({ driving }),
       step,
       render: () => composer.render(),
@@ -757,6 +770,7 @@ function step(dt) {
     if (!races.active && !story.active) vigilante.update(dt, { driving, input, dead: player.dead || player.busted });
     wanted.frozen = !!story.mission || !!shop.inside;
     story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' });
+    dacity.update(dt, driving ? driving.vehicle.pos : player.position, !!shop.inside || !!story.cut);
     radio.update(dt, !!driving && !player.dead, input);
     // horn: people in front of the car jump out of the way
     const honk = !!driving && input.down('KeyG');

@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { prepareCharacter, retargetClips, chooseOutfit } from './materials.js';
 
-const MAX_PEDS = 18, SPAWN_MIN = 25, SPAWN_MAX = 110, DESPAWN = 140, RADIUS = 0.3, KO_HITS = 6;
+const MAX_PEDS = 24, SPAWN_MIN = 25, SPAWN_MAX = 110, DESPAWN = 140, RADIUS = 0.3, KO_HITS = 6;
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
 const cornerIndex = (sx, sz) => CORNERS.findIndex(([a, b]) => a === sx && b === sz);
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));

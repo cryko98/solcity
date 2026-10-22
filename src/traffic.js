@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { colorFor } from './vehicles.js';
 
-const LANE = 1.75, CRUISE = 11, TURN_SPEED = 5, MAX_CARS = 12;
+const LANE = 1.75, CRUISE = 11, TURN_SPEED = 5, MAX_CARS = 16;
 const SPAWN_MIN = 60, SPAWN_MAX = 150, DESPAWN = 190;
 const COLORS = [0xb3202a, 0x1f4fa8, 0xe8e8e8, 0x1b1b1d, 0x8a8f96, 0xd9a21b, 0x2e6b3c, 0x5b2a86, 0xd8622a, 0x6fb7d9, 0xf0f0f0, 0x303a48];
 

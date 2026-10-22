@@ -2,6 +2,7 @@
 //   cafe        Rosa's cafe in Little Havana: checkered floor, counter, tables, neon
 //   office      Vince's office in a dock warehouse: desk, crates, hanging lamp
 //   interview   an interview room at the precinct: steel table, mirror, one bulb
+//   penthouse   Zara's penthouse over South Beach: skyline window, DaCity screens, sofas, bar
 // Each room returns where its light bulbs are (the Environment lights them) and the
 // spots where the contact and the player sit or stand for the 'sit' and 'stand' scenes.
 import * as THREE from 'three';
@@ -214,6 +215,101 @@ export function buildInteriors(scene) {
     r.arr.sit = { C: { ...r.world(0, 0.82), sit: true }, P: { ...r.world(0, -0.82), sit: true } };
     r.arr.stand = { C: { ...r.world(-1.4, 1.6), sit: false }, P: { ...r.world(-0.6, 0.5), sit: false } };
     r.home = r.world(-1.4, 1.6);
+  }
+
+  // ------------------------------------------------------------- Zara's penthouse above South Beach
+  {
+    const marble = std({ map: checker('#f2f0ec', '#e4e1da', 4), roughness: 0.18, metalness: 0.05 });
+    marble.map.repeat.set(3, 3);
+    const r = room('penthouse', 1640, 13, 10, 3.6, {
+      wall: std({ color: 0xf4f1ec, roughness: 0.8 }), wall2: std({ color: 0x23262c, roughness: 0.7 }),
+      ceiling: std({ color: 0xfafafa, roughness: 0.9 }), floor: marble,
+    });
+    const white = std({ color: 0xf2efe8, roughness: 0.75 });
+    const black = std({ color: 0x15161a, roughness: 0.4, metalness: 0.3 });
+    const gold = std({ color: 0xd8b04a, roughness: 0.3, metalness: 0.9 });
+    const glass = std({ color: 0x9fc8d8, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.35 });
+    // the night skyline through the glass wall behind Zara
+    const sky = document.createElement('canvas');
+    sky.width = 512;
+    sky.height = 128;
+    {
+      const g = sky.getContext('2d');
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, '#1a1036');
+      grd.addColorStop(0.6, '#c2457a');
+      grd.addColorStop(1, '#ffb36b');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, 512, 128);
+      for (let x = 0; x < 512; x += 14 + ((x * 7) % 11)) {
+        const h = 30 + ((x * 13) % 70);
+        g.fillStyle = '#0d0b1a';
+        g.fillRect(x, 128 - h, 12, h);
+        g.fillStyle = 'rgba(255,220,140,.8)';
+        for (let y = 128 - h + 4; y < 124; y += 7) if ((x + y) % 3) g.fillRect(x + 3, y, 2, 2);
+      }
+    }
+    const skyTex = new THREE.CanvasTexture(sky);
+    skyTex.colorSpace = THREE.SRGBColorSpace;
+    const view = new THREE.Mesh(new THREE.PlaneGeometry(12.8, 3.0), std({ map: skyTex, emissiveMap: skyTex, emissive: 0xffffff, emissiveIntensity: 1.1 }));
+    view.position.set(0, FLOOR + 1.75, 4.97);
+    view.rotation.y = Math.PI;
+    r.group.add(view);
+    for (let x = -6; x <= 6; x += 2.4) r.box(black, 0.08, 3.6, 0.08, x, 0, 4.92); // window mullions
+    // a wall of trading screens: the DaCity chart going up
+    const scr = document.createElement('canvas');
+    scr.width = 256;
+    scr.height = 160;
+    {
+      const g = scr.getContext('2d');
+      g.fillStyle = '#071018';
+      g.fillRect(0, 0, 256, 160);
+      g.strokeStyle = 'rgba(80,140,160,.25)';
+      for (let y = 20; y < 160; y += 20) g.strokeRect(0, y, 256, 0.5);
+      g.strokeStyle = '#ffd23f';
+      g.lineWidth = 3;
+      g.beginPath();
+      for (let x = 0, y = 130; x <= 256; x += 8) {
+        y = Math.max(28, y - 3 + Math.sin(x * 0.21) * 9);
+        x ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+      g.fillStyle = '#ffd23f';
+      g.font = 'bold 22px Arial';
+      g.fillText('DACITY', 10, 24);
+    }
+    const scrTex = new THREE.CanvasTexture(scr);
+    scrTex.colorSpace = THREE.SRGBColorSpace;
+    const scrMat = std({ map: scrTex, emissiveMap: scrTex, emissive: 0xffffff, emissiveIntensity: 1.6, roughness: 0.3 });
+    for (const [z, y] of [[-2.2, 1.4], [-0.6, 1.4], [-2.2, 2.4], [-0.6, 2.4]]) {
+      const s = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.92), scrMat);
+      s.position.set(-6.44, FLOOR + y, z);
+      s.rotation.y = Math.PI / 2;
+      r.group.add(s);
+      r.box(black, 0.04, 1.0, 1.58, -6.47, y - 0.5, z);
+    }
+    // two white sofas facing over a glass table
+    const sofa = (x, z, yaw) => {
+      const fx = Math.sin(yaw), fz = Math.cos(yaw);
+      r.box(white, 2.2, SEAT_Y, 0.9, x, 0, z, yaw);
+      r.box(white, 2.2, 0.55, 0.22, x - fx * 0.42, SEAT_Y, z - fz * 0.42, yaw);
+      for (const s of [-1, 1]) r.box(white, 0.2, 0.28, 0.9, x + s * 1.05 * fz, SEAT_Y, z - s * 1.05 * fx, yaw);
+    };
+    sofa(0, 1.47, Math.PI); // front edge a thigh's length ahead of the sitter, like a chair
+    sofa(0, -1.47, 0);
+    r.box(glass, 1.4, 0.04, 0.8, 0, 0.4, 0);
+    for (const [x, z] of [[-0.65, -0.35], [0.65, -0.35], [-0.65, 0.35], [0.65, 0.35]]) r.box(gold, 0.03, 0.4, 0.03, x, 0, z);
+    r.cyl(gold, 0.04, 0.035, 0.24, 0.3, 0.44, 0.1, 10); // champagne
+    r.cyl(glass, 0.03, 0.02, 0.14, -0.2, 0.44, -0.1, 8);
+    // a bar along the east wall
+    r.box(black, 0.7, 1.05, 4, 5.6, 0, -1.5);
+    r.box(gold, 0.8, 0.05, 4.1, 5.6, 1.05, -1.5);
+    for (let i = 0; i < 9; i++) r.cyl(i % 2 ? gold : glass, 0.04, 0.04, 0.28, 6.2, 1.5, -3.2 + i * 0.42, 8);
+    r.box(black, 0.3, 0.05, 4, 6.2, 1.45, -1.5);
+    r.lights.push(r.bulb(0, 3.1, 0, gold), r.bulb(4.6, 3.1, -1.5, gold), r.bulb(-4.6, 3.1, -1.4, gold));
+    r.arr.sit = { C: { ...r.world(0, 1.25), sit: true }, P: { ...r.world(0, -1.25), sit: true } };
+    r.arr.stand = { C: { ...r.world(-3.2, 3.2), sit: false }, P: { ...r.world(-2.4, 2.0), sit: false } };
+    r.home = r.world(-3.2, 3.2);
   }
   return rooms;
 }

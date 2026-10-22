@@ -12,3 +12,9 @@ node_modules/
 Thumbs.db
 # MakeHuman system assets (CC0, ~270 MB): hair and brows are fitted from it (see README)
 vendor/makehuman/
+
+# reward server: secrets, database, dependencies
+server/.env
+server/data/
+server/data-*/
+server/node_modules/
