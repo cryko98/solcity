@@ -135,7 +135,7 @@ addEventListener('resize', () => {
 const loader = new GLTFLoader();
 const manager = { total: 13, done: 0 };
 // bump when the models are rebuilt, so no browser keeps showing an old cached copy
-const ASSET_VERSION = '2026-10-22d';
+const ASSET_VERSION = '2026-10-23a';
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
     loader.load(url + '?v=' + ASSET_VERSION, (g) => {
@@ -290,10 +290,12 @@ Promise.all([
       follow.shake = Math.max(follow.shake, Math.min(0.12, v * 0.01));
     };
     peds.onCopFire = (p) => weapons.copFire(p);
-    // gunfire is heard far away: bystanders scatter and, if anyone hears it, it is a crime
-    weapons.onShot = (pos) => {
+    // gunfire is heard far away and bystanders scatter, but shots into the air, a wall or the
+    // street are no crime: only hitting a vehicle (seen or heard) is. Hitting a person is
+    // reported by the peds themselves.
+    weapons.onShot = (pos, struck) => {
       peds.scare(pos.x, pos.z, null, 35);
-      if (gunfireCooldown > 0) return;
+      if (!struck || gunfireCooldown > 0) return;
       gunfireCooldown = 2;
       if (peds.witnesses(pos, 45).n > 0 || police.units.some((u) => police.visible(u.c.vehicle.pos, pos, 80))) wanted.crime('gunfire');
     };

@@ -387,6 +387,7 @@ export class Weapons {
     this.cool = w.rate;
     const muzzle = this.muzzleWorld(this.player.model, key);
     const base = this.aimDirection(muzzle, w);
+    let struck = false; // a car or the helicopter was hit (people are a crime of their own in Peds.shot)
     for (let i = 0; i < w.pellets; i++) {
       const d = base.clone();
       d.x += (Math.random() - 0.5) * w.spread * 2;
@@ -407,6 +408,7 @@ export class Weapons {
         }
       } else if (hit.t < w.range) {
         this.impact(at, false);
+        if (hit.heli || hit.car) struck = true;
         if (hit.heli) {
           this.heli.damage(w.dmg * 3);
           this.worldFx?.sparks(at, 4, d.clone().negate());
@@ -423,7 +425,7 @@ export class Weapons {
     this.audio.gunshot(key);
     this.player.recoil(w.kick);
     this.follow.kick(w.kick * 0.6);
-    this.onShot?.(this.player.position);
+    this.onShot?.(this.player.position, struck);
     if (s.mag === 0 && s.reserve > 0) this.reload();
     this.updateHud();
     return true;

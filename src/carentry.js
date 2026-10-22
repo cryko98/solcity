@@ -148,7 +148,7 @@ export class CarEntry {
         if (s.t >= s.dur) (v.npcDriver ? this.beginJack() : this.beginGetIn());
       } else if (s.phase === 'jack') {
         this.placeAtDoor();
-        if (!s.thrown && s.t > s.dur * 0.45) this.throwDriver();
+        if (!s.thrown && s.t > s.dur * 0.62) this.throwDriver(); // as the hero starts to sling him out
         if (s.t >= s.dur) this.beginGetIn();
       } else if (s.phase === 'getin') {
         const k = Math.min(1, s.t / s.dur);

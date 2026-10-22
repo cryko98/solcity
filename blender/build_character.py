@@ -2819,6 +2819,7 @@ def hands_up(t_):
 
 
 HANDSUP_ROLL = 0.0
+JACK_FOREARM_ROLL = 70.0
 
 
 # ---------------------------------------------------------------- getting into cars
@@ -2888,22 +2889,38 @@ def jack_pull(t_):
         return DOOR_CACHE["jp"][key]
     p, _ = idle(0.0)
     p = dict(p)
-    r = smooth01(0, .3, t_) * (1 - smooth01(.36, .62, t_))
-    y = smooth01(.36, .62, t_) * (1 - smooth01(.8, 1, t_))
-    into, back = V((.0, -.78, .2)), V((-.42, .25, .05))
+    # The hero faces the open door (-Y), the car's rear is on his right (-X). Both hands go
+    # in to the driver, grab, pull him up to the chest, then sling him out to the right and
+    # back the way the game throws him; the hands always stay in front of the body.
+    r = smooth01(0, .3, t_)  # reach in
+    y = smooth01(.38, .58, t_)  # pull to the chest
+    w = smooth01(.58, .78, t_)  # sling to the right
+    b = smooth01(.82, 1, t_)  # let go, back to standing
+    into = V((0, -.74, .24))
+    pull = V((-.06, -.36, .4))
+    sling = V((-.34, -.4, .4))
     for sfx, sgn in ((".L", 1), (".R", -1)):
         rest = V((sgn * .22, -.05, -.2))
-        tgt = rest.lerp(into + V((sgn * .12, 0, 0)), r) + (back + V((sgn * .1, 0, 0)) - rest) * y
-        reach(p, sfx, sgn, tgt, (sgn * .1, -1, 0), roll_=-sgn * 40)
-    p["spine"] = rot("spine", (XA, 18 * r - 6 * y), (ZA, 14 * y))
-    p["chest"] = rot("chest", (XA, 10 * r - 4 * y), (ZA, 22 * y))
-    p["neck"] = rot("neck", (ZA, -10 * y))
-    p["thigh.R"] = rot("thigh.R", (XA, 18 * y), (ZA, -8))
-    p["thigh.L"] = rot("thigh.L", (XA, -14 * r), (ZA, 8))
-    p["shin.L"] = rot("shin.L", (XA, 18 * r))
-    hands(p, 30 + 65 * smooth01(.28, .36, t_))
-    DOOR_CACHE["jp"][key] = (p, (0, -.12 * r + .1 * y, -.03 * r))
-    return p, (0, -.12 * r + .1 * y, -.03 * r)
+        # side by side as they hold the driver; slinging, the left hand ends a little ahead
+        held = into.lerp(pull, y).lerp(sling, w) + V((sgn * (.11 - .06 * w), -sgn * .06 * w, 0))
+        tgt = rest.lerp(held, r).lerp(rest, b)
+        # elbows back and down while pulling, down while slinging (the left arm crosses in front)
+        pole = HIPS0 + V((sgn * .5, .3, -.1)).lerp(V((sgn * .1 - .2, -.1, -.45)), w)
+        # the wrist stays in line with the forearm (no hand_dir: a fixed one bent it 90 degrees);
+        # the forearm turns the palms down / in towards each other as they take hold of him
+        solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, HIPS0 + tgt, pole, None,
+                    roll=(0, JACK_FOREARM_ROLL * sgn * min(1, r + y), 0))
+    k = 1 - b
+    p["spine"] = rot("spine", (XA, (16 * r - 10 * y) * k), (YA, -12 * w * k))
+    p["chest"] = rot("chest", (XA, (8 * r - 4 * y) * k), (YA, -18 * w * k))
+    p["neck"] = rot("neck", (YA, 10 * w * k))
+    p["thigh.R"] = rot("thigh.R", (XA, 16 * y * k), (ZA, -8))
+    p["thigh.L"] = rot("thigh.L", (XA, -14 * r * (1 - y) * k), (ZA, 8))
+    p["shin.L"] = rot("shin.L", (XA, 18 * r * (1 - y) * k))
+    hands(p, 30 + 65 * smooth01(.28, .36, t_) * (1 - smooth01(.78, .84, t_)))  # fists full of his jacket
+    off = (-.05 * w * k, (-.12 * r + .14 * y) * k, -.03 * r * (1 - y) * k)
+    DOOR_CACHE["jp"][key] = (p, off)
+    return p, off
 
 
 # ---------------------------------------------------------------- conversation (story cutscenes)
@@ -3151,8 +3168,10 @@ if PREVIEW:
         shoot("ko_end.png", "KnockDown", 42, (3.5, -1.5, 1.4), (0, .4, .2))
         for fr in (4, 8, 11, 14, 18, 22):
             shoot(f"roll_{fr:02d}.png", "Roll", fr, (3.6, -.4, 1.0), (0, 0, .55))
-        for clip_, fr in (("OpenDoor", 8), ("OpenDoor", 22), ("GetIn", 16), ("GetIn", 30), ("JackPull", 9), ("JackPull", 18)):
+        for clip_, fr in (("OpenDoor", 8), ("OpenDoor", 22), ("GetIn", 16), ("GetIn", 30), ("JackPull", 9), ("JackPull", 14), ("JackPull", 18), ("JackPull", 21), ("JackPull", 24)):
             shoot(f"{clip_.lower()}_{fr}_34.png", clip_, fr, (-2.2, -2.6, 1.5), (0, -.2, .95))
+        for fr in (9, 14, 18, 21):  # the hands up close: wrists, grip
+            shoot(f"jackpull_{fr}_hands.png", "JackPull", fr, (-.9, -1.5, 1.45), (-.1, -.4, 1.15))
         for clip_, fr in (("SitTalk", 36), ("SitTalk", 87), ("SitListen", 30), ("StandTalk", 30), ("StandListen", 36)):
             shoot(f"{clip_.lower()}_{fr}_34.png", clip_, fr, (2.2, -2.6, 1.5), (0, -.2, .95))
             shoot(f"{clip_.lower()}_{fr}_side.png", clip_, fr, (3.0, -.3, 1.2), (0, -.2, .9))

@@ -6,6 +6,9 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { prepareCharacter, retargetClips, chooseOutfit } from './materials.js';
 
+const _door = new THREE.Vector3();
+// states in which a person stays put (sitting, chatting, lying, in a car, boarding one)
+const STILL = new Set(['down', 'riding', 'seated', 'talking', 'board']);
 const MAX_PEDS = 24, SPAWN_MIN = 25, SPAWN_MAX = 110, DESPAWN = 140, RADIUS = 0.3, KO_HITS = 6;
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
 const cornerIndex = (sx, sz) => CORNERS.findIndex(([a, b]) => a === sx && b === sz);
@@ -586,6 +589,7 @@ export class Peds {
       else if (p.state === 'board') this.updateBoard(p, dt);
       else this.updateWalk(p, dt, onFoot);
       if (p.state === 'riding') continue;
+      this.separate(p);
 
       if (p.state !== 'down' && !p.invulnerable) this.carHits(p);
       for (const m of p.body.userData.meshes) m.castShadow = dist < 40;
@@ -594,6 +598,23 @@ export class Peds {
       this.animate(p, dt, dist);
     }
     this.updateCash(dt, onFoot);
+  }
+
+  // people standing or walking don't walk through each other: each takes half of the overlap
+  separate(p) {
+    if (STILL.has(p.state)) return;
+    for (const o of this.list) {
+      if (o === p || STILL.has(o.state) || Math.abs(o.x - p.x) > 0.6 || Math.abs(o.z - p.z) > 0.6) continue;
+      const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz), m = RADIUS * 2;
+      if (d >= m || d < 1e-6) continue;
+      const k = (m - d) / d / 2;
+      p.x += dx * k;
+      p.z += dz * k;
+      if (!o.keep) {
+        o.x -= dx * k;
+        o.z -= dz * k;
+      }
+    }
   }
 
   carHits(p) {
@@ -617,6 +638,8 @@ export class Peds {
     p.z += Math.cos(p.yaw) * p.cur * dt + p.vel.z * dt;
     p.vel.multiplyScalar(Math.exp(-6 * dt));
     this.collideWorld(p);
+    // cars are solid (a passenger walking to the taxi door is let through on the last step)
+    if (p.state !== 'board') this.vehicles.collideCircle(p, RADIUS);
     const gh = this.city.groundHeight(p.x, p.z);
     p.y += (gh - p.y) * Math.min(1, dt * 15);
   }
@@ -738,9 +761,20 @@ export class Peds {
       return;
     }
     const v = player.vehicle;
-    const tx = v ? v.pos.x : player.position.x, tz = v ? v.pos.z : player.position.z;
+    // a player in a car: go for the driver's door (cars are solid now, the middle can't be reached)
+    let door = v && v.root.localToWorld(_door.set(-v.seat.x - 1.0, 0, v.seat.z));
+    if (v) {
+      // on the far side of the car: walk round the nearer end first instead of pushing at it
+      const s = Math.sin(v.heading), c = Math.cos(v.heading), ox = p.x - v.pos.x, oz = p.z - v.pos.z;
+      const lx = ox * c - oz * s, lz = ox * s + oz * c, doorSide = Math.sign(-v.seat.x - 1.0);
+      if (Math.sign(lx) !== doorSide && Math.abs(lz) < v.spec.halfL + 0.4) {
+        const cx = Math.sign(lx) * (v.spec.halfW + 0.7), cz = (lz >= 0 ? 1 : -1) * (v.spec.halfL + 0.8);
+        door = _door.set(v.pos.x + cx * c + cz * s, 0, v.pos.z - cx * s + cz * c);
+      }
+    }
+    const tx = v ? door.x : player.position.x, tz = v ? door.z : player.position.z;
     const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-    const reach = v ? v.spec.halfW + 1.1 : 1.0;
+    const reach = v ? 0.5 : 1.0;
     const busy = p.overlay && (p.overlay.name === 'hit' || p.overlay.name.startsWith('punch'));
     const gun = p.body.userData.gun;
     if (gun) gun.visible = !!p.armed;
@@ -803,6 +837,8 @@ export class Peds {
     p.z += p.vel.z * dt;
     p.vel.multiplyScalar(Math.exp(-3.5 * dt));
     if (p.timer < 1) this.collideWorld(p);
+    // a body thrown about doesn't end up inside a car (the one that hit it has moved on by now)
+    if (p.timer > 0.25) this.vehicles.collideCircle(p, RADIUS);
     const gh = this.city.groundHeight(p.x, p.z);
     p.y += (gh - p.y) * Math.min(1, dt * 10);
     if (p.cashPending && p.timer > 1.1) {

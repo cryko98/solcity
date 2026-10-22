@@ -731,8 +731,9 @@ export class Vehicles {
   collideCircle(p, r) {
     let hit = 0;
     for (const c of this.cars) {
-      const [x, z, h] = this.pose(c);
+      const v = c.vehicle, x = v ? v.pos.x : c.x, z = v ? v.pos.z : c.z; // (no array: this runs for every person, every frame)
       if (Math.abs(x - p.x) > 4 || Math.abs(z - p.z) > 4) continue;
+      const h = v ? v.heading : c.yaw;
       const spec = specOf(c);
       const s = Math.sin(h), co = Math.cos(h);
       const dx = p.x - x, dz = p.z - z;
