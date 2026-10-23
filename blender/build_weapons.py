@@ -646,9 +646,57 @@ def define_actions(H, g):
             return p, (0, 0, 0)
         return fn
 
+    # Walking and running with a gun (GTA style, not aiming): the body is the walk / run cycle
+    # (the game plays these in step with the legs), the gun in "low ready". The pistol rides in
+    # the right hand: by the thigh, muzzle down, swinging a little on the walk; at the hip, muzzle
+    # forward-down, pumping with the stride on the run; the left arm swings / pumps free. A long
+    # gun stays in both hands across the body, the butt in the shoulder pocket, and moves with the
+    # chest as it turns against the hips.
+    def moving(key, run):
+        def fn(t):
+            p = (g["run_cycle"](t) if run else g["gait"](t, False))[0]
+            g["apply_pose"](p)
+            ob, info = H.guns[key]
+            fwd = math.cos(2 * math.pi * (t - .05))  # 1: the right arm's forward swing
+            if key == "pistol":
+                if run:
+                    Pg = V((-0.18, TORSO_Y - 0.24 - 0.10 * fwd, BELT_Z + 0.07 + 0.03 * fwd))
+                    H.firing_hand(p, "pistol", Pg, Rx(26 - 8 * fwd), V((-0.5, 0.3, BELT_Z + 0.1)))
+                else:
+                    Pg = V((-0.21, TORSO_Y - 0.10 - 0.06 * fwd, BELT_Z - 0.09))
+                    H.firing_hand(p, "pistol", Pg, Rx(60 - 6 * fwd), V((-0.45, 0.35, BELT_Z + 0.15)))
+                firing_fingers(p, info, trigger=False)
+                return p, (0, 0, 0)
+            # long guns: carried across the body ("port arms"), the butt at the right hip, the muzzle
+            # up and over to the left, bobbing with the stride
+            bob = 0.015 * math.cos(4 * math.pi * t) * (2 if run else 1)
+            butt = V((-0.16, TORSO_Y - 0.07 - (0.03 if run else 0.0), BELT_Z + 0.0 + bob))
+            Rg = Matrix.Rotation(math.radians(40), 3, "Z") @ Rx(-58 if run else -54)
+            H.firing_hand(p, key, butt - Rg @ info["butt"], Rg, V((-0.55, 0.25, BELT_Z + 0.05)))
+            firing_fingers(p, info, trigger=False)
+            r = info["grip2_r"]
+            mid = info["grip2"] + V((r + 0.012, 0.0, -0.014))
+            for _ in range(3):
+                H.support_hand(p, mid, V((-0.15, -0.75, -0.45)), V((-1, 0.0, 0.35)), V((0.3, -0.1, BELT_Z - 0.1)))
+                if H.err[".L"] < 0.003:
+                    break
+                mid.y += min(H.err[".L"], info["grip2_back"] - (mid.y - info["grip2"].y))
+            be = math.radians(40)
+            w = V((0, math.sin(be), math.cos(be)))
+            hv = (r + FINGER_R) / math.cos(be) - FINGER_R
+            H.wrap(p, ".L", ("index", "middle", "ring", "pinky"), info["grip2"], X3, w, r, hv, -1, exp=2.0)
+            st = info["grip2"] + V((r + 0.008, -0.05, 0.004))
+            H.thumb(p, ".L", st, st + V((0.05, 0.02, -0.02)))
+            return p, (0, 0, 0)
+        return fn
+
     acts = []
     if "pistol" in H.guns:
         acts += [("PistolHold", 60, pistol_hold, 6), ("PistolAim", 60, pistol_aim, 6)]
+    # (the same frame counts as Walk / Run: the game drives them with the gait phase)
+    for key, nm in (("pistol", "Pistol"), ("smg", "SMG"), ("shotgun", "Shotgun")):
+        if key in H.guns and g.get("run_cycle"):
+            acts += [(nm + "Walk", 34, moving(key, False), 1), (nm + "Run", 21, moving(key, True), 1)]
     if "smg" in H.guns:
         acts += [("SMGHold", 60, long_gun("smg", False), 6), ("SMGAim", 60, long_gun("smg", True), 6)]
     if "shotgun" in H.guns:

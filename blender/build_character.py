@@ -2664,42 +2664,45 @@ def run_cycle(t_):
         # arms: against the legs, from the shoulder; the elbow opens a little as it goes back
         c = math.cos(2 * math.pi * (tt - .04))
         sw = 44 * c - 6
-        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * 6), (XA, sw), (ZA, -sgn * 7))
+        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * 9), (XA, sw), (ZA, -sgn * 8))
         el = -(84 + 16 * max(0.0, -c) - 10 * max(0.0, c))
         p["forearm." + side] = rot("forearm." + side, (XA, el), (ZA, -sgn * 8))
         p["hand." + side] = rot("hand." + side, (XA, -10), (ZA, sgn * 6))
-    hands(p, 50)
+    hands(p, 78, 50)  # fists
     return p, (sway, 0, z)
 
 
 def gait(t_, run):
-    """masculine gait: little hip sway, the shoulders drive the swing, arms held off the body"""
+    """masculine gait (GTA street walk): a wider stance with the toes out, little hip sway but
+    the shoulders rolling and turning against it, the arms carried off the body and swinging
+    from the shoulder with the elbows bending on the way forward, loose fists, chest up"""
     p = {}
     legf = run_leg if run else walk_leg
-    arm_amp, elbow_base, elbow_amp = (40, 85, 15) if run else (21, 18, 14)
+    arm_amp, elbow_base, elbow_amp = (40, 85, 15) if run else (27, 20, 15)
     for side, sgn, ph in (("L", 1, 0.0), ("R", -1, .5)):
         tt = (t_ + ph) % 1
         hip, knee, ankle = legf(tt)
-        p["thigh." + side] = rot("thigh." + side, (XA, hip), (YA, sgn * 1.5), (ZA, sgn * 4))
+        p["thigh." + side] = rot("thigh." + side, (XA, hip), (YA, sgn * (1.5 if run else 3.2)), (ZA, sgn * (4 if run else 6)))
         p["shin." + side] = rot("shin." + side, (XA, knee))
-        p["foot." + side] = rot("foot." + side, (XA, ankle), (ZA, sgn * 6))
+        p["foot." + side] = rot("foot." + side, (XA, ankle), (ZA, sgn * (6 if run else 11)))
         c = math.cos(2 * math.pi * (tt - .05))
         sw = arm_amp * c - (8 if run else 4)
-        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * (8 if run else 7)), (XA, sw), (ZA, -sgn * 6))
+        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * (8 if run else 13)), (XA, sw), (ZA, -sgn * (6 if run else 9)))
         el = -(elbow_base + elbow_amp * max(0.0, -math.cos(2 * math.pi * (tt - .12))))
         p["forearm." + side] = rot("forearm." + side, (XA, el), (ZA, -sgn * (14 if run else 10)))
         p["hand." + side] = rot("hand." + side, (XA, -8 if run else -4))
     c1, s1 = math.cos(2 * math.pi * t_), math.sin(2 * math.pi * t_)
-    pelvis_rot = (6 if run else 3) * -c1
+    pelvis_rot = (6 if run else 4) * -c1
     oblique = (1.5 if run else 1.2) * -s1
-    lean = 13 if run else 5
+    lean = 13 if run else 4
+    roll = 0 if run else 2.6 * s1  # the walk's swagger: the shoulders dip toward the planted foot
     p["hips"] = rot("hips", (ZA, pelvis_rot), (YA, oblique), (XA, lean * .3))
     p["spine"] = rot("spine", (XA, lean * .35), (ZA, -pelvis_rot * 1.0))
-    p["chest"] = rot("chest", (XA, lean * .2 - (0 if run else 3)), (ZA, -pelvis_rot * 2.2 - (2 if run else 3) * c1), (YA, -oblique * 1.2))
+    p["chest"] = rot("chest", (XA, lean * .2 - (0 if run else 4)), (ZA, -pelvis_rot * (2.2 if run else 2.6) - (2 if run else 4) * c1), (YA, -oblique * 1.2 + roll))
     p["neck"] = rot("neck", (XA, -lean * .35 + 2), (ZA, pelvis_rot * 1.2))
     p["head"] = rot("head", (XA, -lean * .45 + (1.5 if not run else 2.5) * math.cos(4 * math.pi * t_)), (ZA, pelvis_rot * .8))
-    hands(p, 45 if run else 22)
-    z = .035 * math.cos(4 * math.pi * (t_ - .4)) - .055 if run else -.02 * math.cos(4 * math.pi * t_) - .016
+    hands(p, 45 if run else 36)
+    z = .035 * math.cos(4 * math.pi * (t_ - .4)) - .055 if run else -.026 * math.cos(4 * math.pi * t_) - .018
     return p, ((.006 if run else .008) * s1, 0, z)
 
 

@@ -13,7 +13,12 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // upper / lower body split for carrying and aiming weapons while walking
 const UPPER = /^(spine|chest|neck|head|upper_arm|forearm|hand|thumb|index|middle|ring|pinky)/;
 const LOCO = ['idle', 'walk', 'run', 'guard', 'jump'];
-const WEAPON_CLIPS = { pistol: ['PistolHold', 'PistolAim'], smg: ['SMGHold', 'SMGAim'], shotgun: ['ShotgunHold', 'ShotgunAim'] };
+// per gun: standing hold, aim, and walking / running with it (those two play in step with the legs)
+const WEAPON_CLIPS = {
+  pistol: ['PistolHold', 'PistolAim', 'PistolWalk', 'PistolRun'],
+  smg: ['SMGHold', 'SMGAim', 'SMGWalk', 'SMGRun'],
+  shotgun: ['ShotgunHold', 'ShotgunAim', 'ShotgunWalk', 'ShotgunRun'],
+};
 const boneOf = (track) => track.name.slice(0, track.name.lastIndexOf('.'));
 const subClip = (clip, name, keep) => {
   const c = clip.clone();
@@ -66,9 +71,11 @@ export class Player {
     // armed variants: legs from the locomotion clips, upper body from the weapon pose
     const extra = {};
     for (const n of LOCO) if (clips[n]) extra[n + '_lo'] = subClip(clips[n], n + '_lo', (b) => !UPPER.test(b));
-    for (const [key, [hold, aim]] of Object.entries(WEAPON_CLIPS)) {
+    for (const [key, [hold, aim, walk, run]] of Object.entries(WEAPON_CLIPS)) {
       if (clip(hold)) extra[key + '_hold'] = subClip(clip(hold), key + '_hold', (b) => UPPER.test(b));
       if (clip(aim)) extra[key + '_aim'] = subClip(clip(aim), key + '_aim', (b) => UPPER.test(b));
+      if (clip(walk)) extra[key + '_walk'] = subClip(clip(walk), key + '_walk', (b) => UPPER.test(b));
+      if (clip(run)) extra[key + '_run'] = subClip(clip(run), key + '_run', (b) => UPPER.test(b));
     }
     for (const [n, c] of Object.entries(extra)) {
       const a = this.mixer.clipAction(c);
@@ -79,6 +86,8 @@ export class Player {
     }
     this.actions.walk.timeScale = this.actions.run.timeScale = 0;
     if (this.actions.walk_lo) this.actions.walk_lo.timeScale = this.actions.run_lo.timeScale = 0;
+    // (the armed walk / run are stepped by the gait phase too)
+    for (const n of Object.keys(this.actions)) if (/_(walk|run)$/.test(n)) this.actions[n].timeScale = 0;
     this.durations = { walk: clips.walk.duration, run: clips.run.duration };
     // guns modelled on the right hand bone; hidden until equipped
     this.weaponNodes = {};
@@ -612,7 +621,15 @@ export class Player {
     if (armed) {
       const lt = {};
       for (const [n, w] of Object.entries(tw)) lt[LOCO.includes(n) && this.actions[n + '_lo'] ? n + '_lo' : n] = w;
-      lt[this.weapon.clip + (this.aiming ? '_aim' : '_hold')] = 1;
+      const g = this.weapon.clip;
+      if (this.aiming || !this.actions[g + '_walk']) lt[g + (this.aiming ? '_aim' : '_hold')] = 1;
+      else {
+        // gun down and moving: the walking / running carry, as much as the legs walk / run
+        const ww = tw.walk || 0, wr = tw.run || 0;
+        lt[g + '_hold'] = Math.max(0, 1 - ww - wr);
+        lt[g + '_walk'] = ww;
+        lt[g + '_run'] = wr;
+      }
       tw = lt;
     }
     const k = 1 - Math.exp(-(this.overlay ? 22 : this.grounded ? 10 : 7) * dt);
@@ -648,6 +665,11 @@ export class Player {
     if (this.actions.walk_lo) {
       this.actions.walk_lo.time = this.actions.walk.time;
       this.actions.run_lo.time = this.actions.run.time;
+    }
+    if (this.weapon) {
+      const aw = this.actions[this.weapon.clip + '_walk'], ar = this.actions[this.weapon.clip + '_run'];
+      if (aw) aw.time = this.phase * aw.getClip().duration;
+      if (ar) ar.time = this.phase * ar.getClip().duration;
     }
     // undo last frame's aim offset first: the mixer skips writing a bone whose animated value
     // didn't change, so an offset left in place would pile up frame after frame
