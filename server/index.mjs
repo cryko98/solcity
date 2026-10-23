@@ -14,6 +14,8 @@ import { STORY, RACES } from '../src/shared/world.mjs';
 const problems = checkConfig();
 if (problems.length) {
   console.error('Configuration problems:\n - ' + problems.join('\n - '));
+  if (!fs.existsSync(new URL('./.env', import.meta.url))) console.error('\nThere is no server/.env yet: cp .env.example .env, then fill it in.');
+  console.error('See SETUP.md (in the repo root) for what each setting needs.');
   process.exit(1);
 }
 

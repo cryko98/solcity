@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.13" },
   "scripts": {
     "start": "node index.mjs",
+    "postinstall": "node next-steps.mjs",
     "test": "node test.mjs && node test-lobby.mjs && node test-mp.mjs"
   },
   "dependencies": {

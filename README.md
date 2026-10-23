@@ -1,5 +1,8 @@
 # Sol City
 
+> **Setting up the public server?** Start with **[SETUP.md](SETUP.md)**: what to install, what to put in
+> `server/.env` (the secrets you fill in yourself, never in a chat or a commit), HTTPS, and going live.
+
 A GTA-style browser game prototype (Three.js). The character and the cars are
 modelled, rigged and animated procedurally in Blender by the scripts in `blender/`.
 
