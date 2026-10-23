@@ -8,6 +8,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { N8AOPass } from 'n8ao';
 import { buildCity } from './city.js';
 import { Player } from './player.js';
+import { RbHero } from './rbhero.js';
 import { Vehicles } from './vehicles.js';
 import { Traffic } from './traffic.js';
 import { Peds } from './peds.js';
@@ -160,6 +161,7 @@ let heli = null;
 let shop = null;
 let fun = null;
 let jobs = null;
+let rbHero = null;
 let vigilante = null;
 let story = null;
 let dacity = null;
@@ -222,6 +224,8 @@ Promise.all([
     follow.zoom = follow.mode.zoom;
     follow.pitch = follow.mode.pitch;
     scene.add(player.object);
+    // ?rb: try the hero as a Rocketbox avatar with motion-captured locomotion (src/rbhero.js)
+    if (new URLSearchParams(location.search).has('rb')) load('assets/models/rb_hero.glb').then((g) => (rbHero = new RbHero(g, player)));
     const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));
     vehicles = new Vehicles(scene, city, carModels);
     traffic = new Traffic(city, vehicles);
@@ -828,6 +832,7 @@ function step(dt) {
     player.aimPitch = follow.viewPitch;
     // walking to a car door: the entry sequence steers the hero
     player.update(dt, entry.steering ? entry.input : entry.active || fun.active ? NO_INPUT : input, entry.steering ? entry.yaw : follow.yaw, vehicles, peds);
+    rbHero?.update(dt);
     // health slowly comes back once you're out of a fight, but only so far: above that it takes
     // a first-aid box (the red ones on the map) or a meal
     const REGEN_TO = 60;

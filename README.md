@@ -302,6 +302,11 @@ blender -b --factory-startup -P blender/encode_hype.py -- . SolCity_LastJob.mp4 
 ```
 
 Music: "Cyberpunk Beat" by Disquantic, https://freesound.org/people/Disquantic/sounds/525290/ (CC0).
+Test: open the game with `?rb` to see the hero as a [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) avatar
+(MIT) with its motion-captured walk, run, sprint and idle (`src/rbhero.js`; the other actions still use the
+hero's own model). `blender/build_rocketbox.py` builds it into `assets/models/rb_hero.glb` from the library's FBX
+files in `vendor/rocketbox/` (not in the repository), retargeting the clips onto the avatar's own rest pose.
+
 People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
 (~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to
 `vendor/human_base_meshes/extracted/human-base-meshes-bundle-v1.4.1/`. The finished GLB models are included.
