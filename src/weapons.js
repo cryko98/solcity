@@ -539,8 +539,15 @@ export class Weapons {
       }
       pk.vis.rotation.y += dt * 1.6;
       pk.g.position.y = this.city.groundHeight(pk.x, pk.z) + 0.95 + Math.sin(performance.now() / 400 + pk.x) * 0.08;
-      if (onFoot && Math.hypot(P.x - pk.x, P.z - pk.z) < 1.3) {
-        if (!WEAPONS[pk.key] && !this.takeItem(pk.key)) continue;
+      const near = Math.hypot(P.x - pk.x, P.z - pk.z);
+      if (near > 2.5) pk.hinted = false;
+      if (onFoot && near < 1.3) {
+        if (!WEAPONS[pk.key] && !this.takeItem(pk.key)) {
+          // full already: say so (it stays here for when it's needed)
+          if (!pk.hinted) this.hud.say(pk.key === 'health' ? 'You are at full health: the first-aid box stays here for later.' : 'Your armor is full: the vest stays here for later.', 3);
+          pk.hinted = true;
+          continue;
+        }
         if (WEAPONS[pk.key]) this.give(pk.key);
         pk.g.visible = false;
         pk.respawn = 45;

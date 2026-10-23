@@ -42,6 +42,17 @@ const loadingBar = document.getElementById('loading-bar');
 const loadingText = document.getElementById('loading-text');
 const overlay = document.getElementById('overlay');
 const help = document.getElementById('help');
+// the controls panel: a small tab unless opened (click it or H); remembered between sessions
+const setHelp = (open) => {
+  help.classList.toggle('closed', !open);
+  try {
+    localStorage.setItem('solcity.help', open ? 'open' : 'closed');
+  } catch {}
+};
+try {
+  setHelp(localStorage.getItem('solcity.help') === 'open');
+} catch {}
+document.getElementById('help-head').addEventListener('click', () => setHelp(help.classList.contains('closed')));
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
@@ -703,7 +714,7 @@ function step(dt) {
       env.cycleWeather();
       hud.say(`Weather: <em>${env.weather}</em>`, 2);
     }
-    if (input.pressed('KeyH')) help.classList.toggle('hidden');
+    if (input.pressed('KeyH')) setHelp(help.classList.contains('closed'));
     if (input.pressed('KeyM')) hud.toggleMap();
     if (input.pressed('KeyP')) setQuality((quality + 1) % QUALITY.length, true);
     if (input.pressed('KeyF') || input.pressed('Enter')) toggleVehicle();
@@ -764,9 +775,11 @@ function step(dt) {
     player.aimPitch = follow.viewPitch;
     // walking to a car door: the entry sequence steers the hero
     player.update(dt, entry.steering ? entry.input : entry.active || fun.active ? NO_INPUT : input, entry.steering ? entry.yaw : follow.yaw, vehicles, peds);
-    // health slowly comes back once you're out of a fight
-    if (!player.dead && player.health < 100 && player.guardTimer < -6) {
-      player.health = Math.min(100, player.health + 4 * dt);
+    // health slowly comes back once you're out of a fight, but only so far: above that it takes
+    // a first-aid box (the red ones on the map) or a meal
+    const REGEN_TO = 60;
+    if (!player.dead && player.health < REGEN_TO && player.guardTimer < -6) {
+      player.health = Math.min(REGEN_TO, player.health + 4 * dt);
       hud.setHealth(player.health);
     }
     peds.hurry = env.rain;
