@@ -173,10 +173,10 @@ Dying costs a $100 hospital bill.
 
 ## Story missions
 
-One story in fifteen missions: Nico helps Little Havana, the docks and a crooked cop against the Russo brothers,
+One story in fifteen missions: Nico helps Little Havana, the docks and a crooked lawyer against the Russo brothers,
 and ends up working for **Zara**, the woman behind DaCity, the city's new money. Four contacts give the jobs
 (yellow letter blips, only the ones with work for you right now): **Rosa** (R, her cafe in Little Havana),
-**Vince** (V, his office in an Old Harbor warehouse), **Lt. Diaz** (D, an interview room at the Downtown precinct)
+**Vince** (V, his office in an Old Harbor warehouse), **Diaz** (D, her law office Downtown)
 and **Zara** (Z, her penthouse in South Beach, skyline window and a wall of DaCity charts). Walk into
 the yellow ring at their door: the screen fades and a cutscene plays inside their place (`src/interiors.js`):
 letterbox, shot / reverse-shot camera, typed dialogue with mumbled voices, the speaker talking with their hands
@@ -273,7 +273,7 @@ The sea itself: rolling swell, ripples, clear turquoise over the sand, deep blue
 
 ## Bounty hunting, street events, DaCity ATMs
 
-- The notice board next to Lt. Diaz's door (Downtown precinct) has a wanted man: the yellow area is where he
+- The notice board outside the Downtown precinct, next to Diaz's law office, has a wanted man: the yellow area is where he
   was last seen. He runs or shoots; bring him in alive (knock him down, `E` to cuff) for the full bounty, dead for half.
 - Random street events: a bag snatcher, a getaway car, a broken-down driver who needs a push (hold `E`), a
   mugging in progress. Help out for a reward.
@@ -314,13 +314,17 @@ Car radio: SOL FM plays the CC0 track below, BEAT 102 is a synthwave groove gene
 
 ## Trailer
 
-`SolCity_Trailer.mp4` (60 s) is recorded from the game itself: open http://localhost:8080/?trailer
-(frames are saved to `captures/trailer/`), then encode with music. Every shot is a whole number of beats of
+`SolCity_Trailer.mp4` (88 s, 1080p) is the trailer: the whole game, GTA style, with a narrator, cut to its own G-funk
+score. It is recorded from the game itself (http://localhost:8080/?hype3) and its sound is generated and mixed in
+`trailer/`: see [trailer/README.md](trailer/README.md).
+
+The first one (60 s) is recorded from the game the same way: open http://localhost:8080/?trailer
+(frames are saved to `captures/trailer/`), then encode with music (into another file name now). Every shot is a whole number of beats of
 the 123 BPM track, so the cuts land on the beat. `?trailer&from=8&to=8` re-records only those shots (the
 others are simulated without saving, so the frame numbers stay the same).
 
 ```bash
-blender -b --factory-startup -P blender/encode_trailer.py -- . vendor/music/cyberpunk_beat_disquantic_cc0.mp3 SolCity_Trailer.mp4
+blender -b --factory-startup -P blender/encode_trailer.py -- . vendor/music/cyberpunk_beat_disquantic_cc0.mp3 SolCity_Teaser.mp4
 ```
 
 `SolCity_Hype.mp4` (70 s) is the fast-cut version with everything in it: open http://localhost:8080/?hype

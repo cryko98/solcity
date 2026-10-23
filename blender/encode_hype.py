@@ -7,6 +7,10 @@ bar 128 (204.8 s): the recorder cuts on that beat grid.
   blender -b --factory-startup -P blender/encode_hype.py -- <root> [out.mp4] [prefix] [music.wav] [start s]
 
 The second trailer (hype2.js): ... -- . SolCity_LastJob.mp4 hype2_ 4_the_lab.wav 253.41
+The third (hype3.js, 1080p, its own finished soundtrack from trailer/mix.mjs):
+  ... -- . SolCity_Trailer.mp4 hype3_ <repo>/trailer/build/hype3_mix.wav 0 5000
+(the last number, if given: a fixed video bitrate in kbit/s, to keep a 1080p file under GitHub's 100 MB)
+(a music path that is absolute is used as it is; the frames' size sets the video's)
 """
 import bpy, os, sys
 
@@ -23,7 +27,9 @@ n = len(files)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 sc = bpy.context.scene
 sc.render.fps = 30
-sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage = 1280, 720, 100
+first = bpy.data.images.load(os.path.join(FRAMES, files[0]))
+sc.render.resolution_x, sc.render.resolution_y = first.size
+sc.render.resolution_percentage = 100
 sc.frame_start, sc.frame_end = 1, n
 ed = sc.sequence_editor_create()
 strips = ed.strips if hasattr(ed, "strips") else ed.sequences
@@ -48,6 +54,12 @@ r.image_settings.file_format = "FFMPEG"
 r.ffmpeg.format = "MPEG4"
 r.ffmpeg.codec = "H264"
 r.ffmpeg.constant_rate_factor = "HIGH"
+if len(args) > 5:
+    r.ffmpeg.constant_rate_factor = "NONE"
+    r.ffmpeg.video_bitrate = int(args[5])
+    r.ffmpeg.maxrate = int(int(args[5]) * 1.5)
+    r.ffmpeg.minrate = 0
+    r.ffmpeg.buffersize = 2 * int(args[5])
 r.ffmpeg.ffmpeg_preset = "GOOD"
 r.ffmpeg.gopsize = 15
 r.ffmpeg.audio_codec = "AAC"

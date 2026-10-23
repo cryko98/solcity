@@ -1,0 +1,123 @@
+{
+  "about": "Sol City trailer: what was generated (trailer/gen.mjs). The narrator's lines (ElevenLabs v3, voice Brian; the [tags] set the delivery and are not spoken) and the score's sections, 90 BPM. The final timing of every line is in src/hype3.js (NARRATION), and trailer/mix.mjs cuts the score down to the 88-second picture.",
+  "bpm": 90,
+  "voice": "Brian",
+  "sections": [
+    {
+      "name": "intro",
+      "bars": 6,
+      "music": "slow atmospheric intro: warm analog synth pad, vinyl crackle, a lone talkbox-style G-funk lead phrase, soft finger snaps, no drums yet, sunrise mood, building anticipation",
+      "lines": [
+        {
+          "id": "n01",
+          "text": "[deep, slow, almost a whisper] Sol City."
+        },
+        {
+          "id": "n02",
+          "text": "[deep, unhurried] Sun. [pause] Sea. [pause] [knowing, a hint of a smile] And a whole lot of money."
+        },
+        {
+          "id": "n03",
+          "text": "[low, dramatic] Everybody here wants a piece."
+        }
+      ]
+    },
+    {
+      "name": "story",
+      "bars": 6,
+      "music": "the beat drops: hard-hitting 90s west coast hip hop drums, deep rolling G-funk bassline, high whiny portamento synth lead, laid-back but menacing groove",
+      "lines": [
+        {
+          "id": "n04",
+          "text": "[deep, confident] Four bosses. [pause] Fifteen jobs."
+        },
+        {
+          "id": "n05",
+          "text": "[slow, dramatic] One last score."
+        }
+      ]
+    },
+    {
+      "name": "action",
+      "bars": 8,
+      "music": "full energy G-funk: punchy drums with extra percussion and claps, funky bass, synth lead and brass stabs, driving and triumphant",
+      "lines": [
+        {
+          "id": "n06",
+          "text": "[gritty, punchy] Fight for it."
+        },
+        {
+          "id": "n07",
+          "text": "[cool, smirking] Take any ride you want."
+        },
+        {
+          "id": "n08",
+          "text": "[punchy, rhythmic, energetic] Race it. [short pause] Jump it. [short pause] Wreck it."
+        }
+      ]
+    },
+    {
+      "name": "heat",
+      "bars": 4,
+      "music": "tension: drums drop to a tense half-time pattern, ominous low bass drone, police-siren-like synth stabs, dark and suspenseful",
+      "lines": [
+        {
+          "id": "n09",
+          "text": "[ominous, slow, low] But this city... [pause] fights back."
+        }
+      ]
+    },
+    {
+      "name": "hustle",
+      "bars": 8,
+      "music": "the groove returns: bouncy feel-good G-funk, funky guitar licks, warm bass, synth lead melody, sunny and playful",
+      "lines": [
+        {
+          "id": "n10",
+          "text": "[upbeat, wry] Drive a cab. [short pause] Save a life. [short pause] Put out a fire."
+        },
+        {
+          "id": "n11",
+          "text": "[smooth, satisfied] Then spend it... [pause] like you mean it."
+        }
+      ]
+    },
+    {
+      "name": "life",
+      "bars": 4,
+      "music": "sunset cruising groove: smooth laid-back G-funk, mellow synth lead, crisp drums, golden hour vibe",
+      "lines": [
+        {
+          "id": "n12",
+          "text": "[relaxed, warm] Live a little."
+        }
+      ]
+    },
+    {
+      "name": "crew",
+      "bars": 4,
+      "music": "breakdown: drums cut out, bass and pad only, then a big riser and snare roll building to the final drop",
+      "lines": [
+        {
+          "id": "n13",
+          "text": "[deep, building intensity] And this time... [pause] you bring your crew."
+        },
+        {
+          "id": "n14",
+          "text": "[confident, clear] Hold Sol City. [pause] Earn DaCity."
+        }
+      ]
+    },
+    {
+      "name": "finale",
+      "bars": 4,
+      "music": "final drop: the biggest, loudest version of the G-funk groove, all instruments, then a hard stop on a final impact hit and a short ringing tail",
+      "lines": [
+        {
+          "id": "n15",
+          "text": "[deep, slow, final] Sol City. [pause] Now playing."
+        }
+      ]
+    }
+  ]
+}

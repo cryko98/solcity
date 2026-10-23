@@ -24,3 +24,6 @@ vendor/music/rhythm_pack/
 vendor/rocketbox/
 vendor/quaternius/
 vendor/cmu/
+
+# the trailer's working files (trailer/towav.py, mix.mjs)
+trailer/build/
