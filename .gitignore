@@ -18,3 +18,6 @@ server/.env
 server/data/
 server/data-*/
 server/node_modules/
+
+# the hype trailer's music pack (CC0, ~190 MB of WAV): see blender/encode_hype.py for where to get it
+vendor/music/rhythm_pack/

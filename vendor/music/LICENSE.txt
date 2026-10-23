@@ -2,3 +2,6 @@
 https://freesound.org/people/Disquantic/sounds/525290/
 License: Creative Commons 0 (public domain) - no attribution required.
 File: Freesound HQ preview (mp3).
+
+rhythm_pack/9_vessel_of_eternity.wav (the hype trailer, not in the repository: download it from
+https://opengameart.org/content/free-rhythm-game-music-pack-1): "Vessel of Eternity" by tricksntraps, CC0.

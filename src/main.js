@@ -392,6 +392,7 @@ Promise.all([
       },
     };
     if (new URLSearchParams(location.search).has('trailer')) import('./trailer.js');
+    if (new URLSearchParams(location.search).has('hype')) import('./hype.js');
   })
   .catch((err) => {
     loadingText.textContent = 'Could not load the 3D models. Run the game through a local server (see README).';

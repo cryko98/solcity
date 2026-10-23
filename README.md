@@ -275,6 +275,15 @@ others are simulated without saving, so the frame numbers stay the same).
 blender -b --factory-startup -P blender/encode_trailer.py -- . vendor/music/cyberpunk_beat_disquantic_cc0.mp3 SolCity_Trailer.mp4
 ```
 
+`SolCity_Hype.mp4` (70 s) is the fast-cut version with everything in it: open http://localhost:8080/?hype
+(`?hype&rec=14,37-44` re-records only those shots), then encode it. It is cut to "Vessel of Eternity" by
+tricksntraps (CC0, https://opengameart.org/content/free-rhythm-game-music-pack-1; put `9_vessel_of_eternity.wav` in
+`vendor/music/rhythm_pack/`) at 150 BPM from bar 128: every cut lands on a beat (12 frames) and the drop hits at 12.8 s.
+
+```bash
+blender -b --factory-startup -P blender/encode_hype.py -- .
+```
+
 Music: "Cyberpunk Beat" by Disquantic, https://freesound.org/people/Disquantic/sounds/525290/ (CC0).
 People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
 (~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to
