@@ -19,6 +19,26 @@ if (problems.length) {
   process.exit(1);
 }
 
+// which version of the game this is: the git commit the folder is at (to tell after a git pull
+// whether the server really has the new one), and a warning when the new characters are missing
+function gitVersion() {
+  try {
+    const git = path.join(config.gameRoot, '.git');
+    const head = fs.readFileSync(path.join(git, 'HEAD'), 'utf8').trim();
+    if (!head.startsWith('ref: ')) return head.slice(0, 7);
+    const ref = head.slice(5);
+    if (fs.existsSync(path.join(git, ref))) return fs.readFileSync(path.join(git, ref), 'utf8').trim().slice(0, 7);
+    const packed = fs.readFileSync(path.join(git, 'packed-refs'), 'utf8').split(/\r?\n/).find((l) => l.endsWith(' ' + ref));
+    return packed ? packed.slice(0, 7) : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+const VERSION = gitVersion();
+if (!fs.existsSync(path.join(config.gameRoot, 'assets', 'models', 'rb_hero.glb'))) {
+  console.warn('assets/models/rb_hero.glb is missing: the game shows its old characters. git pull (see SETUP.md, "Updating").');
+}
+
 // ------------------------------------------------------------------ static files (allow-list)
 // only the game itself is served: never server/ (secrets, database), the git history, sources
 const PUBLIC = ['/index.html', '/src/', '/assets/', '/SolCity_Trailer.mp4'];
@@ -134,7 +154,7 @@ async function api(req, res, url) {
 
   if (req.method === 'GET' && url === '/api/config') {
     return json(res, 200, {
-      enabled: true, dryRun: config.dryRun, mint: config.tokenMint || null, turnstileSiteKey: config.turnstileSiteKey || null,
+      enabled: true, version: VERSION, dryRun: config.dryRun, mint: config.tokenMint || null, turnstileSiteKey: config.turnstileSiteKey || null,
       storyRewards: config.storyRewards, raceReward: config.raceReward, dailyCap: config.walletDailyCap, minHolding: config.minHolding, holdTicker: config.holdTicker,
       holdersOnly: config.holdersOnly, trialSeconds: config.holdersOnly ? 300 : 0,
       story: STORY.map((m) => m.id), races: RACES.map((r) => r.id),
@@ -222,6 +242,6 @@ process.on('unhandledRejection', (e) => console.error('unhandled:', e));
 process.on('uncaughtException', (e) => console.error('uncaught:', e));
 
 server.listen(config.port, config.host, () => {
-  console.log(`Sol City on http://localhost:${config.port}  (rewards ${config.dryRun ? 'DRY RUN - nothing is sent' : 'LIVE'})`);
+  console.log(`Sol City ${VERSION} on http://localhost:${config.port}  (rewards ${config.dryRun ? 'DRY RUN - nothing is sent' : 'LIVE'})`);
   startPayouts();
 });

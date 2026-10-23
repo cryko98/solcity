@@ -201,6 +201,7 @@ const PEOPLE_ALL = Object.values(PEOPLE).flat();
 const manager = { total: 22 + PEOPLE_ALL.length, done: 0 };
 // bump when the models are rebuilt, so no browser keeps showing an old cached copy
 const ASSET_VERSION = '2026-10-25e';
+const missingModels = []; // optional models that didn't load: [url, why]
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
     loader.load(url + '?v=' + ASSET_VERSION, (g) => {
@@ -210,7 +211,8 @@ const load = (url, optional = false) =>
     }, undefined, (err) => {
       // optional models (newer vehicles, police officer) fall back gracefully
       if (optional) {
-        console.warn('optional model missing:', url);
+        console.warn('optional model missing:', url, err);
+        missingModels.push([url, err?.message || String(err)]);
         res(null);
       } else rej(err);
     })
@@ -239,6 +241,18 @@ Promise.all([
     follow.pitch = follow.mode.pitch;
     scene.add(player.object);
     // (the other players in multiplayer wear the avatar as it comes: the hero's copy gets his look)
+    // the Rocketbox people are 'optional' only so that ?classic can leave them out: when they don't
+    // load, the old bodies stand in, and that has to be seen (an out-of-date or broken server)
+    const people0 = missingModels.filter(([u]) => u.includes('rb_hero') || u.includes('/people/'));
+    if (people0.length && !new URLSearchParams(location.search).has('classic')) {
+      console.error('The new characters did not load (the old ones are shown):', people0);
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:40;max-width:min(680px,94vw);padding:10px 14px;border-radius:8px;' +
+        'background:rgba(120,10,20,.92);color:#fff;font:600 13px Inter,Arial,sans-serif;line-height:1.4;pointer-events:none';
+      el.innerHTML = `The new characters could not be loaded, so the old ones are shown (${people0.length} file${people0.length > 1 ? 's' : ''}, e.g. <code>${people0[0][0]}</code>: ${people0[0][1]}).<br>On the server: <code>git pull</code> and a restart (see SETUP.md, "Updating").`;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 20000);
+    }
     const otherPlayers = rbModel && SkeletonUtils.clone(rbModel.scene);
     if (rbModel) rbHero = new RbHero(rbModel, player);
     const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));

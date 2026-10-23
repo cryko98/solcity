@@ -64,7 +64,7 @@ Needs **Node.js 22.13 or newer** (it uses the built-in `node:sqlite`).
 ```bash
 git clone https://github.com/cryko98/solcity.git
 cd solcity/server
-npm install --omit=dev
+npm ci --omit=dev
 cp .env.example .env
 nano .env            # see below
 node test.mjs        # self-test: must end with "all passed"

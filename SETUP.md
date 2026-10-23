@@ -20,7 +20,7 @@ the holder gate and multiplayer). It takes about half an hour. Every step links 
 ```bash
 git clone https://github.com/cryko98/solcity.git
 cd solcity/server
-npm install --omit=dev
+npm ci --omit=dev        # (ci, not install: it leaves package-lock.json as it is, so git pull keeps working)
 cp .env.example .env
 chmod 600 .env
 ```
@@ -85,4 +85,24 @@ Logs: `journalctl -u solcity -f`.
 
 Backups, what was paid, failed payouts, changing reward amounts:
 [server/README.md → Day to day](server/README.md#day-to-day).
-Updating the game: `git pull` in the repo, then `sudo systemctl restart solcity`.
+See [Updating](#updating) for getting a new version of the game.
+
+## Updating
+
+```bash
+cd solcity
+git pull                         # must end with "Fast-forward" or "Already up to date"
+git log -1 --oneline             # the newest commit on GitHub (github.com/cryko98/solcity/commits/main)
+cd server && npm ci --omit=dev   # only when server/package.json changed
+sudo systemctl restart solcity
+journalctl -u solcity -n 5       # "Sol City <commit> on http://...": the same commit as above
+```
+
+- **`git pull` says "Your local changes … would be overwritten"** and stops: nothing was updated.
+  That's usually `server/package-lock.json`, rewritten by an `npm install`. Throw the local copy
+  away and pull again: `git checkout -- server/package-lock.json && git pull` (never `server/.env`:
+  that one isn't in git, a pull doesn't touch it).
+- **Players still see the old characters / old game**: the server isn't on the new version (check
+  the commit as above), or a cache in front of it (Cloudflare "Cache Everything", a CDN) keeps old
+  files: purge it. The game itself says so in red at the top when the new characters can't load,
+  and `https://<your domain>/api/config` shows the server's `version` (commit).
