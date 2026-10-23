@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -237,6 +238,8 @@ Promise.all([
     follow.zoom = follow.mode.zoom;
     follow.pitch = follow.mode.pitch;
     scene.add(player.object);
+    // (the other players in multiplayer wear the avatar as it comes: the hero's copy gets his look)
+    const otherPlayers = rbModel && SkeletonUtils.clone(rbModel.scene);
     if (rbModel) rbHero = new RbHero(rbModel, player);
     const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));
     vehicles = new Vehicles(scene, city, carModels);
@@ -248,7 +251,7 @@ Promise.all([
       clips: rbModel.animations,
       avatars: {
         ...Object.fromEntries(Object.entries(PEOPLE).map(([k, l]) => [k, l.filter((n) => byName[n]).map((n) => ({ name: n, scene: byName[n].scene }))])),
-        hero: [{ name: 'Hero', scene: rbModel.scene }], // (the other players in multiplayer: src/net.js)
+        hero: [{ name: 'Hero', scene: otherPlayers }], // (the other players in multiplayer: src/net.js)
       },
     };
     peds = new Peds(scene, city, hero, { male: npcMale, female: npcFemale, police: npcPolice }, vehicles, rbPeople);
@@ -789,6 +792,7 @@ function step(dt) {
   }
   elapsed += dt;
   city.update(elapsed);
+  city.tickDebris(dt, fx, player && (player.vehicle ? player.vehicle.pos : player.position));
 
   if (player) {
     if (input.pressed('KeyN')) env.skipTime();

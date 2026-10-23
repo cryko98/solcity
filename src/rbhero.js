@@ -9,6 +9,7 @@
 // pose). Legs and upper body blend apart, so with a gun out the legs still walk on motion capture.
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { Look } from './look.js';
 
 // the gait clips' own speed (m/s): the feet stay planted when played in step with the ground
 const GAITS = { walk: 1.42, run: 3.7, sprint: 5.6 };
@@ -23,11 +24,63 @@ const SYNCED = ['punchl', 'punchr', 'hit', 'knockdown', 'getup', 'roll'];
 const BLEND = 0.07; // (s) how quickly a change of clip blends in
 const FOLLOW = '(follow)';
 const SEAT_DROP = 0.05; // (m)
+const SEAT_AHEAD = 0.09; // (m) the driver moved up to the steering wheel
 const GETUP_SECS = 2.4;
 const ROOF_ROOM = 0.08; // (m) between the top of the head and the outside of a car's roof
 // where the left palm's middle goes on a pistol held in two hands (the gun's own space: +z the
 // muzzle, +y the top, +x its left): against the left of the grip, over the right hand's fingers
 const PISTOL_PALM = new THREE.Vector3(0.04, -0.055, 0.0);
+// the steering wheels (blender/build_car.py, build_heavy.py): a ring of radius 0.18 m and a 17 mm
+// tube, 0.5 m over the driver's seat marker, tipped back 62 degrees; how far in front of the seat
+// depends on the car. The hands hold it this far round from the top (ten to two)
+const WHEEL_R = 0.18, WHEEL_TUBE = 0.017, WHEEL_HANDS = THREE.MathUtils.degToRad(58);
+const WHEEL_N = new THREE.Vector3(0, Math.sin(THREE.MathUtils.degToRad(28)), -Math.cos(THREE.MathUtils.degToRad(28)));
+const WHEEL_UP = new THREE.Vector3(0, Math.cos(THREE.MathUtils.degToRad(28)), Math.sin(THREE.MathUtils.degToRad(28)));
+const wheelAhead = new Map(); // model -> metres in front of the seat marker (null: no wheel: a bike)
+const wheels = new WeakMap(); // vehicle -> its seat marker and the wheel in the world
+// where a vehicle's steering wheel is now (null if it has none): found once a model by looking for
+// the ring among the trim's vertices in front of the seat
+function steeringWheel(v) {
+  let w = wheels.get(v);
+  if (w === undefined) {
+    const seat = v.object?.getObjectByName('seat_driver'), model = v.data?.model || v.spec?.name;
+    if (seat && !wheelAhead.has(model)) wheelAhead.set(model, findWheel(v.object, seat));
+    w = seat && wheelAhead.get(model) != null ? { seat, d: wheelAhead.get(model), c: new THREE.Vector3(), n: new THREE.Vector3(), up: new THREE.Vector3(), left: new THREE.Vector3() } : null;
+    wheels.set(v, w);
+  }
+  if (!w) return null;
+  // (where the car is this frame, not where it was drawn last: at speed that's a hand's width)
+  w.seat.updateWorldMatrix(true, false);
+  const m = w.seat.matrixWorld;
+  w.c.set(0, 0.5, w.d).applyMatrix4(m);
+  w.n.copy(WHEEL_N).transformDirection(m);
+  w.up.copy(WHEEL_UP).transformDirection(m);
+  w.left.set(1, 0, 0).transformDirection(m);
+  return w;
+}
+function findWheel(root, seat) {
+  root.updateMatrixWorld(true);
+  const inv = seat.matrixWorld.clone().invert(), m = new THREE.Matrix4(), q = new THREE.Vector3(), pts = [];
+  root.traverse((o) => {
+    if (!o.isMesh || o.isSkinnedMesh || ![].concat(o.material).some((mt) => mt.name === 'Trim')) return;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    const p = o.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      q.fromBufferAttribute(p, i).applyMatrix4(m);
+      if (Math.abs(q.x) < 0.3 && q.y > 0.2 && q.y < 0.8 && q.z > 0 && q.z < 1) pts.push(q.clone());
+    }
+  });
+  let best = null, most = 40; // (a ring has 80 vertices, more where its faces are flat)
+  for (let d = 0.1; d < 0.95; d += 0.002) {
+    let n = 0;
+    for (const p of pts) {
+      const h = q.set(p.x, p.y - 0.5, p.z - d).dot(WHEEL_N), rho = q.addScaledVector(WHEEL_N, -h).length();
+      if (Math.abs(Math.hypot(rho - WHEEL_R, h) - WHEEL_TUBE) < 0.004) n++;
+    }
+    if (n > most) [best, most] = [d, n];
+  }
+  return best;
+}
 const _cx = new THREE.Vector3(), _cy = new THREE.Vector3(), _cz = new THREE.Vector3(), _cv = new THREE.Vector3(), _cw = new THREE.Vector3(), _cu = new THREE.Vector3();
 const _cp = new THREE.Vector3(), _cp2 = new THREE.Vector3(), _cm = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _cq2 = new THREE.Quaternion(), _cq3 = new THREE.Quaternion();
 // the hand poses: how far each joint curls (radians about its own z), per finger (thumb, index,
@@ -69,7 +122,8 @@ for (const S of ['L', 'R']) {
   });
 }
 
-const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _p = new THREE.Vector3(), _p2 = new THREE.Vector3(), _s = new THREE.Vector3();
+const _ax = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _p = new THREE.Vector3(), _p2 = new THREE.Vector3(), _s = new THREE.Vector3(), _s2 = new THREE.Vector3();
 const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 
 // orientation / position of each bone relative to the model's root
@@ -233,6 +287,7 @@ export class RbBody {
     for (const pr of this.pairs) this.oldBones[pr.old] = bone(player.model, pr.old);
     this.rbHandR = bone(this.model, 'Bip01_R_Hand');
     this.pelvis = bone(this.model, 'Bip01_Pelvis');
+    this.spine = bone(this.model, 'Bip01_Spine1');
     // the right palm of each rig (wrist, index and little finger knuckles): the gun goes palm to palm
     this.palms = {
       old: ['handR', 'index1R', 'pinky1R'].map((n) => bone(player.model, n)),
@@ -246,6 +301,7 @@ export class RbBody {
       hand: bone(this.model, `Bip01_${S}_Hand`),
       oldHand: this.oldBones[`hand${S}`],
       c: this.pairs.find((p) => p.old === `hand${S}`).c,
+      knuckle: bone(this.model, `Bip01_${S}_Finger2`),
     }));
 
     // every clip twice: its legs and its upper body, blended apart
@@ -296,6 +352,7 @@ export class RbBody {
     out.sub(this.hip0.old).multiplyScalar(this.hip0.k).add(this.hip0.rb);
     root.localToWorld(out);
     out.y -= this.seatDrop || 0; // (sat deeper in a car: see underRoof)
+    if (this.seatAhead) out.add(_s2.set(0, 0, 1).transformDirection(root.matrixWorld).multiplyScalar(this.seatAhead));
     return this.pelvis.parent.worldToLocal(out);
   }
 
@@ -356,6 +413,37 @@ export class RbBody {
     const wrist = _cp2.copy(PISTOL_PALM).applyMatrix4(gun.matrixWorld).sub(off.applyQuaternion(want));
     reach(arm.upper, arm.fore, arm.hand, _p2.setFromMatrixPosition(arm.hand.matrixWorld).lerp(wrist, k));
     setWorldQuaternion(arm.hand, arm.hand.getWorldQuaternion(_cq3).slerp(wantHand, k));
+  }
+
+  // a hand on the rim of the steering wheel at ten to two: the palm against the outside of the rim,
+  // the index finger towards the top, the fingers round the front of it
+  onWheel(arm, w, k) {
+    const s = arm.side === 'L' ? 1 : -1, a = WHEEL_HANDS;
+    if (s === 1) this.shortOf = 0;
+    // out from the centre to this hand's spot, and along the rim towards the top
+    const out = _cu.copy(w.up).multiplyScalar(Math.cos(a)).addScaledVector(w.left, s * Math.sin(a));
+    const x = _cw.copy(w.up).multiplyScalar(Math.sin(a)).addScaledVector(w.left, -s * Math.cos(a));
+    const y = _cv.copy(w.n).multiplyScalar(-1).addScaledVector(out, -0.25).normalize();
+    x.addScaledVector(y, -x.dot(y)).normalize();
+    const want = _cq.setFromRotationMatrix(_cm.makeBasis(x, y, _cx.crossVectors(x, y)));
+    const palm = palmFrame(arm.side === 'L' ? this.palms.left : this.palms.rb, _cm);
+    const palmQ = _cq2.setFromRotationMatrix(palm);
+    const handQ = arm.hand.getWorldQuaternion(_cq3);
+    const wantHand = want.clone().multiply(handQ.clone().invert().multiply(palmQ).invert());
+    // the middle knuckle just outside the rim and a little in front of it: the fingers curl round
+    // its front and in behind it
+    const spot = _cy.copy(w.c).addScaledVector(out, WHEEL_R + WHEEL_TUBE + 0.01).addScaledVector(w.n, -0.012);
+    const start = _cp.setFromMatrixPosition(arm.hand.matrixWorld);
+    const wrist = _cp2.copy(start);
+    // (the hand turned first, then the wrist moved by however far the knuckle still is from its spot)
+    for (let i = 0; i < 3; i++) {
+      reach(arm.upper, arm.fore, arm.hand, _p2.copy(start).lerp(wrist, k));
+      setWorldQuaternion(arm.hand, arm.hand.getWorldQuaternion(_cq3).slerp(wantHand, k));
+      arm.knuckle.updateMatrixWorld(true);
+      wrist.add(_cv.copy(spot).sub(arm.knuckle.getWorldPosition(_cw)));
+    }
+    // (what the arm couldn't reach, towards the wheel: the seat moves up that much)
+    this.shortOf = Math.max(this.shortOf, -_cv.dot(w.n));
   }
 
   // how much deeper to sit so the top of the head stays a little under this vehicle's roof (0: room
@@ -517,8 +605,8 @@ export class RbBody {
     const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming;
     // (nothing held, nothing to fit: most people on the street)
     if (!armed && !P.vehicle && !(this.grip > 0.01) && !(this.support > 0.01)) {
-      this.grip = this.support = this.seatDrop = 0;
-      this.model.position.y = 0;
+      this.grip = this.support = this.seatDrop = this.seatAhead = this.wheelSeat = 0;
+      this.model.position.y = this.model.position.z = 0;
       if (detail) this.posture(dt);
       return;
     }
@@ -551,9 +639,25 @@ export class RbBody {
       this.roofDrop = this.underRoof(P.vehicle);
     }
     const drop = SEAT_DROP + (P.vehicle ? this.roofDrop || 0 : 0);
-    this.model.position.y = (-drop * this.grip) / this.model.parent.getWorldScale(_s).y;
+    // (the driver of a car, a bus, a boat: both hands on the rim of its steering wheel, sat a little
+    // further forward than the old body: these arms would only just reach it)
+    const wheel = P.vehicle && (P.weights.drive || 0) > 0.5 && steeringWheel(P.vehicle);
+    this.wheelSeat = (this.wheelSeat || 0) + ((wheel ? 1 : 0) - (this.wheelSeat || 0)) * k8;
+    const scale = this.model.parent.getWorldScale(_s).y;
+    this.model.position.y = (-drop * this.grip) / scale;
+    this.model.position.z = (SEAT_AHEAD * this.wheelSeat) / scale;
     // (and for a body following the old rig, whose hips are placed in the world: next frame on)
     this.seatDrop = drop * this.grip;
+    this.seatAhead = SEAT_AHEAD * this.wheelSeat;
+    // and where that's not enough (a reclined sports car seat), leaning in over the wheel: as far as
+    // these arms turn out to need over the first moments in each seat
+    if (this.aheadFor !== P.vehicle) [this.aheadFor, this.aheadMore] = [P.vehicle, 0];
+    this.lean = (this.lean || 0) + ((wheel ? Math.asin(Math.min(0.6, this.aheadMore / 0.45)) : 0) - (this.lean || 0)) * k8;
+    if (wheel) this.model.updateWorldMatrix(true, true);
+    if (this.lean > 0.001 && wheel) {
+      this.spine.getWorldQuaternion(_q).premultiply(_q2.setFromAxisAngle(_ax.copy(wheel.left), this.lean));
+      setWorldQuaternion(this.spine, _q);
+    }
     for (const arm of this.arms) {
       const k = Math.max(this.grip, arm.side === 'L' ? this.support : 0);
       if (k < 0.01) continue;
@@ -562,6 +666,10 @@ export class RbBody {
       const onGun = this.support > this.grip;
       if (onGun && pistol && arm.side === 'L') {
         this.cup(arm, gun, k);
+        continue;
+      }
+      if (!onGun && wheel) {
+        this.onWheel(arm, wheel, k);
         continue;
       }
       {
@@ -576,6 +684,7 @@ export class RbBody {
       arm.hand.getWorldQuaternion(_q2).slerp(_q, k);
       setWorldQuaternion(arm.hand, _q2);
     }
+    if (wheel && this.wheelSeat > 0.9) this.aheadMore = Math.min(0.3, this.aheadMore + Math.max(0, this.shortOf - 0.004) * 0.5);
     if (detail) this.posture(dt);
   }
 }
@@ -584,5 +693,8 @@ export class RbBody {
 export class RbHero extends RbBody {
   constructor(gltf, player) {
     super(gltf.scene, gltf.animations, player, { key: 'hero', getupSecs: GETUP_SECS });
+    // what the shops change (src/shops.js, src/fun.js) shows on this body, not on the old hidden one
+    const look = new Look(this.model);
+    player.restyle = (outfit) => look.apply(outfit);
   }
 }

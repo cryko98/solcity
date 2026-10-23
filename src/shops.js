@@ -31,10 +31,11 @@ const MENUS = {
 };
 const MART_ITEMS = [['Chips & candy', 3, 10], ['Energy drink', 6, 20], ['First-aid kit', 45, 100], ['Scratch card', 10, 0]];
 const CLOTHES = [
-  { name: 'White tank top', part: 'shirt', color: '#f2f1ec', price: 40 },
-  { name: 'Black tank top', part: 'shirt', color: '#2a2a2e', price: 40 },
-  { name: 'Red tank top', part: 'shirt', color: '#b8202c', price: 60 },
-  { name: 'Sky blue tank top', part: 'shirt', color: '#5a9ad8', price: 60 },
+  { name: 'Olive shirt', part: 'shirt', color: '#2f2c24', price: 40 },
+  { name: 'White shirt', part: 'shirt', color: '#f2f1ec', price: 40 },
+  { name: 'Black shirt', part: 'shirt', color: '#2a2a2e', price: 40 },
+  { name: 'Red shirt', part: 'shirt', color: '#b8202c', price: 60 },
+  { name: 'Sky blue shirt', part: 'shirt', color: '#5a9ad8', price: 60 },
   { name: 'Classic blue jeans', part: 'jeans', color: '#ffffff', price: 80 },
   { name: 'Black jeans', part: 'jeans', color: '#45484f', price: 80 },
 ];

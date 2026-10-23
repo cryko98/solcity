@@ -573,6 +573,13 @@ class Vehicle {
         } else {
           const dx = cx - c.x, dz = cz - c.z, d = Math.hypot(dx, dz), r = R + c.r;
           if (d >= r || d < 1e-6) continue;
+          // (a hydrant, a bin, an umbrella, a traffic light: hit hard enough, it goes flying)
+          const slow = c.prop && city.knock(c, this.vel);
+          if (slow) {
+            this.vel.multiplyScalar(slow);
+            this.impact = Math.max(this.impact, 2.5);
+            continue;
+          }
           nx = dx / d;
           nz = dz / d;
           pen = r - d;

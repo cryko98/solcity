@@ -704,6 +704,9 @@ export class Fun {
 
   // ---------------------------------------------------------------- your look
   applyLook(look) {
+    // the Rocketbox body paints it into its own textures (src/look.js): the old body's hair and ink
+    // patches would float, unseen body or not
+    if (this.player.restyle) return this.player.restyle(look);
     const model = this.player.model;
     let skin = null;
     model.traverse((o) => {

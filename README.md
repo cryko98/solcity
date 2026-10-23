@@ -117,7 +117,7 @@ Thirteen shops you can walk into, spread over the districts (`src/shops.js`):
 
 - **Ammu-Nation** (two Downtown, Old Harbor): pistol, SMG, shotgun (ammo if you own it), body armor.
 - **Restaurants**: Burger Sol (Little Havana, South Beach), Taco Loco (Old Harbor), Pizza Sol (Downtown): meals heal 25 / 50 / 100 HP.
-- **Sol Threads** clothes stores (Little Havana, two in South Beach): tank tops and jeans in other colours for the hero (kept between sessions).
+- **Sol Threads** clothes stores (Little Havana, two in South Beach): shirts and jeans in other colours for the hero (kept between sessions).
 - **24/7** stores (Old Harbor, two in South Beach): snacks, energy drinks, a first-aid kit and scratch cards.
 
 Each has its own shop front across the ground floor of its building (the city leaves that floor plain for it: pilasters, display windows, a glass double door, a lit name on the fascia, striped awnings) and its own furnished
@@ -201,6 +201,8 @@ its searchlight on you: as long as the beam is on you, the stars won't fade. It 
 Crashes and bullets damage cars: grey smoke, then black smoke, then the engine catches fire and the car
 explodes a few seconds later (get out!). Explosions throw people and nearby cars around and can set
 off a chain reaction; wrecks stay as burnt-out shells. Skidding leaves tyre marks and smoke.
+Hydrants, bins, traffic lights and beach umbrellas go flying when a car hits them hard enough (a
+hydrant leaves a fountain); they are back in place a while later, once you are far away.
 The **Pay 'n' Spray** in Little Havana ($ on the map) repairs and repaints your car for $100 and
 makes the police lose you.
 

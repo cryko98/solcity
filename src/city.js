@@ -366,7 +366,11 @@ export function buildCity(scene) {
 
   // ------------------------------------------------------------- colliders
   const box = (minX, maxX, minZ, maxZ, h) => city.colliders.push({ type: 'box', minX, maxX, minZ, maxZ, h });
-  const circle = (x, z, r, h = 10) => city.colliders.push({ type: 'circle', x, z, r, h });
+  const circle = (x, z, r, h = 10) => {
+    const c = { type: 'circle', x, z, r, h };
+    city.colliders.push(c);
+    return c;
+  };
 
   // ------------------------------------------------------------- building pieces
   const walls = (mat, cx, cz, w, d, y0, h, roof = true, tw = 16, th = 14) => {
@@ -803,12 +807,10 @@ export function buildCity(scene) {
           props.palm.push([x, z, rand() * 6.28, 0.8 + rand() * 0.45]);
           circle(x, z, 0.3);
         } else if (rand() < 0.3) {
-          props.hydrant.push([x, z]);
-          circle(x, z, 0.22);
+          props.hydrant.push([x, z, circle(x, z, 0.22)]);
         } else if (rand() < 0.4) {
           const [bx, bz] = at(t + 2);
-          props.bin.push([bx - nx * 0.3, bz - nz * 0.3]);
-          circle(bx - nx * 0.3, bz - nz * 0.3, 0.32);
+          props.bin.push([bx - nx * 0.3, bz - nz * 0.3, circle(bx - nx * 0.3, bz - nz * 0.3, 0.32)]);
         }
       }
     }
@@ -923,8 +925,7 @@ export function buildCity(scene) {
           const x = ix + sx * (ROAD / 2 + 0.6), z = iz + sz * (ROAD / 2 + 0.6);
           if (Math.abs(x) > HALF - ROAD || Math.abs(z) > HALF - ROAD) continue;
           const axisZ = sx * sz > 0;
-          props.light.push([x, z, axisZ ? faceYaw(0, sz) : faceYaw(sx, 0), axisZ]);
-          circle(x, z, 0.14);
+          props.light.push([x, z, axisZ ? faceYaw(0, sz) : faceYaw(sx, 0), axisZ, circle(x, z, 0.14)]);
         }
       }
     }
@@ -972,8 +973,7 @@ export function buildCity(scene) {
     const south = rand() < 0.65;
     const x = south ? -HALF + 40 + rand() * (SIZE - 20) : HALF + 14 + rand() * (EXT - HALF - 20);
     const z = south ? HALF + 14 + rand() * (EXT - HALF - 20) : -HALF + 60 + rand() * (SIZE - 70);
-    props.umbrella.push([x, z, rand() * 6.28, pick([0xe0463c, 0x2f7fd0, 0xf2c14e, 0x3fb68a, 0xffffff])]);
-    circle(x, z, 0.15, 2.3);
+    props.umbrella.push([x, z, rand() * 6.28, pick([0xe0463c, 0x2f7fd0, 0xf2c14e, 0x3fb68a, 0xffffff]), circle(x, z, 0.15, 2.3)]);
   }
   for (const x of [-120, -30, 60, 150, 230]) {
     const z = HALF + 26;
@@ -1307,7 +1307,7 @@ export function buildCity(scene) {
   );
 
   // hydrants + bins
-  instanced(
+  const hydrants = instanced(
     mergeGeometries([
       new THREE.CylinderGeometry(0.13, 0.15, 0.6, 10).translate(0, 0.3, 0),
       new THREE.SphereGeometry(0.14, 10, 6).translate(0, 0.6, 0),
@@ -1317,7 +1317,7 @@ export function buildCity(scene) {
     props.hydrant,
     ([x, z]) => at(x, CURB, z)
   );
-  instanced(
+  const bins = instanced(
     new THREE.CylinderGeometry(0.3, 0.26, 0.95, 12).translate(0, 0.475, 0),
     std({ color: 0x2d4a3a, roughness: 0.6, metalness: 0.3 }),
     props.bin,
@@ -1342,10 +1342,10 @@ export function buildCity(scene) {
     ([x, z, r]) => at(x, -0.03, z, r)
   );
   props.umbrella.forEach(([, , , col], k) => umb.setColorAt(k, new THREE.Color(col)));
-  instanced(new THREE.CylinderGeometry(0.03, 0.03, 2.3, 6).translate(0, 1.15, 0), metalMat, props.umbrella, ([x, z]) => at(x, -0.03, z));
+  const umbPoles = instanced(new THREE.CylinderGeometry(0.03, 0.03, 2.3, 6).translate(0, 1.15, 0), metalMat, props.umbrella, ([x, z]) => at(x, -0.03, z));
 
   // traffic lights (animated colours)
-  instanced(
+  const poles = instanced(
     mergeGeometries([
       new THREE.CylinderGeometry(0.08, 0.1, 3.4, 8).translate(0, 1.7, 0),
       new THREE.BoxGeometry(0.36, 1.0, 0.3).translate(0, 3.6, 0),
@@ -1362,6 +1362,109 @@ export function buildCity(scene) {
     }
   });
   scene.add(bulbs);
+
+  // what a car knocks flying instead of stopping dead on: the hydrants, bins, beach umbrellas and
+  // traffic lights. Each one's collider knows which instances are it; hit hard enough it leaves the
+  // instanced mesh and flies as a real one, tips over, lies where it lands. A hydrant leaves a
+  // fountain behind. Out of sight a while later it's back on its spot.
+  // per kind: how hard a hit it takes (m/s), how much it slows the car, its fly-off (fraction of
+  // the car's speed, upward kick), how far it tips over (rad) and how high it lies
+  const KNOCK = {
+    hydrant: { min: 3, slow: 0.86, carry: 0.6, up: 2.5, tip: HALF_PI, lie: 0.14 },
+    bin: { min: 2, slow: 0.94, carry: 0.85, up: 3, tip: HALF_PI, lie: 0.28 },
+    umbrella: { min: 1.5, slow: 0.97, carry: 0.9, up: 5, tip: 0.95, lie: 0 },
+    light: { min: 4, slow: 0.78, carry: 0.35, up: 1.2, tip: HALF_PI, lie: 0.1 },
+  };
+  const debris = [];
+  function knockable(kinds, bulbMesh) {
+    for (const [kind, meshes] of Object.entries(kinds)) {
+      props[kind].forEach((it, k) => {
+        const c = it.find((v) => v && v.type === 'circle');
+        if (c) c.prop = { kind, k, meshes, x: it[0], z: it[1], yaw: kind === 'light' || kind === 'umbrella' ? it[2] : 0, color: kind === 'umbrella' ? it[3] : null };
+      });
+    }
+    city.bulbs = bulbMesh;
+  }
+  const _km = new THREE.Matrix4(), _kz = new THREE.Matrix4().makeScale(0, 0, 0), _kq = new THREE.Quaternion(), _kv = new THREE.Vector3();
+  const showInstances = (p, on) => {
+    const list = p.kind === 'light' ? [...p.meshes.map((m) => [m, p.k]), ...[0, 1, 2].map((b) => [city.bulbs, p.k * 3 + b])] : p.meshes.map((m) => [m, p.k]);
+    for (const [m, k] of list) {
+      if (!on) {
+        m.getMatrixAt(k, _km);
+        (p.saved ??= new Map()).set(m.uuid + k, _km.clone());
+      }
+      m.setMatrixAt(k, on ? p.saved.get(m.uuid + k) : _kz);
+      m.instanceMatrix.needsUpdate = true;
+    }
+  };
+  // a car hits this collider at velocity vel (m/s, a Vector3): does it go flying? (0: no; else
+  // what's left of the car's speed)
+  city.knock = (c, vel) => {
+    const p = c.prop, K = p && KNOCK[p.kind], speed = Math.hypot(vel.x, vel.z);
+    if (!p || c.off || speed < K.min) return 0;
+    c.off = true;
+    showInstances(p, false);
+    const g = new THREE.Group();
+    for (const m of p.meshes) {
+      let mat = m.material;
+      if (p.color != null) (mat = mat.clone()).color.set(p.color);
+      const piece = new THREE.Mesh(m.geometry, mat);
+      piece.castShadow = true;
+      g.add(piece);
+    }
+    const y0 = p.kind === 'umbrella' ? -0.03 : CURB;
+    g.position.set(p.x, y0, p.z);
+    g.rotation.y = p.yaw;
+    scene.add(g);
+    // it flies off the way the car was going, a little to one side, and tips over that way
+    const side = (Math.random() - 0.5) * 0.6;
+    const v = new THREE.Vector3(vel.x + vel.z * side, 0, vel.z - vel.x * side).multiplyScalar(K.carry);
+    v.y = K.up + speed * 0.08;
+    const axis = new THREE.Vector3(v.z, 0, -v.x).normalize();
+    debris.push({ c, p, K, g, v, axis, tilt: 0, spin: (Math.random() - 0.5) * (p.kind === 'umbrella' ? 8 : 3), yaw: p.yaw, rate: Math.min(9, 2 + speed * 0.35), t: 0, fountain: p.kind === 'hydrant' ? 25 : 0 });
+    return K.slow;
+  };
+  // (fx: the water of a broken hydrant; near: where the player is, to put things back out of sight)
+  city.tickDebris = (dt, fx, near) => {
+    for (let i = debris.length - 1; i >= 0; i--) {
+      const d = debris[i], { g, v, K } = d;
+      d.t += dt;
+      const ground = d.p.kind === 'umbrella' ? -0.03 : city.groundHeight(g.position.x, g.position.z);
+      const lying = d.tilt >= K.tip;
+      if (!d.rest) {
+        v.y -= 9.8 * dt;
+        g.position.addScaledVector(v, dt);
+        d.tilt = Math.min(K.tip, d.tilt + d.rate * dt);
+        d.yaw += d.spin * dt;
+        const floor = ground + K.lie * Math.sin(d.tilt);
+        if (g.position.y <= floor) {
+          g.position.y = floor;
+          // bounce a little, then slide to a stop
+          v.y = v.y < -2 ? -v.y * 0.25 : 0;
+          const f = Math.max(0, 1 - 6 * dt);
+          v.x *= f;
+          v.z *= f;
+          d.spin *= f;
+          if (lying && Math.hypot(v.x, v.z) < 0.05 && v.y === 0) d.rest = true;
+        }
+        g.quaternion.setFromAxisAngle(d.axis, d.tilt).multiply(_kq.setFromAxisAngle(_kv.set(0, 1, 0), d.yaw));
+      }
+      if (d.fountain > 0 && fx) {
+        d.fountain -= dt;
+        const k = Math.min(1, d.fountain / 4);
+        for (let n = 0; n < 3; n++) fx.jet(d.p.x, CURB + 0.5, d.p.z, (Math.random() - 0.5) * 1.5, (7 + Math.random() * 3) * k, (Math.random() - 0.5) * 1.5);
+      }
+      // back on its spot once nobody's looking
+      if (d.t > 45 && d.fountain <= 0 && near && Math.hypot(near.x - d.p.x, near.z - d.p.z) > 110 && Math.hypot(near.x - g.position.x, near.z - g.position.z) > 110) {
+        scene.remove(g);
+        if (d.p.color != null) g.children.forEach((m) => m.material.dispose());
+        showInstances(d.p, true);
+        d.c.off = false;
+        debris.splice(i, 1);
+      }
+    }
+  };
+  knockable({ hydrant: [hydrants], bin: [bins], umbrella: [umb, umbPoles], light: [poles] }, bulbs);
   const BULB_ON = [new THREE.Color(0xff2a2a), new THREE.Color(0xffb020), new THREE.Color(0x2aff6a)];
   const BULB_OFF = [new THREE.Color(0x3a0d0d), new THREE.Color(0x3a2a08), new THREE.Color(0x0d3a14)];
   let lightState = -1;
@@ -1427,7 +1530,7 @@ export function buildCity(scene) {
         for (const idx of list) {
           if (seen[idx] === stamp) continue;
           seen[idx] = stamp;
-          out.push(city.colliders[idx]);
+          if (!city.colliders[idx].off) out.push(city.colliders[idx]);
         }
       }
     }
