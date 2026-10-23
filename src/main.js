@@ -187,9 +187,9 @@ addEventListener('resize', () => {
 });
 
 const loader = new GLTFLoader();
-const manager = { total: 13, done: 0 };
+const manager = { total: 22, done: 0 };
 // bump when the models are rebuilt, so no browser keeps showing an old cached copy
-const ASSET_VERSION = '2026-10-24a';
+const ASSET_VERSION = '2026-10-25a';
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
     loader.load(url + '?v=' + ASSET_VERSION, (g) => {
@@ -214,8 +214,10 @@ Promise.all([
   load('assets/models/heli_police.glb', true),
   // the side jobs' working vehicles and the boats
   ...['ambulance', 'firetruck', 'bus', 'truck', 'trailer', 'towtruck', 'boat', 'jetski'].map((n) => load(`assets/models/car_${n}.glb`, true)),
+  // the hero's body: a Rocketbox avatar with motion capture (src/rbhero.js); ?classic keeps the old one
+  new URLSearchParams(location.search).has('classic') ? null : load('assets/models/rb_hero.glb', true),
 ])
-  .then(([hero, sedan, coupe, npcMale, npcFemale, van, policeCar, bike, npcPolice, taxi, superCar, lux, heliModel, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski]) => {
+  .then(([hero, sedan, coupe, npcMale, npcFemale, van, policeCar, bike, npcPolice, taxi, superCar, lux, heliModel, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski, rbModel]) => {
     player = new Player(hero, city);
     player.position.copy(city.spawn);
     player.yaw = city.spawnYaw;
@@ -224,8 +226,7 @@ Promise.all([
     follow.zoom = follow.mode.zoom;
     follow.pitch = follow.mode.pitch;
     scene.add(player.object);
-    // ?rb: try the hero as a Rocketbox avatar with motion-captured locomotion (src/rbhero.js)
-    if (new URLSearchParams(location.search).has('rb')) load('assets/models/rb_hero.glb').then((g) => (rbHero = new RbHero(g, player)));
+    if (rbModel) rbHero = new RbHero(rbModel, player);
     const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));
     vehicles = new Vehicles(scene, city, carModels);
     traffic = new Traffic(city, vehicles);

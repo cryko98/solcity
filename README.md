@@ -302,10 +302,18 @@ blender -b --factory-startup -P blender/encode_hype.py -- . SolCity_LastJob.mp4 
 ```
 
 Music: "Cyberpunk Beat" by Disquantic, https://freesound.org/people/Disquantic/sounds/525290/ (CC0).
-Test: open the game with `?rb` to see the hero as a [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) avatar
-(MIT) with its motion-captured walk, run, sprint and idle (`src/rbhero.js`; the other actions still use the
-hero's own model). `blender/build_rocketbox.py` builds it into `assets/models/rb_hero.glb` from the library's FBX
-files in `vendor/rocketbox/` (not in the repository), retargeting the clips onto the avatar's own rest pose.
+The hero is a [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) avatar (MIT), `src/rbhero.js`
+(`?classic` shows the old model). His moves come from three free sources, retargeted onto the avatar in Blender
+(`blender/build_rocketbox.py`, run by `blender/build_rb_hero.sh`):
+
+- Rocketbox's own motion capture: idle, walk, run, sprint, talking, listening, dancing (`vendor/rocketbox/`)
+- the CMU Graphics Lab Motion Capture Database (http://mocap.cs.cmu.edu, free for any use; BVH conversion by
+  github.com/Shriinivas/cmubvh): the boxing stance, jab and cross (take 14_01) and the fall (90_18), in `vendor/cmu/`
+- Quaternius's Universal Animation Library 1 and 2 (CC0, quaternius.com): hits, getting up, the jump, the roll,
+  swimming, driving, sitting and the pistol, in `vendor/quaternius/`
+
+None of the source files are in the repository. Actions without a clip of their own (the bike, the gym, the rifles...)
+follow the old rig bone by bone; legs and upper body blend separately, and every change of clip is eased.
 
 People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
 (~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to
