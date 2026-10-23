@@ -9,7 +9,10 @@
 // Encode: blender -b --factory-startup -P blender/encode_hype.py -- . SolCity_LastJob.mp4 hype2_ 4_the_lab.wav 253.41
 import * as THREE from 'three';
 
-const W = 1280, H = 720, FPS = 30, DT = 1 / FPS, BEAT = 12.5;
+// ?hype2&clean: the same shots rendered bare at 1080p (no grade overlays, titles or bars), as stills
+// for the cover art (captures/trailer/clean_NNNNN.jpg)
+const Q = new URLSearchParams(location.search), CLEAN = Q.has('clean');
+const W = CLEAN ? 1920 : 1280, H = CLEAN ? 1080 : 720, FPS = 30, DT = 1 / FPS, BEAT = 12.5;
 const g = window.__game;
 window.__trailer = true;
 
@@ -201,6 +204,12 @@ function stars(n, t, { y = BAR + 50, size = 50, x0 = W - 330 } = {}) {
 }
 
 function composite(shot, f, n) {
+  if (CLEAN) {
+    ctx.filter = shot.grade || 'contrast(1.12) saturate(1.25) brightness(1.05)';
+    ctx.drawImage(g.renderer.domElement, 0, 0, W, H);
+    ctx.filter = 'none';
+    return;
+  }
   ctx.save();
   ctx.filter = shot.grade || 'contrast(1.2) saturate(1.3) brightness(1.08)';
   const z = 1 + 0.06 * Math.max(0, 1 - f / 6);
@@ -251,7 +260,7 @@ function composite(shot, f, n) {
 
 async function upload(index) {
   const blob = await new Promise((r) => out.toBlob(r, 'image/jpeg', 0.92));
-  await fetch(`/capture/hype2_${String(index).padStart(5, '0')}.jpg`, { method: 'POST', body: blob });
+  await fetch(`/capture/${CLEAN ? 'clean' : 'hype2'}_${String(index).padStart(5, '0')}.jpg`, { method: 'POST', body: blob });
 }
 
 // ------------------------------------------------------------------ shots
@@ -1497,7 +1506,6 @@ const shots = [
 ];
 
 // ------------------------------------------------------------------ record
-const Q = new URLSearchParams(location.search);
 const REC = Q.get('rec') ? Q.get('rec').split(',').flatMap((r) => {
   const [a, b] = r.split('-').map(Number);
   return Array.from({ length: (b ?? a) - a + 1 }, (_, i) => a + i);
