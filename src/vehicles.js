@@ -348,7 +348,8 @@ class Vehicle {
         this.braking = true;
       } else vf -= s.engine * 0.55 * Math.max(0, 1 + vf / s.reverse) * dt;
     } else if (!air) {
-      vf -= Math.sign(vf) * Math.min(Math.abs(vf), (ctl ? 1.6 : wreck ? 14 : 4) * dt);
+      // (nobody at the wheel: a parked car has its handbrake on, a shove doesn't send it far)
+      vf -= Math.sign(vf) * Math.min(Math.abs(vf), (ctl ? 1.6 : wreck ? 14 : 10) * dt);
     }
     if (hb) {
       vf -= Math.sign(vf) * Math.min(Math.abs(vf), 6 * dt);
@@ -914,7 +915,8 @@ export class Vehicles {
         if (b === a) continue;
         const [bx, bz, bh] = this.pose(b);
         if (Math.abs(bx - va.pos.x) > va.spec.halfL + MAX_HALF_L + 2 || Math.abs(bz - va.pos.z) > va.spec.halfL + MAX_HALF_L + 2) continue;
-        if (va.towing === b.vehicle || va.towedBy === b.vehicle) continue; // (the truck and its trailer)
+        // (the truck and its trailer; a parked car has no vehicle yet, and null is not a trailer)
+        if (b.vehicle && (va.towing === b.vehicle || va.towedBy === b.vehicle)) continue;
         const bf = [Math.sin(bh), Math.cos(bh)];
         const sb = specOf(b), rr = va.spec.r + sb.r;
         for (const [ax, az] of va.circles()) {

@@ -148,6 +148,8 @@ export function buildCity(scene) {
   ].map((o, i) => lit(TX.villa({ ...o, seed: i * 17 + 401 }), { roughness: 0.85 }, 0.6));
   const rollerMat = std({ map: TX.rollerDoor(), roughness: 0.6, metalness: 0.3 });
   const trimWhite = std({ color: 0xf3f0e8, roughness: 0.7 });
+  const finMat = std({ color: 0xaab3bb, roughness: 0.3, metalness: 0.75 }); // tower fins and bands (brushed aluminium)
+  const graniteMat = std({ color: 0x45474c, roughness: 0.5, metalness: 0.1 }); // tower podiums
   const poolMat = std({ color: 0x48c0e0, roughness: 0.04, metalness: 0.1 });
   const hedgeTex = TX.grass();
   hedgeTex.repeat.set(2, 1);
@@ -452,6 +454,7 @@ export function buildCity(scene) {
       // art deco: pastel stucco, white cornices and speed lines, stepped crown, neon
       h = 7 + rand() * 8;
       walls(pick(decoMats), cx, cz, w, d, CURB, h);
+      band(trimWhite, cx, cz, w, d, CURB, 0.55, 0.07);
       band(trimWhite, cx, cz, w, d, CURB + h - 0.6, 0.6, 0.2);
       for (let y = CURB + 3.9; y < CURB + h - 2; y += 3.5) band(trimWhite, cx, cz, w, d, y, 0.12, 0.08);
       const cw = w * (0.4 + rand() * 0.2), cd = d * (0.4 + rand() * 0.2);
@@ -469,6 +472,8 @@ export function buildCity(scene) {
       // colourful two/three-storey shophouses with balconies and awnings
       h = 6.8 + rand() * 4.4;
       walls(pick(havanaMats), cx, cz, w, d, CURB, h);
+      band(stoneMat, cx, cz, w, d, CURB, 0.5, 0.07);
+      for (const [nx, nz] of street) acUnits(cx, cz, w, d, nx, nz, CURB + 4.6 + FLOOR, CURB + h); // (over the shop signs)
       rooftopJunk(cx, cz, w, d, CURB + h);
       band(trimWhite, cx, cz, w, d, CURB + h - 0.35, 0.35, 0.12);
       if (rand() < 0.4) {
@@ -485,6 +490,7 @@ export function buildCity(scene) {
         const n = Math.max(1, Math.floor(fw / 6));
         for (let k = 0; k < n; k++) {
           const along = (k + 0.5) * (fw / n) - fw / 2;
+          if (Math.abs(along) < Math.min(fw * 0.7, 8) / 2 + 1.4) continue; // (not in front of the shop sign)
           faceBox(stoneMat, cx, cz, w, d, nx, nz, along, CURB + 4.1, 2.6, 0.14, 0.95);
           // railing along the balcony's outer edge
           const [rx, rz] = onFace(cx, cz, w, d, nx, nz, along, 0.92);
@@ -496,6 +502,9 @@ export function buildCity(scene) {
       // brick / ribbed-metal warehouses with roller doors and painted company signs
       h = 8 + rand() * 4.5;
       walls(pick(warehouseMats), cx, cz, w, d, CURB, h);
+      band(stoneMat, cx, cz, w, d, CURB, 0.7, 0.06);
+      // downpipes at the corners
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) add(metalMat, new THREE.CylinderGeometry(0.09, 0.09, h, 6).translate(cx + sx * (w / 2 + 0.1), CURB + h / 2, cz + sz * (d / 2 + 0.1)));
       for (let k = 0; k < 2; k++) solid(ventMat, cx + (rand() - 0.5) * (w - 3), CURB + h, cz + (rand() - 0.5) * (d - 3), 1.6, 0.9, 1.6);
       band(stoneMat, cx, cz, w, d, CURB + h, 0.5, 0.1);
       for (const [nx, nz] of street) {
@@ -592,6 +601,100 @@ export function buildCity(scene) {
     }
   };
 
+  // ---------------------------------------------------- facade detail
+  // The pieces that make a box read as a building: a plinth, floor ledges, a cornice, corner
+  // pilasters, air-conditioners, fire escapes, rooftop tanks; on towers fins and bands. All of it
+  // merges into the per-material meshes (no extra draw calls). It draws from its own random
+  // numbers, hashed from the position, so the city's own sequence (lots, heights, shops) is unchanged.
+  const hr = (x, z, k) => {
+    const v = Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  const FLOOR = 3.2;
+  // a slab tilted along a face (a fire-escape flight): from (a0, y0) to (a1, y1), out from the wall
+  const flight = (cx, cz, w, d, nx, nz, a0, y0, a1, y1, out) => {
+    const len = Math.hypot(a1 - a0, y1 - y0), ang = Math.atan2(y1 - y0, a1 - a0);
+    const [x, z] = onFace(cx, cz, w, d, nx, nz, (a0 + a1) / 2, out);
+    // (along the face is +x on the north / south walls and +z on the east / west ones)
+    const g = new THREE.BoxGeometry(len, 0.07, 0.75).rotateZ(ang);
+    if (nx) g.rotateY(-HALF_PI);
+    add(metalMat, g.translate(x, (y0 + y1) / 2, z));
+  };
+  const fireEscape = (cx, cz, w, d, nx, nz, along, top) => {
+    const fl = [];
+    for (let y = CURB + 4.3; y < top - 1.8; y += FLOOR) fl.push(y);
+    fl.forEach((y, i) => {
+      faceBox(metalMat, cx, cz, w, d, nx, nz, along, y, 3.6, 0.07, 1.15); // the landing
+      const [rx, rz] = onFace(cx, cz, w, d, nx, nz, along, 1.13);
+      solid(metalMat, rx, y, rz, nx ? 0.04 : 3.6, 0.95, nx ? 3.6 : 0.04); // its railing
+      for (const e of [-1.78, 1.78]) {
+        const [ex, ez] = onFace(cx, cz, w, d, nx, nz, along + e, 0.58);
+        solid(metalMat, ex, y, ez, nx ? 1.15 : 0.04, 0.95, nx ? 0.04 : 1.15);
+      }
+      // the flight up to the next landing, switching back each floor
+      if (i < fl.length - 1) {
+        const dir = i % 2 ? 1 : -1;
+        flight(cx, cz, w, d, nx, nz, along - dir * 1.4, y + 0.04, along + dir * 1.4, y + FLOOR, 0.6);
+      }
+    });
+    // the drop ladder under the lowest landing
+    if (fl.length) {
+      const [lx, lz] = onFace(cx, cz, w, d, nx, nz, along + 1.4, 0.95);
+      solid(metalMat, lx, fl[0] - 2.2, lz, nx ? 0.05 : 0.5, 2.2, nx ? 0.5 : 0.05);
+    }
+  };
+  const acUnits = (cx, cz, w, d, nx, nz, from, top) => {
+    const fw = nx ? d : w;
+    for (let y = from, k = 0; y < top - 1.5; y += FLOOR, k++) {
+      for (let j = 0; j < 3; j++) {
+        if (hr(cx + j * 3.1 + nx, cz + k * 1.7 + nz, 3) > 0.3) continue;
+        const along = (hr(cx + k, cz - j + nx * 2, 5) - 0.5) * (fw - 2);
+        faceBox(ventMat, cx, cz, w, d, nx, nz, along, y + 0.9, 0.85, 0.55, 0.5);
+      }
+    }
+  };
+  const midDetail = (cx, cz, w, d, h, street, trim, brick) => {
+    const top = CURB + h;
+    band(stoneMat, cx, cz, w, d, CURB, 0.3, 0.07); // plinth (low: the shop doors start right above it)
+    for (let y = CURB + 4.0; y < top - 1.6; y += FLOOR) band(trim, cx, cz, w, d, y, 0.14, 0.06); // floor ledges
+    band(trim, cx, cz, w, d, top - 0.75, 0.16, 0.12); // the cornice: a fillet and the crown moulding
+    band(trim, cx, cz, w, d, top - 0.55, 0.55, 0.24);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) solid(trim, cx + (sx * w) / 2, CURB + 0.3, cz + (sz * d) / 2, 0.62, h - 0.85, 0.62); // pilasters
+    if (h < 8) return;
+    street.forEach(([nx, nz], i) => {
+      acUnits(cx, cz, w, d, nx, nz, CURB + 4.0 + FLOOR, top); // (over the shop signs)
+      const fw = nx ? d : w;
+      if (brick && i === 0 && fw > 9 && hr(cx, cz, 7) < 0.7) fireEscape(cx, cz, w, d, nx, nz, (hr(cz, cx, 9) - 0.5) * (fw - 6), top);
+    });
+    // up top: a stair housing, sometimes a water tank on legs
+    solid(stoneMat, cx + (hr(cx, cz, 11) - 0.5) * (w - 5), top, cz + (hr(cz, cx, 12) - 0.5) * (d - 5), 2.6, 2.5, 2.6);
+    if (hr(cx, cz, 13) < 0.45) {
+      const tx = cx + (hr(cx, cz, 14) - 0.5) * (w - 4), tz = cz + (hr(cx, cz, 15) - 0.5) * (d - 4);
+      add(woodMat, new THREE.CylinderGeometry(1.1, 1.1, 2, 12).translate(tx, top + 2.6, tz));
+      add(metalMat, new THREE.ConeGeometry(1.2, 0.6, 12).translate(tx, top + 3.9, tz));
+      for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) solid(metalMat, tx + px * 0.75, top, tz + pz * 0.75, 0.12, 1.6, 0.12);
+    }
+  };
+  const towerDetail = (cx, cz, w, d, h, cw, cd, ch) => {
+    const top = CURB + h;
+    band(graniteMat, cx, cz, w, d, CURB, 0.5, 0.1);
+    band(graniteMat, cx, cz, w, d, CURB + 4.3, 0.45, 0.45); // the canopy ledge over the ground floor
+    // vertical fins up the glass, and a band every four floors
+    for (const [nx, nz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const fw = nx ? d : w, n = Math.max(2, Math.round(fw / 4.5));
+      for (let k = 1; k < n; k++) faceBox(finMat, cx, cz, w, d, nx, nz, (k / n - 0.5) * fw, CURB + 4.75, 0.2, h - 4.75, 0.32);
+    }
+    for (let y = CURB + 4.75 + 4 * FLOOR; y < top - 3; y += 4 * FLOOR) band(finMat, cx, cz, w, d, y, 0.4, 0.2);
+    band(finMat, cx, cz, w, d, top - 0.2, 0.7, 0.28); // the roof edge
+    band(finMat, cx, cz, cw, cd, top + ch - 0.2, 0.6, 0.22); // and the crown's
+    for (let k = 0; k < 3; k++) {
+      const a = hr(cx + k, cz, 21) * 6.28, r = 0.3 + hr(cx, cz + k, 22) * 0.12;
+      const px = cx + Math.cos(a) * w * r, pz = cz + Math.sin(a) * d * r;
+      if (Math.abs(px - cx) < cw / 2 + 1.5 && Math.abs(pz - cz) < cd / 2 + 1.5) continue; // not inside the crown
+      solid(ventMat, px, top, pz, 2.2, 1.3, 1.6);
+    }
+  };
+
   const building = (lot, core, df) => {
     const street = streetSides(lot, core);
 
@@ -611,6 +714,7 @@ export function buildCity(scene) {
       const cw = w * (0.55 + rand() * 0.2), cd = d * (0.55 + rand() * 0.2), ch = 6 + rand() * 12;
       walls(mat, cx, cz, cw, cd, CURB + h, ch);
       if (rand() < 0.6) solid(metalMat, cx, CURB + h + ch, cz, 0.3, 6 + rand() * 10, 0.3);
+      towerDetail(cx, cz, w, d, h, cw, cd, ch);
       for (const [nx, nz] of street) {
         if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         const fw = nx ? d : w;
@@ -622,8 +726,10 @@ export function buildCity(scene) {
       mrect(x0, z0, w, d, '#56666f');
     } else {
       h = type === 'shop' ? 5.4 + rand() * 2.6 : 10 + rand() * 16 + df * 18;
-      walls(pick(type === 'shop' ? pastel : rand() < 0.5 ? urban : pastel), cx, cz, w, d, CURB, h);
+      const fam = type === 'shop' ? pastel : rand() < 0.5 ? urban : pastel;
+      walls(pick(fam), cx, cz, w, d, CURB, h);
       rooftopJunk(cx, cz, w, d, CURB + h);
+      midDetail(cx, cz, w, d, h, street, fam === urban ? stoneMat : trimWhite, fam === urban);
       for (const [nx, nz] of street) {
         if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         if (type === 'shop' || rand() < 0.65) storefront(cx, cz, w, d, nx, nz, type === 'shop' || rand() < 0.55);
