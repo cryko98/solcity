@@ -2771,17 +2771,23 @@ def guard_pose(bounce=0.0, lead=0.0, cross=0.0, recoil=0.0):
     rear_w = V((-.095, face_y - .11, EYE_Z - .13)).lerp(V((.0, face_y - .68, EYE_Z - .06)), cross)
     p.update(arm_ik("L", body(lead_w), body(V((.32, -.05, BELT_Z + .05 + .3 * lead))), -78 * lead))
     p.update(arm_ik("R", body(rear_w), body(V((-.32, .02, BELT_Z + .05 + .3 * cross))), 78 * cross))
-    # the legs keep their stance whatever the pelvis does (the thighs hang from it)
-    dh = hips_x - 11 - 4 * cross
-    p["thigh.L"] = rot("thigh.L", (XA, -20 - 8 * cross - 6 * lead - dh), (ZA, 8))
-    p["thigh.R"] = rot("thigh.R", (XA, 16 - 6 * cross - dh), (ZA, -10 - 10 * cross), (YA, 18 * cross))
-    p["shin.L"] = rot("shin.L", (XA, 24 + 4 * bounce + 8 * lead + 6 * cross))
-    p["shin.R"] = rot("shin.R", (XA, 20 + 4 * bounce + 6 * cross))
-    p["foot.L"] = rot("foot.L", (XA, -6), (ZA, 15))
-    # the rear foot: up on the ball and the heel turned out as the hip drives through
-    p["foot.R"] = rot("foot.R", (XA, -6 + 30 * cross), (ZA, -25 - 30 * cross))
+    # the feet stay planted on the floor (leg IK), shoulder width apart: the lead foot a short step
+    # ahead, toes in a touch, the rear one behind and turned out. The jab steps the lead foot in
+    # and drags the rear after it; on the cross the rear heel comes up and pivots out.
+    off = (0, .02 + .05 * recoil - .14 * lead - .13 * cross, -.07 - .015 * bounce - .02 * cross)
+    ankle_h = REST["foot.L"][0].z
+    feet = (("L", 1, .13, -.17 - .12 * lead, -8, 0.0), ("R", -1, -.13, .21 - .06 * lead, 38 + 20 * cross, 30 * cross))
+    for side, sgn, fx, fy, toe_out, heel in feet:
+        apply_pose(p)
+        hip = pbones["thigh." + side].head
+        target = V((fx - off[0], fy - off[1], ankle_h + .13 * math.sin(math.radians(heel)) - off[2]))
+        foot0 = (REST["foot." + side][1] - REST["foot." + side][0]).normalized()
+        flat = V((foot0.x, foot0.y, 0)).normalized()
+        fdir = Matrix.Rotation(math.radians(sgn * toe_out), 3, "Z") @ Matrix.Rotation(math.radians(heel), 3, "X") @ V((flat.x, flat.y, foot0.z))
+        solve_chain(p, "thigh." + side, "shin." + side, "foot." + side, target,
+                    V((hip.x + sgn * .12, hip.y - 1.2, hip.z - .3)), fdir.normalized())
     hands(p, 96, 55)
-    return p, (0, .02 + .05 * recoil - .14 * lead - .13 * cross, -.05 - .015 * bounce - .015 * cross)
+    return p, off
 
 
 def guard(t_):
@@ -2876,8 +2882,8 @@ def get_up(t_):
           "neck": rot("neck", (XA, -8)), "head": rot("head", (XA, -10))}
     for side, sgn in (("L", 1), ("R", -1)):
         # sitting: legs out in front, knees a little up, hands propped behind
-        k1["thigh." + side] = rot("thigh." + side, (XA, -72 + (12 if side == "R" else 0)), (ZA, sgn * 8))
-        k1["shin." + side] = rot("shin." + side, (XA, 20 + (40 if side == "R" else 0)))
+        k1["thigh." + side] = rot("thigh." + side, (XA, -112 if side == "R" else -76), (ZA, sgn * 8))
+        k1["shin." + side] = rot("shin." + side, (XA, 100 if side == "R" else 6))
         k1["foot." + side] = rot("foot." + side, (XA, 12))
         k1["upper_arm." + side] = rot("upper_arm." + side, (XA, 38), (ZA, -sgn * 22))
         k1["forearm." + side] = rot("forearm." + side, (XA, -8))
@@ -2889,7 +2895,9 @@ def get_up(t_):
         k2["forearm." + side] = rot("forearm." + side, (XA, -30))
     hands(k1, 25)
     hands(k2, 35)
-    o1 = (0, o0[1], feet_down(k1))
+    # sitting on the floor: the seat on the ground (not propped up on the bent leg), lifted only as
+    # far as needed to keep the heels and hands out of it
+    o1 = ground_lift(k1, (0, o0[1], .13 - hip_h))
     o2 = (0, o0[1] * .35, feet_down(k2))
     k3, o3 = idle(0.0)
     keys = ((0, k0, o0), (.3, k1, o1), (.66, k2, o2), (1, k3, o3))
@@ -3129,8 +3137,8 @@ def jump(t_):
     p = {
         "thigh.L": rot("thigh.L", (XA, -62 - 4 * s), (ZA, 6)), "shin.L": rot("shin.L", (XA, 78 + 4 * s)), "foot.L": rot("foot.L", (XA, 20)),
         "thigh.R": rot("thigh.R", (XA, -28 + 3 * s), (ZA, -6)), "shin.R": rot("shin.R", (XA, 70)), "foot.R": rot("foot.R", (XA, 28)),
-        "upper_arm.L": rot("upper_arm.L", (XA, -62 - 4 * s), (ZA, -44)), "upper_arm.R": rot("upper_arm.R", (XA, -52 + 4 * s), (ZA, 46)),
-        "forearm.L": rot("forearm.L", (XA, -38), (ZA, -10)), "forearm.R": rot("forearm.R", (XA, -44), (ZA, 10)),
+        "upper_arm.L": rot("upper_arm.L", (XA, -28 - 4 * s), (ZA, 6)), "upper_arm.R": rot("upper_arm.R", (XA, -22 + 4 * s), (ZA, -8)),
+        "forearm.L": rot("forearm.L", (XA, -42), (ZA, -12)), "forearm.R": rot("forearm.R", (XA, -48), (ZA, 12)),
         "hips": rot("hips", (XA, 6)),
         "spine": rot("spine", (XA, 10)), "chest": rot("chest", (XA, 4)), "neck": rot("neck", (XA, -6)), "head": rot("head", (XA, -8)),
     }
