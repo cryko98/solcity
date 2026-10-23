@@ -187,19 +187,21 @@ def facing(P, left, right):
 
 def retarget(game_name, src, bmap, C, pel0, hip_k, frames, G=Q()):
     """Key `game_name` on the Rocketbox rig from `src` at the given source frames (one per frame).
-    G: a turn about the vertical applied to the source first (so it faces the way the rig does)."""
+    G: a turn about the vertical applied to the source first (so it faces the way the rig does), or
+    one per frame."""
     act = bpy.data.actions.new(game_name)
     rig.animation_data.action = act
     prev = {}
     for fi, f in enumerate(frames):
         bpy.context.scene.frame_set(int(f), subframe=f - int(f))
         S = world_pose(src)
+        Gf = G[fi] if isinstance(G, list) else G
         A = {}
         for pb in ordered:
             n = pb.name
             Ap = A[pb.parent.name] if pb.parent else Q()
             if n in bmap:
-                A[n] = rig_q.inverted() @ (G @ S[bmap[n]][0] @ C[n])
+                A[n] = rig_q.inverted() @ (Gf @ S[bmap[n]][0] @ C[n])
                 basis = rest_rel[n].inverted() @ Ap.inverted() @ A[n]
             else:
                 basis = Q()
@@ -318,10 +320,23 @@ if cmu_specs:
                     if v.length > best.length:
                         best = v
             G = Q((0, 0, 1), rig_face - (math.atan2(best.y, best.x) + math.pi / 2))
+        elif mode == "end":
+            # (getting up: it ends standing the way the rig faces, whatever turn it took on the ground)
+            bpy.context.scene.frame_set(f1)
+            G = Q((0, 0, 1), rig_face - facing(world_pose(src), LT, RT))
         elif mode.startswith("like:"):
             G = turns[mode[5:]]
-        turns[game_name] = G
         frames = [f0 + i * step for i in range(int((f1 - f0) / step) + 1)]
+        if mode == "spin":
+            # (getting up: it starts lying the way the rig faces and ends standing so, the turn the
+            # subject took on the ground spread over the whole clip)
+            bpy.context.scene.frame_set(f0)
+            a0 = rig_face - facing(world_pose(src), LT, RT)
+            bpy.context.scene.frame_set(f1)
+            a1 = rig_face - facing(world_pose(src), LT, RT)
+            d = math.atan2(math.sin(a1 - a0), math.cos(a1 - a0))
+            G = [Q((0, 0, 1), a0 + d * min(1, i / max(1, len(frames) - 1) * 1.15)) for i in range(len(frames))]
+        turns[game_name] = G
         retarget(game_name, src, bmap, C, stand * k, R0[PEL][1].z / (stand * k), frames, G)
         bpy.data.objects.remove(src)
     bpy.data.objects.remove(cal)

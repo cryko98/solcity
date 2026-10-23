@@ -16,14 +16,30 @@ const GAITS = { walk: 1.42, run: 3.7, sprint: 5.6 };
 const OWN = {
   idle: 'idle', guard: 'guard', punchl: 'punchl', punchr: 'punchr', hit: 'hit', knockdown: 'knockdown', getup: 'getup',
   jump: 'jump', roll: 'roll', swim: 'swim', tread: 'tread', standtalk: 'standtalk', standlisten: 'standlisten', dance: 'dance',
-  sittalk: 'sittalk', sitlisten: 'sitlisten', pistol_hold: 'pistol_hold', pistol_aim: 'pistol_aim', pistol_walk: 'pistol_hold', pistol_run: 'pistol_hold',
+  sittalk: 'sittalk', sitlisten: 'sitlisten',
 };
 // played in step with the old rig's own clip (one-shots), or held at their end (guard: the way in)
 const SYNCED = ['punchl', 'punchr', 'hit', 'knockdown', 'getup', 'roll'];
 const BLEND = 0.07; // (s) how quickly a change of clip blends in
 const FOLLOW = '(follow)';
 const SEAT_DROP = 0.05; // (m)
-const FIST = [1.35, 1.5, 1.0], THUMB = [0.2, 0.6, 0.5]; // knuckle, middle, tip
+const GETUP_SECS = 2.4;
+// where the left palm's middle goes on a pistol held in two hands (the gun's own space: +z the
+// muzzle, +y the top, +x its left): against the left of the grip, over the right hand's fingers
+const PISTOL_PALM = new THREE.Vector3(0.04, -0.055, 0.0);
+const _cx = new THREE.Vector3(), _cy = new THREE.Vector3(), _cz = new THREE.Vector3(), _cv = new THREE.Vector3(), _cw = new THREE.Vector3(), _cu = new THREE.Vector3();
+const _cp = new THREE.Vector3(), _cp2 = new THREE.Vector3(), _cm = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _cq2 = new THREE.Quaternion(), _cq3 = new THREE.Quaternion();
+// the hand poses: how far each joint curls (radians about its own z), per finger (thumb, index,
+// middle, ring, pinky) knuckle to tip
+const ROCKETBOX = ['idle', 'walk', 'run', 'sprint', 'standtalk', 'standlisten', 'dance'];
+const curl = (thumb, index, rest) => [thumb, index, rest, rest.map((x, i) => x + [0.05, 0.05, 0][i]), rest.map((x, i) => x + [0.1, 0.08, 0.05][i])];
+const HANDS = {
+  relaxed: curl([0.15, 0.2, 0.15], [0.32, 0.42, 0.28], [0.4, 0.5, 0.32]),
+  flat: curl([0, 0.05, 0.05], [0.06, 0.08, 0.05], [0.06, 0.08, 0.05]),
+  fist: curl([0.3, 0.7, 0.6], [1.35, 1.5, 1.0], [1.4, 1.55, 1.0]),
+  grip: curl([0.3, 0.6, 0.45], [1.0, 1.25, 0.85], [1.1, 1.3, 0.9]),
+  trigger: curl([0.3, 0.6, 0.45], [0.45, 0.55, 0.35], [1.15, 1.35, 0.9]),
+};
 const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
 // (the thighs hang from the Biped's first spine bone, so that one goes with the legs)
 const LOWER = /^Bip01_(Pelvis|Spine|[LR]_(Thigh|Calf|Foot|Toe0))$/;
@@ -66,6 +82,19 @@ function rootSpace(root, bones) {
     out[b.name] = { q, p };
   }
   return out;
+}
+// a palm's frame in the world from its wrist and its index and little finger knuckles: x across
+// the knuckles, y along the fingers, z out of the back of the hand
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _pc = new THREE.Vector3(), _px = new THREE.Vector3(), _py = new THREE.Vector3(), _pz = new THREE.Vector3();
+function palmFrame([hand, index, pinky], out) {
+  hand.getWorldPosition(_pa);
+  index.getWorldPosition(_pb);
+  pinky.getWorldPosition(_pc);
+  _px.subVectors(_pb, _pc).normalize();
+  _py.addVectors(_pb, _pc).multiplyScalar(0.5).sub(_pa).normalize();
+  _pz.crossVectors(_px, _py).normalize();
+  _py.crossVectors(_pz, _px);
+  return out.makeBasis(_px, _py, _pz).setPosition(_pa.add(_pb).add(_pc).divideScalar(3));
 }
 // a bone turned to a world orientation (its parent's world matrix up to date)
 function setWorldQuaternion(b, q) {
@@ -150,7 +179,6 @@ export class RbHero {
     const o0 = rootSpace(oc, oldB), r0 = rootSpace(rc, rcB);
     for (const pr of this.pairs) pr.c = o0[pr.old].q.clone().invert().multiply(r0[pr.rb.name].q);
     this.hip0 = { old: o0.hips.p.clone(), rb: r0.Bip01_Pelvis.p.clone(), k: r0.Bip01_Pelvis.p.y / o0.hips.p.y };
-    this.cHand = this.pairs.find((p) => p.old === 'handR').c;
 
     // the Rocketbox body sits in the hero's model, so the lean, the car seat, the bike all carry it
     player.model.add(this.model);
@@ -163,7 +191,15 @@ export class RbHero {
     this.oldBones = {};
     for (const pr of this.pairs) this.oldBones[pr.old] = bone(player.model, pr.old);
     this.rbHandR = bone(this.model, 'Bip01_R_Hand');
+    this.pelvis = bone(this.model, 'Bip01_Pelvis');
+    // the right palm of each rig (wrist, index and little finger knuckles): the gun goes palm to palm
+    this.palms = {
+      old: ['handR', 'index1R', 'pinky1R'].map((n) => bone(player.model, n)),
+      rb: ['Bip01_R_Hand', 'Bip01_R_Finger1', 'Bip01_R_Finger4'].map((n) => bone(this.model, n)),
+      left: ['Bip01_L_Hand', 'Bip01_L_Finger1', 'Bip01_L_Finger4'].map((n) => bone(this.model, n)),
+    };
     this.arms = ['L', 'R'].map((S) => ({
+      side: S,
       upper: bone(this.model, `Bip01_${S}_UpperArm`),
       fore: bone(this.model, `Bip01_${S}_Forearm`),
       hand: bone(this.model, `Bip01_${S}_Hand`),
@@ -197,17 +233,95 @@ export class RbHero {
       };
       this.acts[c.name] = { up: mk('up'), lo: mk('lo'), dur: c.duration };
     }
+    // getting up from the ground is motion capture of a man doing it: give it the time it takes
+    const gu = player.actions.getup;
+    if (gu && this.acts.getup) gu.timeScale = gu.getClip().duration / Math.max(gu.getClip().duration, GETUP_SECS);
     this.phase = 0;
     this.shares = {};
     this.gunBase = new Map();
-    // the fingers curled into a fist: [bone, angle about its own z]
+    this._X = new THREE.Matrix4();
+    // the finger joints: { b, rest, side, f (0 thumb .. 4 pinky), j (0 knuckle .. 2 tip) }
     this.fingers = [];
-    for (const S of ['L', 'R']) {
-      for (let f = 1; f <= 4; f++) ['', '1', '2'].forEach((j, i) => this.fingers.push([bone(this.model, `Bip01_${S}_Finger${f}${j}`), FIST[i]]));
-      ['', '1', '2'].forEach((j, i) => this.fingers.push([bone(this.model, `Bip01_${S}_Finger0${j}`), THUMB[i]]));
+    for (const [side, S] of [[0, 'L'], [1, 'R']]) {
+      for (let f = 0; f <= 4; f++) {
+        ['', '1', '2'].forEach((jn, j) => {
+          const b = bone(this.model, f ? `Bip01_${S}_Finger${f}${jn}` : `Bip01_${S}_Finger0${jn}`);
+          if (b) this.fingers.push({ b, rest: b.quaternion.clone(), side, f, j });
+        });
+      }
     }
-    this.fingers = this.fingers.filter(([b]) => b);
+    this.handPose = {}; // pose name -> eased weight
     this.twist = [['Bip01_Pelvis', 1], ['Bip01_Spine1', -0.55], ['Bip01_Spine2', -0.45]].map(([n, f]) => [bone(this.model, n), f]);
+  }
+
+  // where the pelvis goes (in its parent's space) to sit where the old rig's hips are, the move
+  // from the standing pose scaled to this body (the model's world matrices up to date)
+  hipsAt(out) {
+    const root = this.player.model;
+    out.setFromMatrixPosition(this.oldBones.hips.matrixWorld);
+    root.worldToLocal(out);
+    out.sub(this.hip0.old).multiplyScalar(this.hip0.k).add(this.hip0.rb);
+    root.localToWorld(out);
+    return this.pelvis.parent.worldToLocal(out);
+  }
+
+  // the hands. Only the Rocketbox clips carry real finger motion; the others have none (CMU) or
+  // fingers that don't survive the move to this hand (Quaternius, the old rig), so the hand takes a
+  // pose for what it's doing: a fist in a fight, the grip and the trigger finger on a gun, a grip on
+  // the bars and the wheel, a flat hand swimming, else loosely curled
+  posture(dt) {
+    const P = this.player, u = this.shares.up, sh = (...ns) => Math.min(1, ns.reduce((a, n) => a + (u[n] || 0), 0));
+    const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming && Object.values(P.weaponNodes || {}).some((w) => w.visible);
+    const want = {
+      grip: this.grip > 0.5 ? 1 : 0,
+      gun: armed ? 1 : 0,
+      fist: sh('guard', 'punchl', 'punchr'),
+      flat: sh('swim', 'tread'),
+      // (what the Rocketbox clips don't cover)
+      relaxed: 1 - sh(...ROCKETBOX),
+    };
+    const ease = 1 - Math.exp(-dt / 0.1);
+    let left = 1;
+    const mix = []; // [pose, weight] in order of precedence, weights summing to at most 1
+    for (const n of ['grip', 'gun', 'fist', 'flat', 'relaxed']) {
+      const w = (this.handPose[n] = (this.handPose[n] || 0) + (want[n] - (this.handPose[n] || 0)) * ease);
+      const take = Math.min(Math.max(0, w), left);
+      if (take > 1e-3) mix.push([n, take]);
+      left -= take;
+    }
+    if (!mix.length) return;
+    const total = 1 - left;
+    for (const k of this.fingers) {
+      let a = 0;
+      // (on a gun: the right hand's finger on the trigger, the left holding)
+      for (const [n, w] of mix) a += HANDS[n === 'gun' ? (k.side === 1 ? 'trigger' : 'grip') : n][k.f][k.j] * w;
+      _q.copy(k.rest).multiply(_q2.setFromAxisAngle(Z, a / total));
+      k.b.quaternion.slerp(_q, total);
+    }
+  }
+
+  // the left hand on a pistol held in two hands: the palm against the left of the grip, over the
+  // right hand's fingers, the fingers wrapped round the front, the thumb along the frame
+  cup(arm, gun, k) {
+    const e = gun.matrixWorld.elements;
+    const gx = _cx.set(e[0], e[1], e[2]).normalize(), gy = _cy.set(e[4], e[5], e[6]).normalize(), gz = _cz.set(e[8], e[9], e[10]).normalize();
+    // the palm we want: fingers (y) down and round to the right, index knuckle (x) up and forward
+    const y = _cv.copy(gx).multiplyScalar(-0.55).addScaledVector(gy, -0.75).addScaledVector(gz, 0.2).normalize();
+    const x = _cw.copy(gy).multiplyScalar(0.6).addScaledVector(gz, 0.8);
+    x.addScaledVector(y, -x.dot(y)).normalize();
+    const want = _cq.setFromRotationMatrix(_cm.makeBasis(x, y, _cu.crossVectors(x, y)));
+    // the palm as it is, in the hand: keep that, turn the hand so the palm comes out as wanted
+    const palm = palmFrame(this.palms.left, _cm);
+    const palmQ = _cq2.setFromRotationMatrix(palm);
+    const handQ = arm.hand.getWorldQuaternion(_cq3);
+    const inHand = handQ.clone().invert().multiply(palmQ);
+    const wantHand = want.clone().multiply(inHand.invert());
+    // and the wrist placed so the palm's middle lands on its spot
+    const mid = _cp.setFromMatrixPosition(palm);
+    const off = mid.sub(arm.hand.getWorldPosition(_cp2)).applyQuaternion(palmQ.clone().invert());
+    const wrist = _cp2.copy(PISTOL_PALM).applyMatrix4(gun.matrixWorld).sub(off.applyQuaternion(want));
+    reach(arm.upper, arm.fore, arm.hand, _p2.setFromMatrixPosition(arm.hand.matrixWorld).lerp(wrist, k));
+    setWorldQuaternion(arm.hand, arm.hand.getWorldQuaternion(_cq3).slerp(wantHand, k));
   }
 
   isOurs(o) {
@@ -301,9 +415,13 @@ export class RbHero {
         b.updateMatrixWorld(true);
       }
     }
-    // fists in the fight (the motion capture has no fingers)
-    const fu = this.shares.up, fist = Math.min(1, fu.guard + fu.punchl + fu.punchr || 0);
-    if (fist > 0.01) for (const [b, a] of this.fingers) b.quaternion.multiply(_q.setFromAxisAngle(Z, a * fist));
+    // in the water the library's swim clips keep the hips at standing height: the body sits where
+    // the hero's own rig puts his hips (just under the surface)
+    const wade = Math.min(1, (this.shares.lo.swim || 0) + (this.shares.lo.tread || 0));
+    if (wade > 0.01) {
+      P.model.updateMatrixWorld(true);
+      this.pelvis.position.lerp(this.hipsAt(_p), wade);
+    }
 
     // -------------------------------------------------- following the old rig where it has to
     const root = P.model;
@@ -320,53 +438,64 @@ export class RbHero {
           _q.copy(rootInvQ).multiply(ob.getWorldQuaternion(_q2)).multiply(pr.c);
           _q2.copy(pq).invert().multiply(_q);
           pr.rb.quaternion.slerp(_q2, f);
-          if (pr.old === 'hips') {
-            _p.setFromMatrixPosition(ob.matrixWorld);
-            root.worldToLocal(_p);
-            _p.sub(this.hip0.old).multiplyScalar(this.hip0.k).add(this.hip0.rb);
-            root.localToWorld(_p);
-            pr.rb.parent.worldToLocal(_p);
-            pr.rb.position.lerp(_p, f);
-          }
+          if (pr.old === 'hips') pr.rb.position.lerp(this.hipsAt(_p), f);
         }
         rq.set(pr.rb, pq.clone().multiply(pr.rb.quaternion));
       }
     }
-    // -------------------------------------------------- hands on the bars, on the wheel
-    // the old rig's hands were fitted to every seat; the new arms are longer and hang from other
-    // shoulders, so in a vehicle each hand is reached to the old one's place (two-bone IK)
-    const seated = P.vehicle ? Math.min(1, (P.weights.drive || 0) + (P.weights.ride || 0)) : 0;
-    this.grip = (this.grip || 0) + (seated - (this.grip || 0)) * Math.min(1, dt * 8);
-    // and sat a little deeper: this head is a few cm higher than the old one, low roofs are close
-    this.model.position.y = (-SEAT_DROP * this.grip) / this.model.parent.getWorldScale(_s).y;
-    if (this.grip > 0.01) {
-      this.model.updateMatrixWorld(true);
-      for (const arm of this.arms) {
-        arm.oldHand.getWorldPosition(_p);
-        _p2.setFromMatrixPosition(arm.hand.matrixWorld);
-        reach(arm.upper, arm.fore, arm.hand, _p2.lerp(_p, this.grip));
-        // and the grip turned the way the old hand held it
-        arm.oldHand.getWorldQuaternion(_q).multiply(arm.c);
-        arm.hand.getWorldQuaternion(_q2).slerp(_q, this.grip);
-        setWorldQuaternion(arm.hand, _q2);
-      }
-    }
-    // -------------------------------------------------- the gun, in the new hand
-    // it sits in the new hand as it sat in the old one: the old hand's frame is the new one's
-    // turned back by the calibration
+    // -------------------------------------------------- the hands on what they hold
+    // the old rig's hands were fitted to every seat and every gun; the new arms are longer and hang
+    // from other shoulders. The right palm carries the gun: palm to palm (wrist and knuckles of
+    // each hand), the gun sits in the new one as it sat in the old. Hands that hold on (the bars,
+    // the wheel, the front grip of a two-handed gun) are reached to the old hand's place, moved the
+    // same way (two-bone IK)
     this.model.updateMatrixWorld(true);
+    const X = palmFrame(this.palms.rb, this._X).multiply(palmFrame(this.palms.old, _m2).invert());
+    const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming;
+    const gun = armed && Object.values(P.weaponNodes || {}).find((w) => w.visible);
+    // the gun first: it goes where the right palm is
     const oh = this.oldBones.handR;
     for (const w of Object.values(P.weaponNodes || {})) {
       if (!w.visible || w.parent !== oh) continue;
       if (!this.gunBase.has(w)) this.gunBase.set(w, w.matrix.clone());
-      // the new hand's frame in the old hand's place: rbHand * C^-1 (rotation), at the new hand
-      this.rbHandR.matrixWorld.decompose(_p, _q, _s);
-      _q.multiply(_q2.copy(this.cHand).invert());
-      oh.matrixWorld.decompose(_p2, _q2, _s);
-      _m.compose(_p, _q, _s); // (the old hand's scale: the gun's offset is in its units)
-      _m.multiply(this.gunBase.get(w));
-      _m2.copy(oh.matrixWorld).invert().multiply(_m);
-      _m2.decompose(w.position, w.quaternion, w.scale);
+      // where it sat in the old hand, moved palm to palm, back into the old hand's space
+      _m2.multiplyMatrices(oh.matrixWorld, this.gunBase.get(w)).premultiply(X);
+      _m.copy(oh.matrixWorld).invert().multiply(_m2);
+      _m.decompose(w.position, w.quaternion, w.scale);
+      w.updateMatrixWorld(true);
     }
+    const seated = P.vehicle ? Math.min(1, (P.weights.drive || 0) + (P.weights.ride || 0)) : 0;
+    // (a long gun has the left hand on its front grip; a pistol has it cupped under the right one
+    // while aiming)
+    const pistol = gun && /Pistol/i.test(gun.name);
+    const twoHanded = gun && (!pistol || P.aiming) ? 1 : 0;
+    const k8 = Math.min(1, dt * 8);
+    this.grip = (this.grip || 0) + (seated - (this.grip || 0)) * k8;
+    this.support = (this.support || 0) + (twoHanded - (this.support || 0)) * k8;
+    // and sat a little deeper: this head is a few cm higher than the old one, low roofs are close
+    this.model.position.y = (-SEAT_DROP * this.grip) / this.model.parent.getWorldScale(_s).y;
+    for (const arm of this.arms) {
+      const k = Math.max(this.grip, arm.side === 'L' ? this.support : 0);
+      if (k < 0.01) continue;
+      this.model.updateMatrixWorld(true);
+      // (in a vehicle the old hand's own place; on a gun, carried with the gun)
+      const onGun = this.support > this.grip;
+      if (onGun && pistol && arm.side === 'L') {
+        this.cup(arm, gun, k);
+        continue;
+      }
+      {
+        _p.setFromMatrixPosition(arm.oldHand.matrixWorld);
+        if (onGun) _p.applyMatrix4(X);
+      }
+      _p2.setFromMatrixPosition(arm.hand.matrixWorld);
+      reach(arm.upper, arm.fore, arm.hand, _p2.lerp(_p, k));
+      // and the grip turned the way the old hand held it
+      arm.oldHand.getWorldQuaternion(_q).multiply(arm.c);
+      if (onGun) _q.premultiply(_q2.setFromRotationMatrix(X));
+      arm.hand.getWorldQuaternion(_q2).slerp(_q, k);
+      setWorldQuaternion(arm.hand, _q2);
+    }
+    this.posture(dt);
   }
 }

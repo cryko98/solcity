@@ -252,7 +252,7 @@ export class Player {
     const a = this.actions[name];
     a.reset();
     a.play();
-    this.overlay = { name, t: 0, dur: a.getClip().duration, landed: false };
+    this.overlay = { name, t: 0, dur: a.getClip().duration / Math.abs(a.timeScale || 1), landed: false };
   }
 
   attack() {

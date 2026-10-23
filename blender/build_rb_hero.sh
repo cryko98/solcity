@@ -8,7 +8,7 @@ OUT=assets/models/rb_hero.glb
   idle=m_idle_neutral_01 walk=m_walk_neutral_01 run=m_run_neutral_01 sprint=m_run_fast_01 \
   standtalk=m_gestic_talk_neutral_01 standlisten=m_gestic_listen_neutral_01 dance=m_dancing_cool \
   guard=cmu:14_01@1081-1113^like:punchr punchl=cmu:14_01@265-321^aim punchr=cmu:14_01@1021-1081^aim \
-  hit=ual1:Hit_Head knockdown=cmu:90_18@70-300 getup=ual2:LayToIdle \
+  hit=ual1:Hit_Head knockdown=cmu:90_18@70-300 getup=cmu:113_08@1290-1660^spin \
   jump=ual1:Jump_Loop roll=ual1:Roll swim=ual1:Swim_Fwd_Loop tread=ual1:Swim_Idle_Loop \
   drive=ual1:Driving_Loop sittalk=ual1:Sitting_Talking_Loop sitlisten=ual1:Sitting_Idle_Loop \
   pistol_aim=ual1:Pistol_Aim_Neutral pistol_hold=ual1:Pistol_Idle_Loop || exit 1
