@@ -335,12 +335,18 @@ The hero is a [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocke
 
 - Rocketbox's own motion capture: idle, walk, run, sprint, talking, listening, dancing (`vendor/rocketbox/`)
 - the CMU Graphics Lab Motion Capture Database (http://mocap.cs.cmu.edu, free for any use; BVH conversion by
-  github.com/Shriinivas/cmubvh): the boxing stance, jab and cross (take 14_01) and the fall (90_18), in `vendor/cmu/`
-- Quaternius's Universal Animation Library 1 and 2 (CC0, quaternius.com): hits, getting up, the jump, the roll,
-  swimming, driving, sitting and the pistol, in `vendor/quaternius/`
+  github.com/Shriinivas/cmubvh): the boxing stance, jab and cross (take 14_01), the fall (90_18) and getting up
+  (113_08), in `vendor/cmu/`
+- Quaternius's Universal Animation Library 1 and 2 (CC0, quaternius.com): hits, the jump, the roll, swimming,
+  driving, sitting, in `vendor/quaternius/`
 
 None of the source files are in the repository. Actions without a clip of their own (the bike, the gym, the rifles...)
 follow the old rig bone by bone; legs and upper body blend separately, and every change of clip is eased.
+
+The people of the city are Rocketbox avatars too (17 of them: men, women, business people, police officers;
+`assets/models/people/`, built by `blender/build_people.sh` after `blender/fetch_rocketbox.sh` has downloaded
+them), playing the hero's clips: they fight, fall and get up the same way, and the mission contacts are each
+always the same person. `?classic` keeps the old models.
 
 People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
 (~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to

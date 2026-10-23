@@ -187,9 +187,17 @@ addEventListener('resize', () => {
 });
 
 const loader = new GLTFLoader();
-const manager = { total: 22, done: 0 };
+// the people of the city: Rocketbox avatars (assets/models/people, blender/build_people.sh) that
+// play the hero's motion capture, by the kind of person the game asks for
+const PEOPLE = {
+  male: ['Male_Adult_01', 'Male_Adult_03', 'Male_Adult_05', 'Male_Adult_08', 'Male_Adult_14', 'Male_Adult_18', 'Business_Male_02'],
+  female: ['Female_Adult_01', 'Female_Adult_03', 'Female_Adult_05', 'Female_Adult_08', 'Female_Adult_12', 'Female_Adult_15', 'Business_Female_02'],
+  police: ['Police_Male_01', 'Police_Male_03', 'Police_Female_01'],
+};
+const PEOPLE_ALL = Object.values(PEOPLE).flat();
+const manager = { total: 22 + PEOPLE_ALL.length, done: 0 };
 // bump when the models are rebuilt, so no browser keeps showing an old cached copy
-const ASSET_VERSION = '2026-10-25d';
+const ASSET_VERSION = '2026-10-25e';
 const load = (url, optional = false) =>
   new Promise((res, rej) =>
     loader.load(url + '?v=' + ASSET_VERSION, (g) => {
@@ -216,8 +224,9 @@ Promise.all([
   ...['ambulance', 'firetruck', 'bus', 'truck', 'trailer', 'towtruck', 'boat', 'jetski'].map((n) => load(`assets/models/car_${n}.glb`, true)),
   // the hero's body: a Rocketbox avatar with motion capture (src/rbhero.js); ?classic keeps the old one
   new URLSearchParams(location.search).has('classic') ? null : load('assets/models/rb_hero.glb', true),
+  ...PEOPLE_ALL.map((n) => (new URLSearchParams(location.search).has('classic') ? null : load(`assets/models/people/${n}.glb`, true))),
 ])
-  .then(([hero, sedan, coupe, npcMale, npcFemale, van, policeCar, bike, npcPolice, taxi, superCar, lux, heliModel, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski, rbModel]) => {
+  .then(([hero, sedan, coupe, npcMale, npcFemale, van, policeCar, bike, npcPolice, taxi, superCar, lux, heliModel, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski, rbModel, ...people]) => {
     player = new Player(hero, city);
     player.position.copy(city.spawn);
     player.yaw = city.spawnYaw;
@@ -230,7 +239,13 @@ Promise.all([
     const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));
     vehicles = new Vehicles(scene, city, carModels);
     traffic = new Traffic(city, vehicles);
-    peds = new Peds(scene, city, hero, { male: npcMale, female: npcFemale, police: npcPolice }, vehicles);
+    const byName = Object.fromEntries(PEOPLE_ALL.map((n, i) => [n, people[i]]));
+    const rbPeople = rbModel && {
+      hero: rbModel.scene, // (still in its rest pose here: the people's pelvis heights are measured against it)
+      clips: rbModel.animations,
+      avatars: Object.fromEntries(Object.entries(PEOPLE).map(([k, l]) => [k, l.filter((n) => byName[n]).map((n) => ({ name: n, scene: byName[n].scene }))])),
+    };
+    peds = new Peds(scene, city, hero, { male: npcMale, female: npcFemale, police: npcPolice }, vehicles, rbPeople);
     hud = new Hud(city);
     police = new Police(city, vehicles, peds);
     taxiJobs = new TaxiMissions(scene, city, peds, hud, audio);

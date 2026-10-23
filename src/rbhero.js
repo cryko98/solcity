@@ -138,22 +138,46 @@ function reach(a, b, c, t) {
   setWorldQuaternion(c, cq);
 }
 const boneOf = (track) => track.name.slice(0, track.name.lastIndexOf('.'));
-const part = (clip, name, keep) => {
-  const c = clip.clone();
-  c.name = name;
-  c.tracks = c.tracks.filter((t) => keep(boneOf(t)));
-  return c;
-};
+// (the tracks are shared, not copied: nothing writes to them)
+const part = (clip, name, keep) => new THREE.AnimationClip(name, clip.duration, clip.tracks.filter((t) => keep(boneOf(t))));
 
-export class RbHero {
-  constructor(gltf, player) {
-    this.player = player;
-    this.model = gltf.scene;
+// each clip split once into its legs and its upper body, for every body that plays it
+const halves = new WeakMap();
+function split(c) {
+  if (!halves.has(c)) {
+    // the gait clips walk on the spot, but some keep a drift of the pelvis over the cycle (it
+    // would run ahead and snap back each loop): take that drift out, keep the bob and sway
+    const pt = GAITS[c.name] && c.tracks.find((t) => t.name === 'Bip01_Pelvis.position');
+    if (pt) {
+      const v = pt.values, n = pt.times.length, dur = pt.times[n - 1] - pt.times[0] || 1;
+      const d = [0, 1, 2].map((k) => v[(n - 1) * 3 + k] - v[k]);
+      for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) v[i * 3 + k] -= (d[k] * (pt.times[i] - pt.times[0])) / dur;
+    }
+    halves.set(c, { up: part(c, `${c.name}|up`, (b) => !LOWER.test(b)), lo: part(c, `${c.name}|lo`, (b) => LOWER.test(b)) });
+  }
+  return halves.get(c);
+}
+// the calibration of a pair of rigs (by key: the same old rig and avatar give the same numbers)
+const calibrations = new Map();
+
+// A Rocketbox body driven by an old-rig character: `drv` is anything with the old rig's root
+// (model), its actions and blend weights, and what the hero's state says (speed, vehicle, aiming,
+// grounded, overlay, vel, yaw, legTwist, weapon, weaponNodes, posed, swimming); the hero is one,
+// every pedestrian another.
+export class RbBody {
+  // scene: the avatar (its own copy); clips: the Rocketbox clips; opts: { key (calibration cache),
+  // getupSecs (stretch the old rig's getting up to the time the motion capture takes) }
+  constructor(scene, clips, drv, opts = {}) {
+    this.drv = drv;
+    const player = drv;
+    this.model = scene;
     this.model.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
-        o.frustumCulled = false;
+        // (a skinned body's own bounds don't follow its pose: the hero is always drawn, a
+        // pedestrian is culled by a sphere round where a person stands)
+        if (!opts.cull) o.frustumCulled = false;
       }
     });
     const bone = (root, n) => root.getObjectByName(n);
@@ -166,22 +190,38 @@ export class RbHero {
     for (const b of rbBones) if (followed.has(b.name) && bone(player.model, followed.get(b.name))) this.pairs.push({ rb: b, old: followed.get(b.name), lower: LOWER.test(b.name) });
 
     // calibration: both rigs in their standing pose (frame 0 of each one's idle)
-    const oldIdle = player.actions.idle.getClip(), rbIdle = gltf.animations.find((a) => a.name === 'idle');
-    const oc = SkeletonUtils.clone(player.model), rc = SkeletonUtils.clone(this.model);
-    for (const [root, clip] of [[oc, oldIdle], [rc, rbIdle]]) {
-      const mx = new THREE.AnimationMixer(root);
-      mx.clipAction(clip).play();
-      mx.update(0);
+    let cal = opts.key && calibrations.get(opts.key);
+    if (!cal) {
+      const oldIdle = player.actions.idle.getClip(), rbIdle = clips.find((a) => a.name === 'idle');
+      const oc = SkeletonUtils.clone(player.model), rc = SkeletonUtils.clone(this.model);
+      for (const [root, clip] of [[oc, oldIdle], [rc, rbIdle]]) {
+        const mx = new THREE.AnimationMixer(root);
+        mx.clipAction(clip).play();
+        mx.update(0);
+      }
+      const oldB = [], rcB = [];
+      oc.traverse((o) => o.isBone && oldB.push(o));
+      rc.traverse((o) => o.isBone && rcB.push(o));
+      const o0 = rootSpace(oc, oldB), r0 = rootSpace(rc, rcB);
+      cal = { c: new Map(), hip0: { old: o0.hips.p.clone(), rb: r0.Bip01_Pelvis.p.clone(), k: r0.Bip01_Pelvis.p.y / o0.hips.p.y } };
+      for (const pr of this.pairs) cal.c.set(pr.rb.name, o0[pr.old].q.clone().invert().multiply(r0[pr.rb.name].q));
+      if (opts.key) calibrations.set(opts.key, cal);
     }
-    const oldB = [], rcB = [];
-    oc.traverse((o) => o.isBone && oldB.push(o));
-    rc.traverse((o) => o.isBone && rcB.push(o));
-    const o0 = rootSpace(oc, oldB), r0 = rootSpace(rc, rcB);
-    for (const pr of this.pairs) pr.c = o0[pr.old].q.clone().invert().multiply(r0[pr.rb.name].q);
-    this.hip0 = { old: o0.hips.p.clone(), rb: r0.Bip01_Pelvis.p.clone(), k: r0.Bip01_Pelvis.p.y / o0.hips.p.y };
+    for (const pr of this.pairs) pr.c = cal.c.get(pr.rb.name);
+    this.hip0 = cal.hip0;
 
     // the Rocketbox body sits in the hero's model, so the lean, the car seat, the bike all carry it
     player.model.add(this.model);
+    if (opts.cull) {
+      // culled by a sphere round where a person stands, in the old body's space (the avatar's
+      // meshes sit in centimetres under a 0.01 scale: the sphere is taken into theirs)
+      player.model.updateMatrixWorld(true);
+      this.model.traverse((o) => {
+        if (!o.isMesh) return;
+        const to = o.matrixWorld.clone().invert().multiply(player.model.matrixWorld);
+        o.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0).applyMatrix4(to), 1.4 * to.getMaxScaleOnAxis());
+      });
+    }
     // the old body, hair, outfits and shoes go (kept hidden every frame: the barber and the clothes
     // shops still switch their parts on)
     this.retired = [];
@@ -212,19 +252,11 @@ export class RbHero {
     this.bones = rbBones;
     this.clean = rbBones.map((b) => ({ q: b.quaternion.clone(), p: b.position.clone() }));
     this.acts = {}; // name -> { up, lo, dur }
-    for (const c of gltf.animations) {
-      // the gait clips walk on the spot, but some keep a drift of the pelvis over the cycle (it
-      // would run ahead and snap back each loop): take that drift out, keep the bob and sway
-      const pt = GAITS[c.name] && c.tracks.find((t) => t.name === 'Bip01_Pelvis.position');
-      if (pt) {
-        const v = pt.values, n = pt.times.length, dur = pt.times[n - 1] - pt.times[0] || 1;
-        const d = [0, 1, 2].map((k) => v[(n - 1) * 3 + k] - v[k]);
-        for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) v[i * 3 + k] -= (d[k] * (pt.times[i] - pt.times[0])) / dur;
-      }
+    this.live = new Set(); // the actions on the mixer (the ones with a share)
+    for (const c of clips) {
+      const both = split(c);
       const mk = (half) => {
-        const a = this.mixer.clipAction(part(c, `${c.name}|${half}`, half === 'lo' ? (b) => LOWER.test(b) : (b) => !LOWER.test(b)));
-        a.play();
-        a.setEffectiveWeight(0);
+        const a = this.mixer.clipAction(both[half]);
         if (SYNCED.includes(c.name) || GAITS[c.name]) a.timeScale = 0;
         // the stance: the trunk and arms bob to and fro, the feet hold still
         if (c.name === 'guard' && half === 'up') a.setLoop(THREE.LoopPingPong, Infinity);
@@ -235,7 +267,7 @@ export class RbHero {
     }
     // getting up from the ground is motion capture of a man doing it: give it the time it takes
     const gu = player.actions.getup;
-    if (gu && this.acts.getup) gu.timeScale = gu.getClip().duration / Math.max(gu.getClip().duration, GETUP_SECS);
+    if (opts.getupSecs && gu && this.acts.getup) gu.timeScale = gu.getClip().duration / Math.max(gu.getClip().duration, opts.getupSecs);
     this.phase = 0;
     this.shares = {};
     this.gunBase = new Map();
@@ -257,7 +289,7 @@ export class RbHero {
   // where the pelvis goes (in its parent's space) to sit where the old rig's hips are, the move
   // from the standing pose scaled to this body (the model's world matrices up to date)
   hipsAt(out) {
-    const root = this.player.model;
+    const root = this.drv.model;
     out.setFromMatrixPosition(this.oldBones.hips.matrixWorld);
     root.worldToLocal(out);
     out.sub(this.hip0.old).multiplyScalar(this.hip0.k).add(this.hip0.rb);
@@ -270,7 +302,7 @@ export class RbHero {
   // pose for what it's doing: a fist in a fight, the grip and the trigger finger on a gun, a grip on
   // the bars and the wheel, a flat hand swimming, else loosely curled
   posture(dt) {
-    const P = this.player, u = this.shares.up, sh = (...ns) => Math.min(1, ns.reduce((a, n) => a + (u[n] || 0), 0));
+    const P = this.drv, u = this.shares.up, sh = (...ns) => Math.min(1, ns.reduce((a, n) => a + (u[n] || 0), 0));
     const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming && Object.values(P.weaponNodes || {}).some((w) => w.visible);
     const want = {
       grip: this.grip > 0.5 ? 1 : 0,
@@ -329,8 +361,9 @@ export class RbHero {
     return false;
   }
 
-  update(dt) {
-    const P = this.player;
+  // detail: the fingers too (up close)
+  update(dt, detail = true) {
+    const P = this.drv;
     for (const o of this.retired) o.visible = false;
     // -------------------------------------------------- the weights, from the hero's state machine
     // each half of the body: { clip: weight }, the gait's share, and what follows the old rig
@@ -371,7 +404,20 @@ export class RbHero {
       for (const n of [...Object.keys(this.acts), FOLLOW]) sm[n] = (sm[n] || 0) + (want(n) - (sm[n] || 0)) * ease;
       // the clips share what doesn't follow the old rig; with none, the idle holds the pose
       const own = 1 - sm[FOLLOW];
-      for (const [n, a] of Object.entries(this.acts)) a[key].setEffectiveWeight(own > 1e-4 ? sm[n] / own : n === 'idle' ? 1 : 0);
+      for (const [n, a] of Object.entries(this.acts)) {
+        // (a clip with no share is taken off the mixer altogether: a crowd of these is costly)
+        const w = own > 1e-4 ? sm[n] / own : n === 'idle' ? 1 : 0, act = a[key];
+        if (w > 1e-4) {
+          if (!this.live.has(act)) {
+            act.play();
+            this.live.add(act);
+          }
+          act.setEffectiveWeight(w);
+        } else if (this.live.has(act)) {
+          act.stop();
+          this.live.delete(act);
+        }
+      }
       total[key] = sm[FOLLOW];
     }
     // -------------------------------------------------- the clips' times
@@ -415,21 +461,22 @@ export class RbHero {
         b.updateMatrixWorld(true);
       }
     }
-    // in the water the library's swim clips keep the hips at standing height: the body sits where
-    // the hero's own rig puts his hips (just under the surface)
-    const wade = Math.min(1, (this.shares.lo.swim || 0) + (this.shares.lo.tread || 0));
+    // in the water the library's swim clips keep the hips at standing height, and the sitting ones
+    // sit at their own height: the body goes where the old rig puts its hips (just under the
+    // surface; on the seat the game picked for it)
+    const sl = this.shares.lo, wade = Math.min(1, (sl.swim || 0) + (sl.tread || 0) + (sl.sittalk || 0) + (sl.sitlisten || 0));
     if (wade > 0.01) {
       P.model.updateMatrixWorld(true);
       this.pelvis.position.lerp(this.hipsAt(_p), wade);
     }
 
     // -------------------------------------------------- following the old rig where it has to
-    const root = P.model;
-    root.updateMatrixWorld(true);
-    const rootInvQ = root.getWorldQuaternion(new THREE.Quaternion()).invert();
-    const rq = new Map();
-    const parentQ = (b) => rq.get(b.parent) || rootInvQ.clone().multiply(b.parent.getWorldQuaternion(new THREE.Quaternion()));
     if (total.up > 0.001 || total.lo > 0.001) {
+      const root = P.model;
+      root.updateMatrixWorld(true);
+      const rootInvQ = root.getWorldQuaternion(new THREE.Quaternion()).invert();
+      const rq = new Map();
+      const parentQ = (b) => rq.get(b.parent) || rootInvQ.clone().multiply(b.parent.getWorldQuaternion(new THREE.Quaternion()));
       for (const pr of this.pairs) {
         const f = pr.lower ? total.lo : total.up;
         const pq = parentQ(pr.rb);
@@ -449,9 +496,16 @@ export class RbHero {
     // each hand), the gun sits in the new one as it sat in the old. Hands that hold on (the bars,
     // the wheel, the front grip of a two-handed gun) are reached to the old hand's place, moved the
     // same way (two-bone IK)
+    const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming;
+    // (nothing held, nothing to fit: most people on the street)
+    if (!armed && !P.vehicle && !(this.grip > 0.01) && !(this.support > 0.01)) {
+      this.grip = this.support = 0;
+      this.model.position.y = 0;
+      if (detail) this.posture(dt);
+      return;
+    }
     this.model.updateMatrixWorld(true);
     const X = palmFrame(this.palms.rb, this._X).multiply(palmFrame(this.palms.old, _m2).invert());
-    const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming;
     const gun = armed && Object.values(P.weaponNodes || {}).find((w) => w.visible);
     // the gun first: it goes where the right palm is
     const oh = this.oldBones.handR;
@@ -496,6 +550,13 @@ export class RbHero {
       arm.hand.getWorldQuaternion(_q2).slerp(_q, k);
       setWorldQuaternion(arm.hand, _q2);
     }
-    this.posture(dt);
+    if (detail) this.posture(dt);
+  }
+}
+
+// the hero: the avatar of rb_hero.glb with its clips, driven by the player
+export class RbHero extends RbBody {
+  constructor(gltf, player) {
+    super(gltf.scene, gltf.animations, player, { key: 'hero', getupSecs: GETUP_SECS });
   }
 }

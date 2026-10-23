@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { prepareCharacter, retargetClips, chooseOutfit } from './materials.js';
+import { RbBody } from './rbhero.js';
 
 const _door = new THREE.Vector3();
 // states in which a person stays put (sitting, chatting, lying, in a car, boarding one)
@@ -16,6 +17,13 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const UNIFORM = { Shirt: new THREE.Color('#25427e'), Denim: new THREE.Color('#161d2c'), Sneaker: new THREE.Color('#121212'), Hair: new THREE.Color('#1a1410') };
 const COP_RUN = 4.3;
+// how high a Rocketbox avatar's pelvis stands in its rest pose (in the avatar's own space)
+function pelvisHeight(scene) {
+  const pel = scene.getObjectByName('Bip01_Pelvis');
+  scene.updateMatrixWorld(true);
+  const p = pel.getWorldPosition(new THREE.Vector3());
+  return scene.worldToLocal(p).y;
+}
 
 const SKIN = ['#7a4a30', '#a8714c', '#c99069', '#e6b897', '#f2cfb0', '#5c3a26'];
 const OUTFIT = {
@@ -55,15 +63,24 @@ class AnimSet {
   update(dt, rate = 12) {
     const k = 1 - Math.exp(-rate * dt);
     for (const n in this.actions) {
-      this.weights[n] += ((this.target[n] || 0) - this.weights[n]) * k;
-      this.actions[n].setEffectiveWeight(this.weights[n]);
+      const a = this.actions[n], t = this.target[n] || 0;
+      this.weights[n] += (t - this.weights[n]) * k;
+      // (faded right out: off the mixer, back on when wanted; a crowd of these is costly)
+      if (!t && this.weights[n] < 1e-3) {
+        this.weights[n] = 0;
+        if (a.isScheduled()) a.stop();
+        continue;
+      }
+      if (!a.isScheduled()) a.play();
+      a.setEffectiveWeight(this.weights[n]);
     }
     this.mixer.update(dt);
   }
 }
 
 export class Peds {
-  constructor(scene, city, heroGltf, models, vehicles) {
+  // rb (optional): the Rocketbox people, { clips, avatars: { male: [{ name, scene }], female, police } }
+  constructor(scene, city, heroGltf, models, vehicles, rb = null) {
     this.scene = scene;
     this.city = city;
     this.vehicles = vehicles;
@@ -83,6 +100,15 @@ export class Peds {
     this.modelClips.police = retargetClips(this.clips, heroGltf.scene, models.police.scene);
     this.onCrime = null; // (type, ped) => void
     this.drivers = []; // NPCs sitting in moving traffic (not part of the street crowd)
+    // the Rocketbox people (src/rbhero.js): each one's old body still runs, unseen, and a Rocketbox
+    // avatar follows it with the hero's motion capture (fights, falls, getting up, walking...)
+    this.rb = rb && Object.values(rb.avatars).some((l) => l.length) ? rb : null;
+    this.rbClips = new Map(); // avatar -> the clips, the pelvis at its own height
+    if (this.rb) {
+      this.rb.byName = {};
+      for (const l of Object.values(this.rb.avatars)) for (const a of l) this.rb.byName[a.name] = a;
+      this.rb.heroPelvis = pelvisHeight(this.rb.hero);
+    }
     for (const m of Object.values(models)) prepareCharacter(m.scene);
     this.cashMat = new THREE.MeshStandardMaterial({ color: 0x5fae5a, emissive: 0x2f8a2a, emissiveIntensity: 0.6, roughness: 0.6 });
     this.bandMat = new THREE.MeshStandardMaterial({ color: 0xf2e6c4, roughness: 0.7 });
@@ -117,6 +143,50 @@ export class Peds {
       if (o) o.visible = false;
     }
     return root;
+  }
+
+  // the clips for one avatar: the hero's, with the pelvis track scaled to this body's height
+  rbClipsFor(av) {
+    if (!this.rbClips.has(av)) {
+      const k = pelvisHeight(av.scene) / this.rb.heroPelvis;
+      this.rbClips.set(av, Math.abs(k - 1) < 0.005 ? this.rb.clips : this.rb.clips.map((c) => new THREE.AnimationClip(c.name, c.duration, c.tracks.map((t) => {
+        if (t.name !== 'Bip01_Pelvis.position') return t;
+        const u = t.clone();
+        for (let i = 0; i < u.values.length; i++) u.values[i] *= k;
+        return u;
+      }))));
+    }
+    return this.rbClips.get(av);
+  }
+
+  // dress an old body (a pedestrian or a driver: o.body, o.anim) in a Rocketbox avatar; avatar: a
+  // particular one by name (the mission contacts), else one of its kind at random
+  rbAttach(o, kind, avatar) {
+    if (!this.rb) return;
+    const av = (avatar && this.rb.byName[avatar]) || pick(this.rb.avatars[kind]?.length ? this.rb.avatars[kind] : this.rb.avatars.male);
+    const gun = o.body.userData.gun;
+    o.rbDrv = {
+      model: o.body, actions: o.anim.actions, weights: o.anim.weights, speed: 0, vehicle: null, aiming: false, grounded: true, overlay: null,
+      vel: new THREE.Vector3(), yaw: 0, legTwist: 0, weapon: null, weaponNodes: gun ? { Weapon_Pistol: gun } : {}, posed: false, swimming: false,
+    };
+    o.rb = new RbBody(SkeletonUtils.clone(av.scene), this.rbClipsFor(av), o.rbDrv, { key: kind + '|' + av.name, cull: true });
+    o.rb.avatar = av.name;
+    const meshes = [];
+    o.rb.model.traverse((m) => m.isMesh && meshes.push(m));
+    o.body.userData.meshes = meshes;
+  }
+
+  // the avatar after the old body has moved (o: a pedestrian or a driver)
+  rbUpdate(o, dt, v = null, near = true) {
+    const d = o.rbDrv;
+    d.speed = o.cur || 0;
+    d.vehicle = v;
+    d.aiming = !!o.aimingGun;
+    // (a gunman gets his pistol later, put in the old hand: the new hand takes it from there)
+    const gun = o.body.userData.gun;
+    d.weaponNodes = gun ? { Weapon_Pistol: gun } : {};
+    d.weapon = gun && gun.visible ? 'pistol' : null;
+    o.rb.update(dt, near);
   }
 
   cornerPoint(bi, bj, k, w) {
@@ -231,7 +301,7 @@ export class Peds {
     }
   }
 
-  add(kind, x, z, yaw) {
+  add(kind, x, z, yaw, avatar = null) {
     const female = kind === 'female';
     const body = this.makeBody(kind);
     const scale = (female ? 0.94 : 1) * (0.95 + Math.random() * 0.1);
@@ -242,6 +312,7 @@ export class Peds {
       speed: 1.1 + Math.random() * 0.45, cur: 0, bi: 0, bj: 0, k: 0, dir: 1, w: 2.5, points: [],
       state: 'walk', timer: 0, vel: new THREE.Vector3(), scale, hits: 0, overlay: null, attackTimer: 1, female, cop: kind === 'police',
     };
+    this.rbAttach(p, kind, avatar);
     this.list.push(p);
     return p;
   }
@@ -324,6 +395,7 @@ export class Peds {
     anim.target = { [clip]: 1 };
     for (const n in anim.weights) anim.weights[n] = n === clip ? 1 : 0;
     const d = { body, anim, v, kind };
+    this.rbAttach(d, kind);
     this.drivers.push(d);
     v.npcDriver = d;
     return d;
@@ -347,6 +419,7 @@ export class Peds {
         continue;
       }
       d.anim.update(dt, 10);
+      if (d.rb) this.rbUpdate(d, dt, d.v);
     }
   }
 
@@ -891,6 +964,15 @@ export class Peds {
     a.actions.walk.timeScale = (p.cur / (1.36 * p.scale)) * this.clips.walk.duration;
     a.actions.run.timeScale = (p.cur / (2.3 * p.scale)) * this.clips.run.duration;
     if (dist < 60 || (p.tick = (p.tick || 0) + 1) % 3 === 0) a.update(dist < 60 ? dt : dt * 3, p.overlay || p.state === 'down' ? 18 : 10);
+    // the avatar: every frame up close, less often further off (the time it missed added on)
+    if (p.rb) {
+      p.rbDt = (p.rbDt || 0) + dt;
+      const every = dist < 25 ? 1 : dist < 60 ? 2 : 4;
+      if ((p.rbTick = (p.rbTick || 0) + 1) % every === 0) {
+        this.rbUpdate(p, p.rbDt, p.state === 'riding' ? p.vehicle : null, dist < 15);
+        p.rbDt = 0;
+      }
+    }
   }
 
   updateCash(dt, player) {

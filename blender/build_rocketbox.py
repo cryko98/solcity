@@ -14,9 +14,12 @@ import bpy, math, os, sys
 
 args = sys.argv[sys.argv.index("--") + 1:]
 ROOT, AVATAR, OUT = os.path.abspath(args[0]), args[1], os.path.abspath(args[2])
-CLIPS = dict(a.split("=") for a in args[3:])  # game name -> library clip
+OPTS = {"tex", "img"}  # tex=<px> (largest texture side), img=jpeg|webp (webp keeps the hair's alpha)
+PAIRS = dict(a.split("=", 1) for a in args[3:])
+CLIPS = {g: c for g, c in PAIRS.items() if g not in OPTS}  # game name -> library clip (none: the body alone)
 RB = os.path.join(ROOT, "vendor", "rocketbox")
-TEX = 1024
+TEX = int(PAIRS.get("tex", 1024))
+IMG = PAIRS.get("img", "jpeg").upper()
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.fbx(filepath=os.path.join(RB, AVATAR, AVATAR + ".fbx"), automatic_bone_orientation=False)
@@ -54,7 +57,7 @@ for mat in body.data.materials:
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     nt.links.new(bsdf.outputs[0], out.inputs[0])
     if col:
-        t = nt.nodes.new("ShaderNodeTexImage")
+        t = t_col = nt.nodes.new("ShaderNodeTexImage")
         t.image = col
         nt.links.new(t.outputs["Color"], bsdf.inputs["Base Color"])
     if nor:
@@ -80,6 +83,15 @@ for mat in body.data.materials:
         nt.links.new(t.outputs["Color"], bsdf.inputs["Roughness"])
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Specular IOR Level"].default_value = 0.4 if part == "head" else 0.15
+    if part == "opacity" and col:
+        # hair and lashes: cut out by the texture's alpha (rounded: glTF's alpha mask, no sorting)
+        rnd = nt.nodes.new("ShaderNodeMath")
+        rnd.operation = "ROUND"
+        nt.links.new(t_col.outputs["Alpha"], rnd.inputs[0])
+        nt.links.new(rnd.outputs[0], bsdf.inputs["Alpha"])
+        bsdf.inputs["Roughness"].default_value = 0.75
+        if hasattr(mat, "surface_render_method"):
+            mat.surface_render_method = "DITHERED"
 
 # the clips. The library's animation files carry their own Bip01 skeleton, with the same bone
 # lengths but a different rest pose (a T-pose, the avatars stand in an A-pose), so an action can't
@@ -177,7 +189,7 @@ for pb in ordered:
     pb.rotation_mode = "QUATERNION"
 rest_rel = {pb.name: ((pb.parent.bone.matrix_local.inverted() @ pb.bone.matrix_local) if pb.parent else pb.bone.matrix_local).to_quaternion() for pb in ordered}
 rig_q = rig.matrix_world.to_quaternion()
-idle_act = next(a for a in keep if a.name == "idle")
+idle_act = next((a for a in keep if a.name == "idle"), None)
 
 PEL = "Bip01 Pelvis"
 
@@ -227,12 +239,13 @@ def retarget(game_name, src, bmap, C, pel0, hip_k, frames, G=Q()):
     tr.mute = True
     print("CLIP", game_name, src.name, (frames[0], frames[-1]))
 
-# the Rocketbox rig standing at ease
-rig.animation_data.action = idle_act
-bpy.context.scene.frame_set(int(idle_act.frame_range[0]))
-R0 = world_pose(rig)
-rig.animation_data.action = None
-rig_face = facing(R0, "Bip01 L Thigh", "Bip01 R Thigh")
+# the Rocketbox rig standing at ease (a body built without clips has nothing to retarget)
+if idle_act:
+    rig.animation_data.action = idle_act
+    bpy.context.scene.frame_set(int(idle_act.frame_range[0]))
+    R0 = world_pose(rig)
+    rig.animation_data.action = None
+    rig_face = facing(R0, "Bip01 L Thigh", "Bip01 R Thigh")
 
 for key in sorted({v.split(":")[0] for v in CLIPS.values() if ":" in v} - {"cmu"}):
     path, idle_name = SOURCES[key]
@@ -350,6 +363,6 @@ for a in list(bpy.data.actions):
 bpy.context.view_layer.objects.active = rig
 bpy.ops.export_scene.gltf(
     filepath=OUT, export_format="GLB", export_animations=True, export_animation_mode="NLA_TRACKS",
-    export_image_format="JPEG", export_jpeg_quality=88, export_skins=True, export_yup=True,
+    export_image_format=IMG, export_jpeg_quality=88, export_image_quality=85, export_skins=True, export_yup=True,
 )
 print("EXPORTED", OUT, os.path.getsize(OUT))

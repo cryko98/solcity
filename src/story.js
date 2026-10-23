@@ -202,19 +202,19 @@ const SCRIPT = {
 
 const CONTACTS = [
   {
-    id: 'rosa', name: 'ROSA', letter: 'R', room: 'cafe', kind: 'female', color: '#ff8ab8', voice: 300,
+    id: 'rosa', name: 'ROSA', letter: 'R', room: 'cafe', kind: 'female', avatar: 'Female_Adult_03', color: '#ff8ab8', voice: 300,
     outfit: { Skin: '#a8714c', Shirt: '#b0203a', Denim: '#1c1c22', Hair: '#120c08', Sneaker: '#2a2a2a', wear: 'female_casualsuit01' },
   },
   {
-    id: 'vince', name: 'VINCE', letter: 'V', room: 'office', kind: 'male', color: '#ffd23f', voice: 115,
+    id: 'vince', name: 'VINCE', letter: 'V', room: 'office', kind: 'male', avatar: 'Business_Male_02', color: '#ffd23f', voice: 115,
     outfit: { Skin: '#e6b897', Shirt: '#ece6da', Denim: '#24242a', Hair: '#16100c', Sneaker: '#121212', wear: 'male_elegantsuit01' },
   },
   {
-    id: 'diaz', name: 'DIAZ', letter: 'D', room: 'interview', kind: 'police', color: '#6fb7ff', voice: 210,
+    id: 'diaz', name: 'DIAZ', letter: 'D', room: 'interview', kind: 'police', avatar: 'Police_Female_01', color: '#6fb7ff', voice: 210,
     outfit: { Skin: '#7a4a30', Hair: '#0e0a08' },
   },
   {
-    id: 'zara', name: 'ZARA', letter: 'Z', room: 'penthouse', kind: 'female', color: '#ffd23f', voice: 260,
+    id: 'zara', name: 'ZARA', letter: 'Z', room: 'penthouse', kind: 'female', avatar: 'Business_Female_02', color: '#ffd23f', voice: 260,
     outfit: { Skin: '#d9a688', Shirt: '#f4efe6', Denim: '#15151a', Hair: '#c9a24a', Sneaker: '#151515', wear: 'female_elegantsuit01' },
   },
 ];
@@ -305,7 +305,7 @@ export class Story {
     c.stand = { x: x0 + c.t, z: z0 + 1.05 }; // marker in front of it
     c.roomData = this.rooms[c.room];
     const h = c.roomData.home;
-    const p = this.peds.add(c.kind, h.x, h.z, Math.PI);
+    const p = this.peds.add(c.kind, h.x, h.z, Math.PI, c.avatar); // (each one the same Rocketbox avatar every time)
     p.hipsRest = p.body.getObjectByName('hips').position.y; // rest pose, before any animation moves it
     p.state = 'contact';
     p.keep = true;
