@@ -1,19 +1,19 @@
 """
 A contact sheet of recorded trailer frames, to look the cut over without playing it:
   blender -b --factory-startup -P trailer/sheet.py -- <repo root> <out.png> <frame> [frame ...]
-(frames: captures/trailer/hype3_NNNNN.jpg; each tile labelled with its frame number)
+(frames: captures/trailer/hype3_NNNNN.jpg, or any file name in captures/trailer)
 """
 import bpy, os, sys
 import numpy as np
 
 args = sys.argv[sys.argv.index("--") + 1:]
-ROOT, OUT, frames = os.path.abspath(args[0]), args[1], [int(a) for a in args[2:]]
+ROOT, OUT, frames = os.path.abspath(args[0]), args[1], [int(a) if a.isdigit() else a for a in args[2:]]
 TW, TH, COLS = 480, 270, 4
 rows = (len(frames) + COLS - 1) // COLS
 sheet = np.zeros((rows * TH, COLS * TW, 4), dtype=np.float32)
 sheet[..., 3] = 1
 for i, f in enumerate(frames):
-    p = os.path.join(ROOT, "captures", "trailer", f"hype3_{f:05d}.jpg")
+    p = os.path.join(ROOT, "captures", "trailer", f"hype3_{f:05d}.jpg" if isinstance(f, int) else f)
     if not os.path.exists(p):
         continue
     img = bpy.data.images.load(p)

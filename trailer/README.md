@@ -32,3 +32,11 @@ Everything sits on one grid: 90 BPM, a beat is 20 frames at 30 fps. The shots in
 counted in beats, and so are the narrator's lines (`NARRATION`) and each shot's effects (`sfx`); the
 recorder writes them all to `captures/trailer/hype3_cues.json` for the mixer. The score was generated
 longer (117 s); `mix.mjs` keeps bars 4–21, 26–29, 32–39 and 42–44 of it.
+
+## The cover and the banner
+
+`assets/branding/solcity_cover_v2_1x1` (2048², the box art) and `solcity_banner_3x1` (3072×1024) are the
+main logo (`solcity_logo_c.png`) over stills from the game: shot with `captures/covershots.js` (hero, jump,
+chaseRight, heli, blast, crew, wreck, nitro), repainted as key art one by one with `paint.mjs` (Nano Banana
+Pro on fal.ai: same framing, same people and cars) and laid out with `makeCover` in `captures/cover.js`
+(the banner's panels are slanted polygons). The 180–512 px icons are the cover, scaled down.
