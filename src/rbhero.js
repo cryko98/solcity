@@ -24,6 +24,7 @@ const BLEND = 0.07; // (s) how quickly a change of clip blends in
 const FOLLOW = '(follow)';
 const SEAT_DROP = 0.05; // (m)
 const GETUP_SECS = 2.4;
+const ROOF_ROOM = 0.08; // (m) between the top of the head and the outside of a car's roof
 // where the left palm's middle goes on a pistol held in two hands (the gun's own space: +z the
 // muzzle, +y the top, +x its left): against the left of the grip, over the right hand's fingers
 const PISTOL_PALM = new THREE.Vector3(0.04, -0.055, 0.0);
@@ -294,6 +295,7 @@ export class RbBody {
     root.worldToLocal(out);
     out.sub(this.hip0.old).multiplyScalar(this.hip0.k).add(this.hip0.rb);
     root.localToWorld(out);
+    out.y -= this.seatDrop || 0; // (sat deeper in a car: see underRoof)
     return this.pelvis.parent.worldToLocal(out);
   }
 
@@ -354,6 +356,22 @@ export class RbBody {
     const wrist = _cp2.copy(PISTOL_PALM).applyMatrix4(gun.matrixWorld).sub(off.applyQuaternion(want));
     reach(arm.upper, arm.fore, arm.hand, _p2.setFromMatrixPosition(arm.hand.matrixWorld).lerp(wrist, k));
     setWorldQuaternion(arm.hand, arm.hand.getWorldQuaternion(_cq3).slerp(wantHand, k));
+  }
+
+  // how much deeper to sit so the top of the head stays a little under this vehicle's roof (0: room
+  // enough, or no roof at all: a bike, a convertible)
+  underRoof(v) {
+    const car = v.root || v.body;
+    if (!car || v.spec?.bike) return 0;
+    car.updateMatrixWorld(true);
+    this.model.updateMatrixWorld(true);
+    const head = this.model.getObjectByName('Bip01_Head')?.getWorldPosition(new THREE.Vector3());
+    if (!head) return 0;
+    const ray = new THREE.Raycaster(new THREE.Vector3(head.x, head.y + 3, head.z), new THREE.Vector3(0, -1, 0), 0, 3.05);
+    const hit = ray.intersectObject(car, true).find((h) => h.point.y > head.y && !this.isOurs(h.object) && !this.drv.model.getObjectById(h.object.id));
+    if (!hit) return 0;
+    // (the head bone sits at the top of the neck: the crown is about 0.2 m above it)
+    return THREE.MathUtils.clamp(head.y + 0.2 - (hit.point.y - ROOF_ROOM), 0, 0.25);
   }
 
   isOurs(o) {
@@ -499,7 +517,7 @@ export class RbBody {
     const armed = P.weapon && !P.vehicle && !P.posed && !P.swimming;
     // (nothing held, nothing to fit: most people on the street)
     if (!armed && !P.vehicle && !(this.grip > 0.01) && !(this.support > 0.01)) {
-      this.grip = this.support = 0;
+      this.grip = this.support = this.seatDrop = 0;
       this.model.position.y = 0;
       if (detail) this.posture(dt);
       return;
@@ -526,8 +544,16 @@ export class RbBody {
     const k8 = Math.min(1, dt * 8);
     this.grip = (this.grip || 0) + (seated - (this.grip || 0)) * k8;
     this.support = (this.support || 0) + (twoHanded - (this.support || 0)) * k8;
-    // and sat a little deeper: this head is a few cm higher than the old one, low roofs are close
-    this.model.position.y = (-SEAT_DROP * this.grip) / this.model.parent.getWorldScale(_s).y;
+    // and sat a little deeper: this head is a few cm higher than the old one, and under a low roof
+    // (a coupe, a sports car) as deep as it takes to keep the hair inside (measured once a car)
+    if (P.vehicle && this.grip > 0.9 && this.roofFor !== P.vehicle) {
+      this.roofFor = P.vehicle;
+      this.roofDrop = this.underRoof(P.vehicle);
+    }
+    const drop = SEAT_DROP + (P.vehicle ? this.roofDrop || 0 : 0);
+    this.model.position.y = (-drop * this.grip) / this.model.parent.getWorldScale(_s).y;
+    // (and for a body following the old rig, whose hips are placed in the world: next frame on)
+    this.seatDrop = drop * this.grip;
     for (const arm of this.arms) {
       const k = Math.max(this.grip, arm.side === 'L' ? this.support : 0);
       if (k < 0.01) continue;

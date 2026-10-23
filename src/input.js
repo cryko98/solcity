@@ -20,8 +20,13 @@ export class Input {
       this.dragging = false;
     });
 
+    // (where the browser refuses pointer lock for good, every click is a click)
+    document.addEventListener('pointerlockerror', () => (this.lockRefused = true));
     dom.addEventListener('mousedown', (e) => {
-      if (e.button === 0) this.pressedOnce.add('Mouse0');
+      // the click that takes the mouse (the first one in the game) is not a punch: the hero
+      // would start the game with his fists up
+      const taking = document.pointerLockElement !== dom && !this.lockRefused && !!dom.requestPointerLock;
+      if (e.button === 0 && !taking) this.pressedOnce.add('Mouse0');
       this.buttons.add(e.button);
       this.dragging = true;
       // pointer lock can be refused (e.g. embedded frames); mouse-drag look still works then
