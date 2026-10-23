@@ -4,17 +4,20 @@ an MP4 (H.264 + AAC) using Blender's video sequence editor. The music is "Vessel
 by tricksntraps (CC0, opengameart.org/content/free-rhythm-game-music-pack-1), 150 BPM, from
 bar 128 (204.8 s): the recorder cuts on that beat grid.
 
-  blender -b --factory-startup -P blender/encode_hype.py -- <root> [out.mp4]
+  blender -b --factory-startup -P blender/encode_hype.py -- <root> [out.mp4] [prefix] [music.wav] [start s]
+
+The second trailer (hype2.js): ... -- . SolCity_LastJob.mp4 hype2_ 4_the_lab.wav 253.41
 """
 import bpy, os, sys
 
 args = sys.argv[sys.argv.index("--") + 1:]
 ROOT = os.path.abspath(args[0])
 OUT = os.path.abspath(args[1]) if len(args) > 1 else os.path.join(ROOT, "SolCity_Hype.mp4")
-MUSIC = os.path.join(ROOT, "vendor", "music", "rhythm_pack", "9_vessel_of_eternity.wav")
-START = 128 * 4 * 60 / 150  # bar 128, in seconds
+PREFIX = args[2] if len(args) > 2 else "hype_"
+MUSIC = os.path.join(ROOT, "vendor", "music", "rhythm_pack", args[3] if len(args) > 3 else "9_vessel_of_eternity.wav")
+START = float(args[4]) if len(args) > 4 else 128 * 4 * 60 / 150  # bar 128, in seconds
 FRAMES = os.path.join(ROOT, "captures", "trailer")
-files = sorted(f for f in os.listdir(FRAMES) if f.startswith("hype_") and f.endswith(".jpg"))
+files = sorted(f for f in os.listdir(FRAMES) if f.startswith(PREFIX) and f.endswith(".jpg"))
 n = len(files)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)

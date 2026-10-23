@@ -205,6 +205,8 @@ export class Player {
   }
 
   enterVehicle(v) {
+    // (already in one: out of it first, so the way back out leads to the street, not that car)
+    if (this.vehicle) this.exitVehicle();
     this.swimming = false;
     this.vehicle = v;
     this.scene = this.object.parent;

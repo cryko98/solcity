@@ -284,6 +284,16 @@ tricksntraps (CC0, https://opengameart.org/content/free-rhythm-game-music-pack-1
 blender -b --factory-startup -P blender/encode_hype.py -- .
 ```
 
+`SolCity_LastJob.mp4` (80 s) is the second one, "The Last Job": the morning of a bank job (a contact's back
+room, the gym, the tattoo parlour, Ammu-Nation, the vault), the alarm, then every part of the game in fast
+cuts with glitch titles. Open http://localhost:8080/?hype2 (`?hype2&rec=9,43` re-records only those shots).
+It is cut to "The Lab" from the same pack (put `4_the_lab.wav` in `vendor/music/rhythm_pack/`) at 144 BPM
+from 253.41 s: a beat is 12.5 frames and the drop hits at 20 s.
+
+```bash
+blender -b --factory-startup -P blender/encode_hype.py -- . SolCity_LastJob.mp4 hype2_ 4_the_lab.wav 253.41
+```
+
 Music: "Cyberpunk Beat" by Disquantic, https://freesound.org/people/Disquantic/sounds/525290/ (CC0).
 People are built from Blender Studio's Human Base Meshes (CC0). The bundle is not in the repository
 (~100 MB): to rebuild the characters, download it from https://www.blender.org/download/demo/ and extract it to
