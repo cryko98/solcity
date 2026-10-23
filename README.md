@@ -53,6 +53,34 @@ M opens the map, N skips to the next night / morning, K changes the weather, P s
 weaker ones), H hides the help panel.
 Progress (money, guns, armour, time of day) is saved in the browser every 10 seconds.
 
+## Phones and tablets
+
+The game is played in **landscape**: held upright it pauses behind a "rotate your phone" screen. The first tap
+goes full screen and locks landscape where the browser allows it (Android Chrome; on an iPhone, add the page to
+the home screen for a full-screen app). Phones start on LOW graphics.
+
+| Touch | |
+|---|---|
+| left thumb | joystick (appears where you touch); push it all the way out to sprint. In a car it steers |
+| right side | drag to look around, pinch to zoom |
+| FIRE | punch / shoot; keep the finger down and drag it to aim while firing |
+| AIM, JUMP, ROLL, CAR, USE, WEAPON, RELOAD | on foot |
+| GAS, BRAKE, DRIFT, EXIT, NITRO, HORN, RADIO, JOB | in a car |
+| MAP, FULL, GFX | the top row: city map, full screen, graphics quality |
+
+Shop and paint-shop menus: tap a row to buy. Story scenes: tap to move the dialogue on. The small letter on a
+button is the keyboard key the game's hints talk about (USE is E, CAR is F, JOB is T). Code: `src/touch.js`.
+
+## Multiplayer lobby
+
+The title screen has **PLAY SOLO** and **MULTIPLAYER LOBBY**. In the lobby players pick a name and join the
+public lobby, or create a private room and send its 5-letter code to their friends. Everybody sees who is in the
+room, can chat and says READY; the host presses START, and after a 5-second countdown the game starts for the
+whole room at once. The city itself is still single-player: each player plays their own Sol City (no shared world
+yet). The lobby lives in the server's memory (`server/lobby.mjs`, used by both `server.js` and
+`server/index.mjs`): no database, no accounts, nothing to do with the rewards. Code: `src/lobby.js`; test:
+`node server/test-lobby.mjs`.
+
 ## Getting in and out
 
 F next to a car: the hero walks to the driver door (around the car if needed), opens it, drags out whoever
@@ -237,7 +265,6 @@ The sea itself: rolling swell, ripples, clear turquoise over the sand, deep blue
   mugging in progress. Help out for a reward.
 - DaCity ATMs stand outside the bank and the 24/7 stores: `E` shows your DaCity balance and payouts
   (only when the game runs on the Sol City server).
-- Phones and tablets get touch controls: a joystick under the left thumb, drag to look, buttons for the rest.
 
 ## Vigilante missions
 

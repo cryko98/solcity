@@ -155,6 +155,16 @@ Only the game: `/index.html`, `/src/`, `/assets/`, `/SolCity_Trailer.mp4`. Every
 (including `server/`, `.env`, the database, `.git`, `blender/`, `vendor/`) answers 404.
 `node test.mjs` checks this.
 
+## The multiplayer lobby
+
+`/api/lobby/` is where players gather before a game (`lobby.mjs`): rooms, names, ready, chat, and the
+host's START. It needs no wallet, keeps everything in memory (a restart empties it) and never touches the
+rewards or the database. Room updates go out as Server-Sent Events (`/api/lobby/events`, a long-lived
+GET with a ping every 15 s): the server sends `X-Accel-Buffering: no` so nginx passes them through at
+once; Caddy needs nothing. Limits: 8 players a room, 300 rooms, 20 joins a minute and 8 open streams
+per IP, chat 140 characters at most once every 0.8 s. Self-test: `node test-lobby.mjs` (no
+dependencies; `npm test` runs both tests).
+
 ## Day to day
 
 * **Database**: `server/data/rewards.sqlite`. Back it up (e.g. a daily `cp` while running

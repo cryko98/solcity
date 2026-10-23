@@ -37,7 +37,7 @@ import { DaCity } from './dacity.js';
 import { Safehouses } from './safehouses.js';
 import { StreetEvents } from './events.js';
 import { Bounties } from './bounty.js';
-import { TouchControls, isTouch } from './touch.js';
+import { TouchControls, isTouch, isPhone } from './touch.js';
 import { CarEntry } from './carentry.js';
 
 const loadingBar = document.getElementById('loading-bar');
@@ -566,7 +566,7 @@ try {
   // saved by name (older saves kept an index into the list before ULTRA was added)
   const byName = QUALITY.findIndex((q) => q.name === localStorage.getItem('solcity.gfx'));
   const old = parseInt(localStorage.getItem('solcity.quality'), 10);
-  quality = byName >= 0 ? byName : Number.isFinite(old) ? Math.min(QUALITY.length - 1, old + 1) : 1;
+  quality = byName >= 0 ? byName : Number.isFinite(old) ? Math.min(QUALITY.length - 1, old + 1) : isPhone() ? 3 : 1; // phones start on LOW
 } catch {}
 function setQuality(q, announce, auto = false) {
   if (!auto) autoQuality = false;
@@ -747,6 +747,7 @@ function frame() {
   const raw = clock.getDelta();
   const dt = Math.min(raw, 1 / 20);
   if (window.__trailer) return; // the trailer recorder steps the game itself
+  if (window.__paused) return; // a phone held upright (src/touch.js)
   measure(raw);
   step(dt);
   renderFrame();
