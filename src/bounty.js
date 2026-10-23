@@ -1,4 +1,4 @@
-// Bounty hunting: a notice board outside the Downtown precinct (next to Lt. Diaz's door).
+// Bounty hunting: a notice board outside the Downtown precinct (next to Diaz's law office).
 // Take a bounty and the board tells you roughly where the man was last seen (a yellow area
 // blip). Get close and he either runs or pulls a gun. Bring him in alive (knock him down
 // with your fists, walk up, E to cuff him) for the full price; shot or run over, half.

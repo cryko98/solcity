@@ -70,8 +70,8 @@ const PAGES = {
   STORY: () => `
     <h3>Fifteen missions, one story</h3>
     <ul>
-      <li>Nico helps Little Havana, the docks and a crooked cop against the <b>Russo brothers</b>, and ends up working for <b>Zara</b>, the woman behind DaCity.</li>
-      <li>Four contacts give the jobs: <b>Rosa</b> (her cafe, Little Havana), <b>Vince</b> (the docks, Old Harbor), <b>Lt. Diaz</b> (Downtown precinct) and <b>Zara</b> (her penthouse, South Beach).</li>
+      <li>Nico helps Little Havana, the docks and a crooked lawyer against the <b>Russo brothers</b>, and ends up working for <b>Zara</b>, the woman behind DaCity.</li>
+      <li>Four contacts give the jobs: <b>Rosa</b> (her cafe, Little Havana), <b>Vince</b> (the docks, Old Harbor), <b>Diaz</b> (her law office, Downtown) and <b>Zara</b> (her penthouse, South Beach).</li>
       <li>On the map they are <b>person icons with their name</b>; the ones with work for you now also show on the edge of the minimap. Walk into the <b>yellow ring</b> at their door.</li>
       <li>Missions: beat-ups, timed deliveries, car thefts, chases, shoot-outs, a getaway… and at the end, <b>the bank job</b>.</li>
       <li>Follow the <b>yellow GPS line</b>; <kbd>Space</kbd> / a click moves the dialogue on. During a mission small crimes don't bring the police.</li>

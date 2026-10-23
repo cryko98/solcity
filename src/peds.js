@@ -947,6 +947,9 @@ export class Peds {
 
   animate(p, dt, dist) {
     const a = p.anim;
+    // (a contact in a cutscene is in a room of its own, far from where the street is being looked
+    // at, and always in close-up: hands and all)
+    if (p.state === 'talking') dist = 0;
     if (p.overlay) a.target = { [p.overlay.name]: 1 };
     else if (p.state === 'down') a.target = { knockdown: 1 };
     else if (p.cower && a.actions.handsup) a.target = { handsup: 1 }; // held up at gunpoint

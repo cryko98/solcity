@@ -5,7 +5,7 @@
 // brothers, and ends up working for Zara, who built DaCity, the city's new money.
 //   R  Rosa Marquez   - Little Havana, runs a cafe
 //   V  Vince Moretti  - Old Harbor, owns the docks
-//   D  Lt. Carla Diaz - Downtown, a cop on the take
+//   D  Carla Diaz     - Downtown, a lawyer who works both sides
 //   Z  Zara Vale      - South Beach penthouse, the woman behind DaCity
 // Where each mission happens comes from src/shared/world.mjs: the reward server checks a
 // finished mission against the same places. Progress is saved with the game.
@@ -75,8 +75,8 @@ const SCRIPT = {
   diaz1: {
     title: 'THE SNITCH', pay: 800, pose: 'sit',
     lines: [
-      ['DIAZ', "Relax. If I wanted to arrest you, you'd already be in cuffs."],
-      [PLAYER, 'Lieutenant. To what do I owe the pleasure?'],
+      ['DIAZ', "Sit down, Nico. I bill by the minute, so let's be quick."],
+      [PLAYER, 'Counselor. To what do I owe the pleasure?'],
       ['DIAZ', 'Eddie Pruitt. Russo errand boy, big mouth. Tomorrow he testifies, and my name comes up.'],
       ['DIAZ', "He's leaving town in a grey sedan. Right now."],
       [PLAYER, 'And you want him stopped.'],
@@ -87,10 +87,10 @@ const SCRIPT = {
     title: 'EVIDENCE', pay: 1000, pose: 'stand',
     lines: [
       ['DIAZ', 'Eddie decided to retire. Smart man.'],
-      ['DIAZ', 'One problem left. Internal Affairs found a bag of evidence at the Port of Sol.'],
+      ['DIAZ', "One problem left. The DA's people found a bag of evidence at the Port of Sol."],
       ['DIAZ', 'Grab it before they log it. Every cop on the radio will be after you.'],
-      [PLAYER, 'Your own guys?'],
-      ['DIAZ', "They don't know they work for me. Shake them off and bring the bag back here."],
+      [PLAYER, 'And you just happen to know where it is.'],
+      ['DIAZ', 'I know where everything is. Shake them off and bring the bag back here.'],
     ],
   },
   rosa3: {
@@ -124,7 +124,7 @@ const SCRIPT = {
     lines: [
       ['DIAZ', 'The Russos pay half the precinct. Every Friday a bagman drops cash on five corners.'],
       ['DIAZ', 'Today the bagman had an accident. The bags are still sitting there.'],
-      [PLAYER, 'And you want them picked up before your colleagues get there.'],
+      [PLAYER, 'And you want them picked up before the cops get there.'],
       ['DIAZ', 'Five bags, four minutes. After that the patrols roll by.'],
       ['DIAZ', 'Without that money the Russos lose the cops. Then they are just two rich brothers.'],
     ],
@@ -210,8 +210,8 @@ const CONTACTS = [
     outfit: { Skin: '#e6b897', Shirt: '#ece6da', Denim: '#24242a', Hair: '#16100c', Sneaker: '#121212', wear: 'male_elegantsuit01' },
   },
   {
-    id: 'diaz', name: 'DIAZ', letter: 'D', room: 'interview', kind: 'police', avatar: 'Police_Female_01', color: '#6fb7ff', voice: 210,
-    outfit: { Skin: '#7a4a30', Hair: '#0e0a08' },
+    id: 'diaz', name: 'DIAZ', letter: 'D', room: 'lawoffice', kind: 'female', avatar: 'Female_Adult_05', color: '#6fb7ff', voice: 210,
+    outfit: { Skin: '#b07a52', Shirt: '#e8e2d6', Denim: '#1a1c22', Hair: '#0e0a08', Sneaker: '#141414', wear: 'female_elegantsuit01' },
   },
   {
     id: 'zara', name: 'ZARA', letter: 'Z', room: 'penthouse', kind: 'female', avatar: 'Business_Female_02', color: '#ffd23f', voice: 260,

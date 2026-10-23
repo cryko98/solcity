@@ -798,8 +798,7 @@ export function buildCity(scene) {
     for (const [nx, nz, at] of sides) {
       for (const t of [9, 25, 41]) {
         const [x, z] = at(t);
-        props.lamp.push([x, z, faceYaw(nx, nz)]);
-        circle(x, z, 0.16);
+        props.lamp.push([x, z, faceYaw(nx, nz), circle(x, z, 0.16)]);
       }
       for (const t of [17, 33]) {
         const [x, z] = at(t);
@@ -1238,9 +1237,10 @@ export function buildCity(scene) {
     new THREE.BoxGeometry(0.08, 0.08, 1.7).translate(0, 6.95, 0.8),
     new THREE.CylinderGeometry(0.16, 0.2, 0.3, 8).translate(0, 0.15, 0),
   ]);
-  instanced(lampGeo, metalMat, props.lamp, ([x, z, yaw]) => at(x, CURB, z, yaw));
+  const lampPoles = instanced(lampGeo, metalMat, props.lamp, ([x, z, yaw]) => at(x, CURB, z, yaw));
   const lampHeadMat = nightEmissive(std({ color: 0xdedad0, emissive: 0xffd49a, roughness: 0.4 }), 0.1, 10);
-  instanced(new THREE.BoxGeometry(0.34, 0.12, 0.6).translate(0, 6.87, 1.55), lampHeadMat, props.lamp, ([x, z, yaw]) => at(x, CURB, z, yaw), false);
+  const lampHeadBoxes = instanced(new THREE.BoxGeometry(0.34, 0.12, 0.6).translate(0, 6.87, 1.55), lampHeadMat, props.lamp, ([x, z, yaw]) => at(x, CURB, z, yaw), false);
+  let lampPools, lampHalos;
   {
     const glow = (inner, outer) => {
       const c = document.createElement('canvas');
@@ -1261,6 +1261,7 @@ export function buildCity(scene) {
       at(x + Math.sin(yaw) * 1.7, CURB + 0.02, z + Math.cos(yaw) * 1.7, yaw, 15);
     }, false);
     pools.receiveShadow = false;
+    lampPools = pools;
     pools.renderOrder = 1;
     // soft halo around each lamp head
     const pos = new Float32Array(props.lamp.length * 3);
@@ -1276,7 +1277,7 @@ export function buildCity(scene) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
         .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vNear; gl_FragColor.rgb *= vNear;\n#include <premultiplied_alpha_fragment>');
     };
-    const halos = new THREE.Points(hg, haloMat);
+    const halos = (lampHalos = new THREE.Points(hg, haloMat));
     scene.add(halos);
     city.nightGlow.push({ mat: poolMat, k: 0.38 }, { mat: haloMat, k: 0.85 });
     // lamp head positions: the nearest ones get real point lights (Environment)
@@ -1374,20 +1375,32 @@ export function buildCity(scene) {
     bin: { min: 2, slow: 0.94, carry: 0.85, up: 3, tip: HALF_PI, lie: 0.28 },
     umbrella: { min: 1.5, slow: 0.97, carry: 0.9, up: 5, tip: 0.95, lie: 0 },
     light: { min: 4, slow: 0.78, carry: 0.35, up: 1.2, tip: HALF_PI, lie: 0.1 },
+    lamp: { min: 4, slow: 0.8, carry: 0.3, up: 1, tip: HALF_PI, lie: 0.12 },
   };
   const debris = [];
   function knockable(kinds, bulbMesh) {
     for (const [kind, meshes] of Object.entries(kinds)) {
       props[kind].forEach((it, k) => {
         const c = it.find((v) => v && v.type === 'circle');
-        if (c) c.prop = { kind, k, meshes, x: it[0], z: it[1], yaw: kind === 'light' || kind === 'umbrella' ? it[2] : 0, color: kind === 'umbrella' ? it[3] : null };
+        if (c) c.prop = { kind, k, meshes, x: it[0], z: it[1], yaw: kind === 'light' || kind === 'umbrella' || kind === 'lamp' ? it[2] : 0, color: kind === 'umbrella' ? it[3] : null };
       });
     }
     city.bulbs = bulbMesh;
   }
   const _km = new THREE.Matrix4(), _kz = new THREE.Matrix4().makeScale(0, 0, 0), _kq = new THREE.Quaternion(), _kv = new THREE.Vector3();
   const showInstances = (p, on) => {
-    const list = p.kind === 'light' ? [...p.meshes.map((m) => [m, p.k]), ...[0, 1, 2].map((b) => [city.bulbs, p.k * 3 + b])] : p.meshes.map((m) => [m, p.k]);
+    const list = p.meshes.map((m) => [m, p.k]);
+    if (p.kind === 'light') list.push(...[0, 1, 2].map((b) => [city.bulbs, p.k * 3 + b]));
+    if (p.kind === 'lamp') {
+      // its pool of light on the pavement, its halo, and the real light the nearest lamps get
+      list.push([lampPools, p.k]);
+      const h = city.lampHeads[p.k], hp = lampHalos.geometry.attributes.position;
+      if (!on) p.head ??= [h.x, h.z, hp.getY(p.k)];
+      h.x = on ? p.head[0] : 1e6;
+      h.z = on ? p.head[1] : 1e6;
+      hp.setY(p.k, on ? p.head[2] : -1e4);
+      hp.needsUpdate = true;
+    }
     for (const [m, k] of list) {
       if (!on) {
         m.getMatrixAt(k, _km);
@@ -1464,7 +1477,7 @@ export function buildCity(scene) {
       }
     }
   };
-  knockable({ hydrant: [hydrants], bin: [bins], umbrella: [umb, umbPoles], light: [poles] }, bulbs);
+  knockable({ hydrant: [hydrants], bin: [bins], umbrella: [umb, umbPoles], light: [poles], lamp: [lampPoles, lampHeadBoxes] }, bulbs);
   const BULB_ON = [new THREE.Color(0xff2a2a), new THREE.Color(0xffb020), new THREE.Color(0x2aff6a)];
   const BULB_OFF = [new THREE.Color(0x3a0d0d), new THREE.Color(0x3a2a08), new THREE.Color(0x0d3a14)];
   let lightState = -1;

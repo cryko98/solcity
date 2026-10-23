@@ -1,7 +1,7 @@
 // Interiors for the story cutscenes, built far outside the island (beyond the fog):
 //   cafe        Rosa's cafe in Little Havana: checkered floor, counter, tables, neon
 //   office      Vince's office in a dock warehouse: desk, crates, hanging lamp
-//   interview   an interview room at the precinct: steel table, mirror, one bulb
+//   lawoffice   Diaz's law office Downtown: walnut desk, law books, blinds, a banker's lamp
 //   penthouse   Zara's penthouse over South Beach: skyline window, DaCity screens, sofas, bar
 // Each room returns where its light bulbs are (the Environment lights them) and the
 // spots where the contact and the player sit or stand for the 'sit' and 'stand' scenes.
@@ -190,31 +190,62 @@ export function buildInteriors(scene) {
     r.home = r.world(1.6, 1.4);
   }
 
-  // ------------------------------------------------------------- interview room at the precinct
+  // ------------------------------------------------------------- Diaz's law office Downtown
   {
-    const r = room('interview', 1560, 7, 7, 3, {
-      wall: std({ color: 0x8c9590, roughness: 0.9 }), wall2: std({ color: 0x7c8580, roughness: 0.9 }),
-      ceiling: std({ color: 0x55595a, roughness: 0.9 }), floor: std({ map: checker('#3a3c3e', '#4a4c4e', 10), roughness: 0.8 }),
+    const panel = std({ map: planks('#3a2216'), roughness: 0.55 });
+    panel.map.repeat.set(3, 1);
+    const r = room('lawoffice', 1560, 8, 7, 3.2, {
+      wall: panel, wall2: std({ color: 0xe8e0cf, roughness: 0.9 }),
+      ceiling: std({ color: 0xf2efe8, roughness: 0.95 }), floor: std({ color: 0x5a1e22, roughness: 0.95 }),
     });
-    const steel = std({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.8 });
-    const dark = std({ color: 0x2a2c30, roughness: 0.5, metalness: 0.4 });
-    r.box(steel, 1.8, 0.05, 0.95, 0, 0.75, 0);
-    for (const [x, z] of [[-0.85, -0.42], [0.85, -0.42], [-0.85, 0.42], [0.85, 0.42]]) r.box(steel, 0.05, 0.75, 0.05, x, 0, z);
-    r.chair(dark, 0, 0.82, Math.PI);
-    r.chair(dark, 0, -0.82, 0);
-    // one-way mirror and a door
-    const mirror = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.2), std({ color: 0x101418, roughness: 0.05, metalness: 0.9 }));
-    mirror.position.set(3.45, 1.6, 0);
-    mirror.rotation.y = -Math.PI / 2;
-    r.group.add(mirror);
-    r.box(std({ color: 0x5a4a3a, roughness: 0.7 }), 1.0, 2.1, 0.06, -1.8, 0, 3.45);
-    // a file and a coffee cup on the table
-    r.box(std({ color: 0xd8c08a, roughness: 0.9 }), 0.25, 0.02, 0.33, 0.3, 0.8, 0.15, 0.2);
-    r.cyl(std({ color: 0xf2f2f2, roughness: 0.5 }), 0.045, 0.04, 0.1, -0.35, 0.8, -0.2, 10);
-    r.lights.push(r.bulb(0, 2.35, 0, dark));
-    r.arr.sit = { C: { ...r.world(0, 0.82), sit: true }, P: { ...r.world(0, -0.82), sit: true } };
-    r.arr.stand = { C: { ...r.world(-1.4, 1.6), sit: false }, P: { ...r.world(-0.6, 0.5), sit: false } };
-    r.home = r.world(-1.4, 1.6);
+    const walnut = std({ map: planks('#4a2a18'), roughness: 0.4 });
+    const leather = std({ color: 0x1e1410, roughness: 0.4 });
+    const brass = std({ color: 0xc9a24a, roughness: 0.3, metalness: 0.9 });
+    const paper = std({ color: 0xf2eee2, roughness: 0.9 });
+    // the desk, her chair behind it, a client's chair in front
+    r.box(walnut, 2.2, 0.06, 1.0, 0, 0.74, 0.6);
+    r.box(walnut, 2.1, 0.7, 0.06, 0, 0.04, 0.12);
+    r.box(walnut, 0.06, 0.74, 0.95, -1.05, 0, 0.6);
+    r.box(walnut, 0.06, 0.74, 0.95, 1.05, 0, 0.6);
+    r.chair(leather, 0, 1.45, Math.PI, brass);
+    r.box(leather, 0.52, 0.75, 0.08, 0, 0.95, 1.7);
+    r.chair(leather, 0, -0.45, 0, brass);
+    // on the desk: files, a banker's lamp, a pen set
+    r.box(paper, 0.3, 0.02, 0.4, 0.45, 0.8, 0.5, 0.25);
+    r.box(std({ color: 0xb8925a, roughness: 0.9 }), 0.32, 0.05, 0.42, 0.42, 0.82, 0.48, 0.2);
+    r.cyl(brass, 0.07, 0.09, 0.02, -0.65, 0.8, 0.75);
+    r.cyl(brass, 0.012, 0.012, 0.3, -0.65, 0.82, 0.75, 6);
+    r.box(std({ color: 0x1f6a3a, emissive: 0x2a5a30, emissiveIntensity: 0.4, roughness: 0.3 }), 0.34, 0.1, 0.14, -0.65, 1.1, 0.75);
+    // bookshelves along the back wall, the spines in law-book colours
+    const shelf = std({ map: planks('#2c180e'), roughness: 0.6 });
+    const spines = [0x5a1a1a, 0x1c2a4a, 0x2a3a22, 0x6a4a1a, 0x3a1a2a].map((c) => std({ color: c, roughness: 0.7 }));
+    for (const x of [-2.6, 2.6]) {
+      r.box(shelf, 1.6, 2.4, 0.4, x, 0, 3.25);
+      for (let k = 0; k < 4; k++) {
+        let bx = x - 0.7;
+        while (bx < x + 0.68) {
+          const w = 0.05 + ((bx * 97 + k * 13) % 0.04);
+          r.box(spines[Math.floor(Math.abs(bx * 31 + k * 7)) % spines.length], w, 0.32, 0.26, bx + w / 2, 0.15 + k * 0.58, 3.12);
+          bx += w + 0.005;
+        }
+      }
+    }
+    // a window with the blinds half open, daylight behind them
+    const day = std({ color: 0xfff4dc, emissive: 0xffe6b0, emissiveIntensity: 1.2, roughness: 1 });
+    r.box(day, 0.02, 1.4, 2.2, 3.98, 0.9, -0.6);
+    for (let k = 0; k < 14; k++) r.box(paper, 0.03, 0.04, 2.2, 3.94, 0.92 + k * 0.1, -0.6);
+    // diplomas behind her chair, a plant in the corner
+    for (const x of [-0.5, 0.5]) {
+      r.box(brass, 0.5, 0.38, 0.03, x, 1.75, 3.47);
+      r.box(paper, 0.42, 0.3, 0.02, x, 1.79, 3.45);
+    }
+    r.cyl(std({ color: 0x2a2a2a, roughness: 0.6 }), 0.22, 0.18, 0.45, -3.4, 0, -2.9);
+    r.box(std({ color: 0x2f5a2a, roughness: 0.8 }), 0.5, 0.9, 0.5, -3.4, 0.45, -2.9, 0.6);
+    r.lights.push(r.bulb(0, 2.75, 0.4, std({ color: 0xd8c8a0, roughness: 0.4, metalness: 0.6, side: THREE.DoubleSide })));
+    // sit: Diaz behind the desk, Nico in the client's chair; stand: by the window
+    r.arr.sit = { C: { ...r.world(0, 1.45), sit: true }, P: { ...r.world(0, -0.45), sit: true } };
+    r.arr.stand = { C: { ...r.world(2.4, -0.4), sit: false }, P: { ...r.world(1.4, 0.4), sit: false } };
+    r.home = r.world(2.4, -0.4);
   }
 
   // ------------------------------------------------------------- Zara's penthouse above South Beach
