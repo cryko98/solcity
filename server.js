@@ -16,11 +16,26 @@ const TYPES = {
   '.jpg': 'image/jpeg',
   '.mp3': 'audio/mpeg',
   '.webp': 'image/webp',
+  '.webmanifest': 'application/manifest+json',
 };
+// the lobby (players gather before a game): the same module server/index.mjs uses
+const lobby = import('./server/lobby.mjs').then((m) => m.createLobby());
+// never hand out the reward server (secrets, database), dotfiles (.env, .git) or databases
+const PRIVATE = (rel) => rel.split(/[\\/]/).some((seg) => seg.startsWith('.')) || /^(server|data)([\\/]|$)/.test(rel) || /\.(sqlite|db)$/i.test(rel);
 
 http
   .createServer((req, res) => {
-    const url = decodeURIComponent(req.url.split('?')[0]);
+    let url;
+    try {
+      url = decodeURIComponent(req.url.split('?')[0]);
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
+    if (url.startsWith('/api/lobby/')) {
+      lobby.then((l) => l.handle(req, res, req.url, req.socket.remoteAddress));
+      return;
+    }
     // trailer recorder: POST /capture/<frame>.jpg saves rendered frames to captures/trailer
     if (req.method === 'POST' && url.startsWith('/capture/')) {
       const name = path.basename(url);
@@ -37,7 +52,7 @@ http
       return;
     }
     const file = path.normalize(path.join(ROOT, url === '/' ? 'index.html' : url));
-    if (!file.startsWith(ROOT)) {
+    if (!file.startsWith(ROOT) || PRIVATE(path.relative(ROOT, file))) {
       res.writeHead(403).end();
       return;
     }

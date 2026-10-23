@@ -7,6 +7,7 @@ import { config, checkConfig } from './config.mjs';
 import { makeNonce, useNonce, verifySignature, issueSession, readSession, isWallet, ipWalletsToday, recordLogin, walletSeenFromIpToday, checkTurnstile } from './auth.mjs';
 import { startRun, finishRun, walletSummary, eligibility } from './rewards.mjs';
 import { startPayouts } from './payout.mjs';
+import { createLobby } from './lobby.mjs';
 import { STORY, RACES } from '../src/shared/world.mjs';
 
 const problems = checkConfig();
@@ -21,7 +22,7 @@ const PUBLIC = ['/index.html', '/src/', '/assets/', '/SolCity_Trailer.mp4'];
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.glb': 'model/gltf-binary', '.png': 'image/png',
-  '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.svg': 'image/svg+xml',
+  '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json',
 };
 const SECURITY = {
   'X-Content-Type-Options': 'nosniff',
@@ -106,6 +107,9 @@ const clientIp = (req) => {
 const authed = (req) => readSession((req.headers.authorization || '').replace(/^Bearer /, ''));
 
 // ------------------------------------------------------------------ API
+// the lobby where players gather before a game (no wallet needed; see lobby.mjs)
+const lobby = createLobby();
+
 async function api(req, res, url) {
   const ip = clientIp(req);
   if (limited(ip, 'api', 120)) return json(res, 429, { error: 'too many requests' });
@@ -136,6 +140,8 @@ async function api(req, res, url) {
     recordLogin(wallet, ip);
     return json(res, 200, { token: issueSession(wallet), summary: { ...walletSummary(wallet), ...(await eligibility(wallet)) } });
   }
+
+  if (url.startsWith('/api/lobby/')) return void (await lobby.handle(req, res, req.url, ip));
 
   const wallet = authed(req);
   if (!wallet) return json(res, 401, { error: 'sign in first' });
