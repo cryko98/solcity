@@ -1,6 +1,44 @@
 // HUD: minimap (rotates with the camera), money, clock, street name banner.
 import { iconImage, legendHtml } from './icons.js';
 
+const WAYPOINT_REACHED = 14; // (m)
+const WAYPOINT_COLOR = '#c86bff';
+
+// the waypoint's pin, its point at (x, y)
+function pin(c, x, y, s) {
+  c.save();
+  c.translate(x, y);
+  c.beginPath();
+  c.moveTo(0, 0);
+  c.bezierCurveTo(-s * 0.15, -s * 0.45, -s * 0.55, -s * 0.6, -s * 0.55, -s);
+  c.arc(0, -s, s * 0.55, Math.PI, 0);
+  c.bezierCurveTo(s * 0.55, -s * 0.6, s * 0.15, -s * 0.45, 0, 0);
+  c.fillStyle = WAYPOINT_COLOR;
+  c.strokeStyle = '#000';
+  c.lineWidth = 2;
+  c.fill();
+  c.stroke();
+  c.beginPath();
+  c.arc(0, -s, s * 0.22, 0, Math.PI * 2);
+  c.fillStyle = '#fff';
+  c.fill();
+  c.restore();
+}
+
+// a polyline of world points through `at`, outlined
+function line(c, pts, at, color, w) {
+  c.beginPath();
+  pts.forEach((q, i) => c[i ? 'lineTo' : 'moveTo'](...at(q)));
+  c.lineJoin = 'round';
+  c.lineCap = 'round';
+  c.strokeStyle = 'rgba(0,0,0,.6)';
+  c.lineWidth = w * 1.8;
+  c.stroke();
+  c.strokeStyle = color;
+  c.lineWidth = w;
+  c.stroke();
+}
+
 export class Hud {
   constructor(city) {
     this.city = city;
@@ -90,6 +128,57 @@ export class Hud {
   toggleMap() {
     this.mapOpen = !this.mapOpen;
     document.getElementById('bigmap').classList.toggle('show', this.mapOpen);
+    // (the cursor back, to click a waypoint; the game takes the mouse again on its next click)
+    if (this.mapOpen) document.exitPointerLock?.();
+    if (!this.mapClicks) {
+      this.mapClicks = true;
+      document.querySelector('#bigmap canvas').addEventListener('click', (e) => this.mapClick(e));
+    }
+  }
+
+  // ---------------------------------------------------------------- waypoint
+  // click (tap) the big map: a waypoint there, and the way to it over the streets on both maps;
+  // click it again to take it off. It goes by itself on arrival.
+  mapClick(e) {
+    const t = this.bigMapAt;
+    if (!t) return;
+    const r = e.target.getBoundingClientRect();
+    const sx = ((e.clientX - r.left) / r.width) * e.target.width, sy = ((e.clientY - r.top) / r.height) * e.target.height;
+    const x = sx / t.k - t.half, z = sy / t.k - t.half;
+    const w = this.waypoint;
+    if (w && Math.hypot(w.x - x, w.z - z) * t.k < Math.max(16, e.target.width / 40)) this.setWaypoint(null);
+    else this.setWaypoint({ x, z });
+  }
+
+  setWaypoint(p) {
+    this.waypoint = p;
+    this.wpRoute = null;
+    this.wpFrom = null;
+  }
+
+  // the way to the waypoint, worked out again as the player goes (p: where the player is)
+  updateWaypoint(dt, p) {
+    const w = this.waypoint;
+    if (!w) return;
+    if (Math.hypot(w.x - p.x, w.z - p.z) < WAYPOINT_REACHED) {
+      this.setWaypoint(null);
+      this.say('<em>Waypoint reached.</em>', 2.5);
+      return;
+    }
+    this.wpAge = (this.wpAge || 0) + dt;
+    const f = this.wpFrom;
+    if (!this.wpRoute || !f || Math.hypot(f.x - p.x, f.z - p.z) > 8 || this.wpAge > 2) {
+      this.wpFrom = { x: p.x, z: p.z };
+      this.wpAge = 0;
+      this.wpRoute = this.city.gpsRoute ? this.city.gpsRoute({ x: p.x, z: p.z }, { x: w.x, z: w.z }) : [{ x: p.x, z: p.z }, w];
+    }
+  }
+
+  // every marker on the maps: the game's, then the waypoint's pin
+  allBlips() {
+    const list = [...(this.pickupBlips || []), ...(this.poiBlips || []), ...(this.blips || [])];
+    if (this.waypoint) list.push({ ...this.waypoint, waypoint: true, edge: true });
+    return list;
   }
 
   setMoney(v) {
@@ -113,13 +202,20 @@ export class Hud {
       ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     }
     const cv = document.querySelector('#bigmap canvas');
-    const S = Math.floor(Math.min(innerWidth * 0.92, innerHeight * 0.84));
-    if (cv.width !== S) cv.width = cv.height = S;
+    // square, and room left under it for the legend and the hint (else the layout squashes it)
+    const below = (document.querySelector('#bigmap .legend')?.offsetHeight || 0) + (this.mapHint?.offsetHeight || 0) + 40;
+    const S = Math.max(160, Math.floor(Math.min(innerWidth * 0.92, innerHeight * 0.84, innerHeight - below)));
+    if (cv.width !== S) {
+      cv.width = cv.height = S;
+      cv.style.width = cv.style.height = S + 'px';
+      cv.style.flex = 'none';
+    }
     const c = cv.getContext('2d');
     const { canvas } = this.city.map;
     const half = this.city.map.half ?? this.city.HALF;
     const k = S / (2 * half);
     const at = (x, z) => [(x + half) * k, (z + half) * k];
+    this.bigMapAt = { k, half };
     c.drawImage(canvas, 0, 0, S, S);
     // district names
     c.font = `bold ${Math.round(S / 46)}px Anton, Impact, sans-serif`;
@@ -134,21 +230,28 @@ export class Hud {
       c.fillStyle = '#f6e7c4';
       c.fillText(name, sx, sy);
     }
-    if (this.route && this.route.length > 1) {
-      c.beginPath();
-      this.route.forEach((q, i) => c[i ? 'lineTo' : 'moveTo'](...at(q.x, q.z)));
-      c.strokeStyle = this.routeColor || '#ffd23f';
-      c.lineWidth = 4;
-      c.lineJoin = 'round';
-      c.stroke();
-    }
+    const atQ = (q) => at(q.x, q.z);
+    if (this.wpRoute && this.wpRoute.length > 1) line(c, this.wpRoute, atQ, WAYPOINT_COLOR, Math.max(4, S / 160));
+    if (this.route && this.route.length > 1) line(c, this.route, atQ, this.routeColor || '#ffd23f', Math.max(4, S / 160));
     const legend = document.querySelector('#bigmap .legend');
     if (legend && !legend.dataset.icons) {
       legend.dataset.icons = '1';
       legend.innerHTML = legendHtml();
     }
-    for (const b of [...(this.pickupBlips || []), ...(this.poiBlips || []), ...(this.blips || [])]) {
+    if (!this.mapHint) {
+      this.mapHint = document.createElement('div');
+      this.mapHint.className = 'map-hint';
+      this.mapHint.style.cssText = 'font:700 13px Inter,sans-serif;letter-spacing:1px;color:#e9d7ff;text-shadow:0 1px 3px #000;text-align:center';
+      cv.parentElement.after(this.mapHint);
+    }
+    const hint = this.waypoint ? 'Click the pin to remove the waypoint · M close' : 'Click the map to set a waypoint · M close';
+    if (this.mapHint.textContent !== hint) this.mapHint.textContent = hint;
+    for (const b of this.allBlips()) {
       const [sx, sy] = at(b.x, b.z);
+      if (b.waypoint) {
+        pin(c, sx, sy, Math.max(16, S / 40));
+        continue;
+      }
       const img = b.icon && iconImage(b.icon);
       if (img) {
         const s = Math.max(22, S / 34);
@@ -233,6 +336,7 @@ export class Hud {
     } else if (this.streetTimer > 0 && (this.streetTimer -= dt) <= 0) {
       this.streetEl.classList.remove('show');
     }
+    this.updateWaypoint(dt, p);
     this.drawMap(p, yaw, camYaw);
     if (this.mapOpen) this.drawBigMap(p, yaw);
   }
@@ -249,29 +353,25 @@ export class Hud {
     c.rotate(camYaw - Math.PI);
     c.scale(zoom, zoom);
     c.drawImage(canvas, -(p.x + half) * px, -(p.z + half) * px);
-    // GPS route (world points, drawn in the same map space)
-    if (this.route && this.route.length > 1) {
-      c.beginPath();
-      this.route.forEach((q, i) => c[i ? 'lineTo' : 'moveTo']((q.x - p.x) * px, (q.z - p.z) * px));
-      c.strokeStyle = 'rgba(0,0,0,.6)';
-      c.lineWidth = 9 / zoom;
-      c.lineJoin = 'round';
-      c.stroke();
-      c.strokeStyle = this.routeColor || '#ffd23f';
-      c.lineWidth = 5 / zoom;
-      c.stroke();
-    }
+    // GPS routes (world points, drawn in the same map space): the waypoint's, a mission's over it
+    const atQ = (q) => [(q.x - p.x) * px, (q.z - p.z) * px];
+    if (this.wpRoute && this.wpRoute.length > 1) line(c, this.wpRoute, atQ, WAYPOINT_COLOR, 5 / zoom);
+    if (this.route && this.route.length > 1) line(c, this.route, atQ, this.routeColor || '#ffd23f', 5 / zoom);
     c.restore();
 
     // blips: stick to the minimap edge when off-screen
     const a = camYaw - Math.PI, ca = Math.cos(a), sa = Math.sin(a);
-    for (const b of [...(this.pickupBlips || []), ...(this.poiBlips || []), ...(this.blips || [])]) {
+    for (const b of this.allBlips()) {
       const dx = (b.x - p.x) * px * zoom, dz = (b.z - p.z) * px * zoom;
       let sx = dx * ca - dz * sa, sy = dx * sa + dz * ca;
       const ox = W / 2, oy = H * 0.62;
       const k = Math.min(1, (W / 2 - 10) / Math.abs(sx || 1e-6), (sy > 0 ? H - oy - 10 : oy - 10) / Math.abs(sy || 1e-6));
       sx *= k;
       sy *= k;
+      if (b.waypoint) {
+        pin(c, ox + sx, oy + sy + (k < 1 ? 8 : 0), 13);
+        continue;
+      }
       const img = b.icon && iconImage(b.icon);
       if (img) {
         if (k < 1 && !b.edge) continue; // shops etc. only when on the map

@@ -135,7 +135,8 @@
     #bigmap .stats div { display: flex; justify-content: space-between; gap: 12px; line-height: 2; color: #ccc; text-transform: uppercase; }
     #bigmap .stats b { font: 16px Anton, Impact, sans-serif; color: #fff; letter-spacing: 1px; }
     @media (max-width: 900px) { #bigmap .stats { display: none; } }
-    #bigmap canvas { border: 3px solid rgba(255,255,255,.25); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+    @media (max-height: 600px) { #bigmap .legend { display: none !important; } }
+    #bigmap canvas { border: 3px solid rgba(255,255,255,.25); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.6); pointer-events: auto; cursor: crosshair; }
     #bigmap .legend { font: 700 13px Inter, sans-serif; letter-spacing: 1px; display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
     #bigmap .legend .ic svg { vertical-align: -5px; margin-right: 6px; }
     #bigmap .legend .ic svg { vertical-align: -5px; margin-right: 6px; }

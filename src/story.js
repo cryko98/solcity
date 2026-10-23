@@ -1087,7 +1087,13 @@ export class Story {
       ring.visible = open.includes(c) && !this.active;
       ring.position.set(c.stand.x, this.city.groundHeight(c.stand.x, c.stand.z), c.stand.z);
     });
-    this.blips = this.active ? [] : open.map((c) => ({ x: c.pos.x, z: c.pos.z, color: '#ffd23f', r: 6, label: c.letter, icon: 'contact' }));
+    // on the maps: the ones with work, by name and held on the minimap's rim so they can be found
+    // from anywhere; the others greyed out, so you know where they are for later
+    this.blips = this.active
+      ? []
+      : CONTACTS.map((c) => (open.includes(c)
+        ? { x: c.pos.x, z: c.pos.z, color: '#ffd23f', r: 6, label: c.name, icon: 'contact', edge: true }
+        : { x: c.pos.x, z: c.pos.z, color: '#8d8d8d', r: 5, label: c.letter }));
 
     if (this.cut) return this.updateCutscene(dt, input);
 
