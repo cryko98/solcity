@@ -243,6 +243,7 @@ export class Story {
     // ctx: scene, city, peds, vehicles, hud, audio, wanted, player, fx, camera, getDriving()
     Object.assign(this, ctx);
     this.done = new Set(); // ids of the missions passed
+    this.replays = {}; // once the story is over: contact id -> which of their missions they offer again
     this.cut = null;
     this.mission = null;
     this.t = 0;
@@ -491,14 +492,20 @@ export class Story {
   }
 
   // ---------------------------------------------------------------- missions
-  // the next mission a contact has, and whether the story has got that far
+  // the next mission a contact has, and whether the story has got that far; once the whole story
+  // is done, every contact offers their missions again, one after the other
+  get finished() {
+    return this.done.size === STORY.length;
+  }
+
   next(c) {
+    if (this.finished) return c.missions[(this.replays[c.id] || 0) % c.missions.length];
     return c.missions.find((m) => !this.done.has(m.id)) || null;
   }
 
   available(c) {
     const m = this.next(c);
-    return m && (!m.after || this.done.has(m.after)) ? m : null;
+    return m && (this.finished || !m.after || this.done.has(m.after)) ? m : null;
   }
 
   // a getaway driver run by the vigilante flee logic
@@ -1044,11 +1051,13 @@ export class Story {
     this.clearMarkers();
     this.onMissionEnd?.(ms.m.id, passed);
     if (passed) {
+      const replay = this.finished;
+      if (replay) this.replays[ms.c.id] = (this.replays[ms.c.id] || 0) + 1;
       this.done.add(ms.m.id);
       this.hud.addMoney(ms.m.pay);
       this.result('MISSION PASSED!', `$${ms.m.pay}`, true);
       [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.audio.blip({ tone: f, toneEnd: f, dur: 0.22, gain: 0.22 }), i * 120));
-      if (this.done.size === STORY.length) setTimeout(() => this.hud.say('<em>Sol City is yours.</em> Street races still pay DaCity every day.', 7), 4000);
+      if (!replay && this.finished) setTimeout(() => this.hud.say('<em>Sol City is yours.</em> The four still have work if you want it, and street races pay DaCity every day.', 8), 4000);
       this.onSave?.();
     } else {
       this.result('MISSION FAILED', reason || '', false);
@@ -1128,6 +1137,18 @@ export class Story {
       if (CONTACTS.every((c) => dist(c) > 4)) this.needLeave = false;
       return;
     }
+    // at the door of someone with nothing for you yet: say who has
+    for (const c of CONTACTS) {
+      if (open.includes(c) || dist(c) > 2.5) {
+        if (this.hinted === c && !open.includes(c)) this.hinted = null;
+        continue;
+      }
+      if (this.hinted !== c) {
+        const who = open.map((o) => `<em>${o.name[0] + o.name.slice(1).toLowerCase()}</em>`).join(' or ');
+        this.hud.say(`<em>${c.name}:</em> "Nothing for you yet.${who ? ` Go and see ${who}.` : ''}"`, 4);
+        this.hinted = c;
+      }
+    }
     for (const c of open) {
       if (dist(c) > (driving ? 4 : 2)) {
         if (this.hinted === c) this.hinted = null;
@@ -1152,13 +1173,14 @@ export class Story {
 
   // saved progress: { done: [mission ids] }
   get progress() {
-    return { done: [...this.done] };
+    return { done: [...this.done], replays: this.replays };
   }
 
   load(p) {
     if (!p) return;
     if (Array.isArray(p.done)) {
       this.done = new Set(p.done.filter((id) => STORY.some((m) => m.id === id)));
+      if (p.replays && typeof p.replays === 'object') this.replays = { ...p.replays };
       return;
     }
     // older saves counted missions per contact

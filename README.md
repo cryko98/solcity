@@ -175,10 +175,11 @@ Dying costs a $100 hospital bill.
 
 One story in fifteen missions: Nico helps Little Havana, the docks and a crooked lawyer against the Russo brothers,
 and ends up working for **Zara**, the woman behind DaCity, the city's new money. Four contacts give the jobs
-(yellow letter blips, only the ones with work for you right now): **Rosa** (R, her cafe in Little Havana),
+(yellow blips with their name for the ones with work for you right now, grey letters for the others: walk up
+to one and they say who to see instead): **Rosa** (R, her cafe in Little Havana),
 **Vince** (V, his office in an Old Harbor warehouse), **Diaz** (D, her law office Downtown)
 and **Zara** (Z, her penthouse in South Beach, skyline window and a wall of DaCity charts). Walk into
-the yellow ring at their door: the screen fades and a cutscene plays inside their place (`src/interiors.js`):
+the yellow ring at their door (once the story is over, all four offer their missions again): the screen fades and a cutscene plays inside their place (`src/interiors.js`):
 letterbox, shot / reverse-shot camera, typed dialogue with mumbled voices, the speaker talking with their hands
 and the listener nodding. In one scene per contact they sit at a table or desk. Space / click skips a line.
 Three missions per contact, in story order: beat up a racketeer, a timed delivery, torch a rival's car, steal a
