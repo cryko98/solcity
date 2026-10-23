@@ -49,7 +49,8 @@ Game side: `src/dacity.js`; server: `server/`.
 | E | start a street race (at an R marker) |
 
 M opens the map, N skips to the next night / morning, K changes the weather, P switches the graphics quality
-(HIGH / MEDIUM / LOW resolution and shadows, for weaker GPUs), H hides the help panel.
+(ULTRA adds ambient occlusion for a dedicated GPU; HIGH / MEDIUM / LOW step the resolution and shadows down for
+weaker ones), H hides the help panel.
 Progress (money, guns, armour, time of day) is saved in the browser every 10 seconds.
 
 ## Getting in and out
@@ -182,12 +183,18 @@ All shaders are compiled while loading, the sky reflections are rebuilt only whe
 if the game runs below ~24 fps for a few seconds the graphics quality steps down automatically (P picks it
 by hand).
 
+The look: ACES tone mapping and bloom, then a filmic grade (an S-curve, warm highlights over cool shadows),
+light sharpening, a vignette and a fine film grain. Building walls darken toward the pavement (a cheap
+ambient occlusion baked into their material, on every setting); ULTRA adds real screen-space ambient occlusion
+([N8AO](https://github.com/N8python/n8ao), at half resolution) for contact shading under cars, in corners and
+along the kerbs.
+
 ## Weather and time of day
 
 The clock runs one game minute per second, with sunrise, noon, golden hour, dusk and a starry night.
 The weather cycles between clear, cloudy, rain and thunderstorms: rain, wet glossy roads (less grip!),
 lightning and thunder. After dark the street lamps nearest to you are real lights (they light up walls,
-cars and people; HIGH / MEDIUM / LOW quality uses 6 / 4 / 2 of them) and car headlights light up the road.
+cars and people; ULTRA and HIGH use 6 of them, MEDIUM 4, LOW 2) and car headlights light up the road.
 
 ## Side jobs
 

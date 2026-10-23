@@ -76,10 +76,26 @@ export function buildCity(scene) {
     return mat;
   };
 
+  // walls darken softly toward the pavement, as the light under a building's foot does (ambient
+  // occlusion for free: by height, in the material; the lit windows are left alone)
+  const groundShade = (mat) => {
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = 'varying float vGroundY;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+        vec4 gpos = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          gpos = instanceMatrix * gpos;
+        #endif
+        vGroundY = (modelMatrix * gpos).y;`);
+      sh.fragmentShader = 'varying float vGroundY;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        diffuseColor.rgb *= mix(0.58, 1.0, smoothstep(0.1, 2.6, vGroundY));`);
+    };
+    mat.customProgramCacheKey = () => 'groundshade';
+    return mat;
+  };
   const facadeMat = (style, seed) => {
     const { map, emissive } = TX.facade({ ...style, seed });
     return nightEmissive(
-      std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: style.glass ? 0.22 : 0.85, metalness: style.glass ? 0.4 : 0 }),
+      groundShade(std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: style.glass ? 0.22 : 0.85, metalness: style.glass ? 0.4 : 0 })),
       0, 0.55
     );
   };
@@ -97,7 +113,7 @@ export function buildCity(scene) {
   ].map((s, i) => facadeMat(s, i * 71 + 13));
   const shopMats = [1, 2, 3, 4, 5].map((s) => {
     const { map, emissive } = TX.shopfront(s * 17);
-    return nightEmissive(std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: 0.4 }), 0.15, 0.85);
+    return nightEmissive(groundShade(std({ map, emissiveMap: emissive, emissive: 0xffffff, roughness: 0.4 })), 0.15, 0.85);
   });
   const awningMats = [['#c8202f', '#f2efe6'], ['#1d5ea8', '#f2efe6'], ['#2b7a3f', '#f2efe6'], ['#e2b33a', '#3a2a1a']].map(
     ([a, b]) => std({ map: TX.awning(a, b), roughness: 0.9, side: THREE.DoubleSide })
@@ -123,7 +139,7 @@ export function buildCity(scene) {
     { wall: '#e8b94a', frame: '#f4efe4' }, { wall: '#4fb3a4', frame: '#f4efe4' }, { wall: '#e0704f', frame: '#f4efe4' },
     { wall: '#8f63b0', frame: '#f4efe4' }, { wall: '#5d8fd0', frame: '#f4efe4' }, { wall: '#f2a0b6', frame: '#ffffff' },
   ].map((s, i) => facadeMat(s, i * 41 + 201));
-  const lit = (mapPair, opts, night) => nightEmissive(std({ map: mapPair.map, emissiveMap: mapPair.emissive, emissive: 0xffffff, ...opts }), 0, night);
+  const lit = (mapPair, opts, night) => nightEmissive(groundShade(std({ map: mapPair.map, emissiveMap: mapPair.emissive, emissive: 0xffffff, ...opts })), 0, night);
   const warehouseMats = [
     { wall: '#7a3b2e' }, { wall: '#6a5a4a' }, { wall: '#7d8c93', metal: true }, { wall: '#5f7a64', metal: true }, { wall: '#9a8a6e', metal: true },
   ].map((o, i) => lit(TX.warehouse({ ...o, seed: i * 13 + 301 }), { roughness: o.metal ? 0.55 : 0.9, metalness: o.metal ? 0.35 : 0 }, 0.5));

@@ -173,7 +173,7 @@ export class Environment {
           gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
         }`,
       fragmentShader: `uniform float alpha, light; varying float vA;
-        void main(){ gl_FragColor = vec4(vec3(0.72, 0.76, 0.82) * light, alpha * (0.35 + 0.65 * vA)); }`,
+        void main(){ gl_FragColor = vec4(vec3(0.72, 0.76, 0.82) * light, alpha * (0.1 + 0.5 * vA)); } // (a fading streak, not a stick)`,
     });
     this.rainLines = new THREE.LineSegments(g, this.rainMat);
     this.rainLines.frustumCulled = false;

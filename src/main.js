@@ -5,6 +5,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { N8AOPass } from 'n8ao';
 import { buildCity } from './city.js';
 import { Player } from './player.js';
 import { Vehicles } from './vehicles.js';
@@ -70,24 +71,52 @@ const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 15
 const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 2 });
 const composer = new EffectComposer(renderer, rt);
 composer.setPixelRatio(renderer.getPixelRatio());
-composer.addPass(new RenderPass(scene, camera));
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+// ambient occlusion (HIGH quality): soft contact shading in corners, under cars, where walls meet
+// the pavement. N8AO works it out from the depth buffer at half resolution; it renders the scene
+// itself, so it takes the render pass's place while it is on
+const aoPass = new N8AOPass(scene, camera, innerWidth, innerHeight);
+Object.assign(aoPass.configuration, {
+  aoRadius: 4.5, distanceFalloff: 1.0, intensity: 5, halfRes: true, aoSamples: 8, denoiseSamples: 4, denoiseRadius: 10, gammaCorrection: false,
+});
+aoPass.beautyRenderTarget.samples = 2; // (the same 2x MSAA as the composer's own target)
+aoPass.enabled = false;
+composer.addPass(aoPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.25, 0.5, 0.9);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
-// final touch: soft vignette and a hint of contrast (after tone mapping)
+// final touch (after tone mapping): a little sharpening (the picture is drawn below screen
+// resolution on the lower settings), a filmic grade (an S-curve for contrast, a touch more colour,
+// warm highlights over cool shadows), a soft vignette and a fine, moving film grain
 const grade = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, strength: { value: 0.32 } },
+  uniforms: { tDiffuse: { value: null }, strength: { value: 0.32 }, sharp: { value: 0.12 }, texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) }, time: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float strength; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float strength, sharp, time; uniform vec2 texel; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
+      vec3 n = texture2D(tDiffuse, vUv + vec2(0.0, texel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, texel.y)).rgb
+             + texture2D(tDiffuse, vUv + vec2(texel.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(texel.x, 0.0)).rgb;
+      c.rgb = clamp(c.rgb + (c.rgb * 4.0 - n) * sharp, 0.0, 1.0);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.3);
+      c.rgb = max(mix(vec3(l), c.rgb, 1.12), 0.0);
+      c.rgb *= mix(vec3(0.95, 0.99, 1.06), vec3(1.05, 1.0, 0.94), smoothstep(0.1, 0.75, l));
       vec2 d = vUv - 0.5;
-      float v = 1.0 - strength * smoothstep(0.25, 0.8, dot(d, d) * 2.2);
-      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.18) * v;
+      c.rgb *= 1.0 - strength * smoothstep(0.25, 0.8, dot(d, d) * 2.2);
+      c.rgb += (hash(vUv * 1024.0 + fract(time) * 61.0) - 0.5) * 0.022;
       gl_FragColor = c;
     }`,
 });
 composer.addPass(grade);
+const drawSize = new THREE.Vector2();
+function renderFrame() {
+  renderer.getDrawingBufferSize(drawSize);
+  grade.uniforms.texel.value.set(1 / drawSize.x, 1 / drawSize.y);
+  grade.uniforms.time.value = performance.now() / 1000;
+  composer.render();
+}
 
 // red / blue flashers that follow the nearest patrol car (fixed light count: no shader recompiles)
 const sirenLights = [new THREE.PointLight(0xff2020, 0, 26, 2), new THREE.PointLight(0x2050ff, 0, 26, 2)];
@@ -380,7 +409,7 @@ Promise.all([
       env, fx, spray: () => spray, packages: () => packages, races: () => races, stunts: () => stunts, heli: () => heli, vigilante: () => vigilante, shop: () => shop, entry: () => entry, dacity: () => dacity, homes: () => homes, events: () => events, bounties: () => bounties, jobs: () => jobs, fun: () => fun, hud, radio,
       state: () => ({ driving }),
       step,
-      render: () => composer.render(),
+      render: () => renderFrame(),
       setNight: (n) => {
         env.setTime(n ? 23 : 17, 30);
         env.setWeather('clear', true);
@@ -389,6 +418,7 @@ Promise.all([
       seat: (c) => seatPlayer(c),
       exit: () => exitVehicle(),
       setCinematic: (fn) => (cinematic = fn),
+      setQuality: (q) => setQuality(q, true),
       resize: (w, h) => {
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
@@ -516,16 +546,21 @@ let rammedCooldown = 0;
 let driverTimer = 0;
 
 // ------------------------------------------------------------------ graphics quality (P)
-// resolution scale and shadow-map size; HIGH is the default look, LOW for weak integrated GPUs
+// resolution scale, shadow-map size, lamp lights, ambient occlusion. HIGH is the default look;
+// ULTRA adds screen-space AO (a dedicated GPU's worth of work), LOW is for weak integrated GPUs
 const QUALITY = [
-  { name: 'HIGH', ratio: 1.25, shadow: 2048, lamps: 6 },
-  { name: 'MEDIUM', ratio: 0.9, shadow: 2048, lamps: 4 },
-  { name: 'LOW', ratio: 0.75, shadow: 1024, lamps: 2 },
+  { name: 'ULTRA', ratio: 1.25, shadow: 2048, lamps: 6, ao: true, sharp: 0.1 },
+  { name: 'HIGH', ratio: 1.25, shadow: 2048, lamps: 6, ao: false, sharp: 0.1 },
+  { name: 'MEDIUM', ratio: 0.9, shadow: 2048, lamps: 4, ao: false, sharp: 0.18 },
+  { name: 'LOW', ratio: 0.75, shadow: 1024, lamps: 2, ao: false, sharp: 0.25 },
 ];
-let quality = 0;
+let quality = 1;
 let autoQuality = true;
 try {
-  quality = Math.min(QUALITY.length - 1, Math.max(0, parseInt(localStorage.getItem('solcity.quality'), 10) || 0));
+  // saved by name (older saves kept an index into the list before ULTRA was added)
+  const byName = QUALITY.findIndex((q) => q.name === localStorage.getItem('solcity.gfx'));
+  const old = parseInt(localStorage.getItem('solcity.quality'), 10);
+  quality = byName >= 0 ? byName : Number.isFinite(old) ? Math.min(QUALITY.length - 1, old + 1) : 1;
 } catch {}
 function setQuality(q, announce, auto = false) {
   if (!auto) autoQuality = false;
@@ -543,12 +578,15 @@ function setQuality(q, announce, auto = false) {
   }
   fx.setViewport(viewH());
   env.setLampLights(Q.lamps);
+  aoPass.enabled = Q.ao;
+  renderPass.enabled = !Q.ao;
+  grade.uniforms.sharp.value = Q.sharp;
   try {
-    localStorage.setItem('solcity.quality', String(q));
+    localStorage.setItem('solcity.gfx', Q.name);
   } catch {}
   if (announce) hud?.say(`Graphics: <em>${Q.name}</em>${auto ? ' (auto, P to change)' : ''}`, 3);
 }
-if (quality) setQuality(quality, false, true);
+setQuality(quality, false, true);
 
 // ------------------------------------------------------------------ save game
 const SAVE_KEY = 'solcity.save';
@@ -705,7 +743,7 @@ function frame() {
   if (window.__trailer) return; // the trailer recorder steps the game itself
   measure(raw);
   step(dt);
-  composer.render();
+  renderFrame();
 }
 
 // WASTED / BUSTED: the world slows down and the camera pulls up and away
