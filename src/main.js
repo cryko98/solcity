@@ -34,6 +34,7 @@ import { SideJobs } from './jobs.js';
 import { Vigilante } from './vigilante.js';
 import { Story } from './story.js';
 import { DaCity } from './dacity.js';
+import { FreePlay } from './gate.js';
 import { Safehouses } from './safehouses.js';
 import { StreetEvents } from './events.js';
 import { Bounties } from './bounty.js';
@@ -165,6 +166,7 @@ let rbHero = null;
 let vigilante = null;
 let story = null;
 let dacity = null;
+let freePlay = null; // the free minutes without a holder's wallet (src/gate.js)
 let homes = null;
 let nearAtm = null;
 let events = null;
@@ -244,7 +246,10 @@ Promise.all([
     const rbPeople = rbModel && {
       hero: rbModel.scene, // (still in its rest pose here: the people's pelvis heights are measured against it)
       clips: rbModel.animations,
-      avatars: Object.fromEntries(Object.entries(PEOPLE).map(([k, l]) => [k, l.filter((n) => byName[n]).map((n) => ({ name: n, scene: byName[n].scene }))])),
+      avatars: {
+        ...Object.fromEntries(Object.entries(PEOPLE).map(([k, l]) => [k, l.filter((n) => byName[n]).map((n) => ({ name: n, scene: byName[n].scene }))])),
+        hero: [{ name: 'Hero', scene: rbModel.scene }], // (the other players in multiplayer: src/net.js)
+      },
     };
     peds = new Peds(scene, city, hero, { male: npcMale, female: npcFemale, police: npcPolice }, vehicles, rbPeople);
     hud = new Hud(city);
@@ -272,6 +277,7 @@ Promise.all([
     story.onSave = () => saveGame();
     // DaCity rewards (only when the game runs on the Sol City server, see server/README.md)
     dacity = new DaCity({ hud });
+    freePlay = new FreePlay({ hud });
     story.dacity = dacity;
     story.shop = shop;
     shop.onBuy = (b, it) => {
@@ -764,6 +770,7 @@ function frame() {
   const dt = Math.min(raw, 1 / 20);
   if (window.__trailer) return; // the trailer recorder steps the game itself
   if (window.__paused) return; // a phone held upright (src/touch.js)
+  if (window.__locked) return; // free play is over (src/gate.js)
   measure(raw);
   step(dt);
   renderFrame();
@@ -860,6 +867,7 @@ function step(dt) {
     }
     peds.hurry = env.rain;
     peds.update(dt, focusPos, player);
+    window.__net?.update(dt); // the other players (multiplayer: src/net.js)
     // NPCs at the wheel of traffic / patrol cars near the camera
     if ((driverTimer -= dt) <= 0) {
       driverTimer = 0.4;
@@ -913,6 +921,7 @@ function step(dt) {
     wanted.frozen = !!story.mission || !!shop.inside || bounties.active;
     story.update(dt, mainInput, { busy: races.active || taxiJobs.state !== 'off' || vigilante.state !== 'off' || jobs.state !== 'off' });
     dacity.update(dt, driving ? driving.vehicle.pos : player.position, !!shop.inside || !!story.cut);
+    if (overlay.classList.contains('hidden')) freePlay?.update(dt); // (only while playing, not on the title screen)
     radio.update(dt, !!driving && !player.dead, input);
     // horn: people in front of the car jump out of the way
     const honk = !!driving && input.down('KeyG');

@@ -4,8 +4,12 @@
 //   GET  /api/lobby/events?id=..&key=..           -> Server-Sent Events: the room, on every change
 //   POST /api/lobby/act     { id, key, type, .. } -> type: ready { on }, start, chat { text }, leave
 //   GET  /api/lobby/stats                         -> { players, waiting } in the public rooms
+// Once the room has started it stays open while anyone is in it: the players are in the same city
+//   POST /api/lobby/state   { id, key, s }        -> where I am and what I'm doing (up to ~10 a second)
+//   and the event stream sends "world" events: everyone's last state, ten times a second.
 // Everything lives in memory: a restart empties the lobby, nothing is stored. Used by both the
-// developer's server.js and server/index.mjs.
+// developer's server.js (open: anyone, any name) and server/index.mjs, which passes authorize():
+// there a player is a signed-in wallet that holds the token, under the username of its account.
 import crypto from 'node:crypto';
 
 const MAX_PLAYERS = 8; // per room
@@ -15,6 +19,25 @@ const MAX_STREAMS_PER_IP = 8;
 const COUNTDOWN = 5000; // ms between START and the game starting
 const GRACE = 8000; // a dropped connection may come back this long (a phone switching networks)
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // nothing that reads two ways (0/O, 1/I)
+const TICK = 100; // ms between "world" events
+const STATE_GAP = 70; // ms: the most often a player's state is taken
+const WORLD = 2500; // |x|, |z| the city (and its sea) stays within
+// what a player can be doing (the hero's actions), and the vehicles they can be in
+const ANIMS = new Set(['idle', 'walk', 'run', 'sprint', 'guard', 'punchl', 'punchr', 'hit', 'knockdown', 'getup', 'jump', 'roll', 'swim', 'tread', 'drive', 'ride', 'handsup', 'aim', 'dance', 'sittalk', 'sitlisten', 'standtalk', 'standlisten', 'dead']);
+const MODELS = new Set(['sedan', 'coupe', 'van', 'police', 'bike', 'taxi', 'super', 'lux', 'ambulance', 'firetruck', 'bus', 'truck', 'towtruck', 'boat', 'jetski']);
+
+// a state from a client, checked field by field (anything off: nothing)
+const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+export function cleanState(s) {
+  if (!s || typeof s !== 'object') return null;
+  if (!num(s.x, -WORLD, WORLD) || !num(s.y, -50, 400) || !num(s.z, -WORLD, WORLD) || !num(s.h, -10, 10) || !num(s.v, 0, 120)) return null;
+  const out = { x: +s.x.toFixed(2), y: +s.y.toFixed(2), z: +s.z.toFixed(2), h: +s.h.toFixed(3), v: +s.v.toFixed(2), a: ANIMS.has(s.a) ? s.a : 'idle' };
+  const c = s.c;
+  if (c && typeof c === 'object' && MODELS.has(c.m) && num(c.x, -WORLD, WORLD) && num(c.z, -WORLD, WORLD) && num(c.h, -10, 10) && num(c.v, -120, 120) && num(c.k, 0, 0xffffff)) {
+    out.c = { m: c.m, k: Math.round(c.k), x: +c.x.toFixed(2), y: num(c.y, -50, 400) ? +c.y.toFixed(2) : 0, z: +c.z.toFixed(2), h: +c.h.toFixed(3), v: +c.v.toFixed(2) };
+  }
+  return out;
+}
 
 // names: letters (any alphabet), digits, space, _ - . ; at most 16 characters
 export function cleanName(raw) {
@@ -26,10 +49,21 @@ export function cleanChat(raw) {
   return String(raw ?? '').normalize('NFC').replace(/[\p{C}]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 140);
 }
 
-export function createLobby({ now = () => Date.now() } = {}) {
+// authorize (optional): async (req) => { wallet, name } of a player allowed in, or { status, error }
+export function createLobby({ now = () => Date.now(), authorize = null } = {}) {
   const rooms = new Map(); // code -> room
   const players = new Map(); // id -> player
   const streamsPerIp = new Map();
+  // the rooms in play: everyone's state to everyone, ten times a second (only when something moved)
+  const ticker = setInterval(() => {
+    for (const room of rooms.values()) {
+      if (room.phase !== 'started' || !room.dirty) continue;
+      room.dirty = false;
+      const data = `event: world\ndata: ${JSON.stringify({ t: now(), p: room.players.filter((p) => p.state).map((p) => ({ id: p.id, name: p.name, s: p.state })) })}\n\n`;
+      for (const p of room.players) if (p.stream) p.stream.write(data);
+    }
+  }, TICK);
+  ticker.unref?.();
 
   const newCode = () => {
     for (;;) {
@@ -86,7 +120,10 @@ export function createLobby({ now = () => Date.now() } = {}) {
       rooms.delete(room.code);
       return;
     }
-    if (room.phase === 'started') return;
+    if (room.phase === 'started') {
+      room.dirty = true; // (the next world event leaves them out)
+      return;
+    }
     say(room, `${p.name} ${why}.`);
     if (room.hostId === p.id) {
       room.hostId = room.players[0].id; // the one who has waited longest
@@ -96,8 +133,11 @@ export function createLobby({ now = () => Date.now() } = {}) {
     broadcast(room);
   }
 
-  function join(body) {
+  // who: the signed-in wallet and its username (with authorize), else null (any name)
+  function join(body, who = null) {
     if (players.size >= MAX_TOTAL) return { status: 503, body: { error: 'The lobby is full, try again in a minute.' } };
+    // one wallet, one player: joining again (another tab, a new room) takes it out of the old one
+    if (who) for (const q of [...players.values()]) if (q.wallet === who.wallet) remove(q, 'left');
     const want = String(body.room ?? 'PUBLIC').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'PUBLIC';
     let room;
     if (want === 'PUBLIC') {
@@ -113,11 +153,11 @@ export function createLobby({ now = () => Date.now() } = {}) {
       if (rooms.size >= MAX_ROOMS) return { status: 503, body: { error: 'Too many rooms right now, try again in a minute.' } };
       room = makeRoom(want === 'PUBLIC');
     }
-    // the same name twice in a room gets a number
-    let name = cleanName(body.name);
+    // the same name twice in a room gets a number (usernames are unique already)
+    let name = who ? who.name : cleanName(body.name);
     const base = name.slice(0, 13);
-    for (let n = 2; room.players.some((q) => q.name.toLowerCase() === name.toLowerCase()); n++) name = `${base} ${n}`;
-    const p = { id: crypto.randomBytes(6).toString('hex'), key: crypto.randomBytes(18).toString('base64url'), name, room: room.code, ready: false, stream: null, lastChat: 0, joined: now(), dropTimer: null };
+    if (!who) for (let n = 2; room.players.some((q) => q.name.toLowerCase() === name.toLowerCase()); n++) name = `${base} ${n}`;
+    const p = { id: crypto.randomBytes(6).toString('hex'), key: crypto.randomBytes(18).toString('base64url'), name, wallet: who?.wallet || null, room: room.code, ready: false, stream: null, lastChat: 0, joined: now(), dropTimer: null, state: null, stateAt: 0 };
     players.set(p.id, p);
     room.players.push(p);
     if (!room.hostId) room.hostId = p.id;
@@ -168,14 +208,26 @@ export function createLobby({ now = () => Date.now() } = {}) {
         room.timer = setTimeout(() => {
           room.phase = 'started';
           broadcast(room);
-          // everyone is in the city now: the room closes a moment later
-          setTimeout(() => {
-            for (const q of [...room.players]) remove(q, 'started');
-          }, 3000);
+          // everyone is in the city now: the room stays open while anyone plays in it
         }, COUNTDOWN);
       }
     } else return { status: 400, body: { error: 'unknown action' } };
     broadcast(room);
+    return { status: 200, body: { ok: true } };
+  }
+
+  // a player's state in the city (see cleanState); too often is dropped quietly
+  function state(body) {
+    const p = auth(body.id, body.key);
+    if (!p) return { status: 401, body: { error: 'Not in a room. Join again.' } };
+    const room = rooms.get(p.room);
+    if (!room || room.phase !== 'started') return { status: 409, body: { error: 'The game has not started.' } };
+    if (now() - p.stateAt < STATE_GAP) return { status: 200, body: { ok: false } };
+    const s = cleanState(body.s);
+    if (!s) return { status: 400, body: { error: 'bad state' } };
+    p.state = s;
+    p.stateAt = now();
+    room.dirty = true;
     return { status: 200, body: { ok: true } };
   }
 
@@ -270,7 +322,17 @@ export function createLobby({ now = () => Date.now() } = {}) {
         if (now() - j.t > 60000) Object.assign(j, { t: now(), n: 0 });
         joins.set(ip, j);
         if (++j.n > 20) return reply(429, { error: 'Too many tries, wait a minute.' }), true;
-        const r = join(await readJson(req, res));
+        const body = await readJson(req, res);
+        let who = null;
+        if (authorize) {
+          who = await authorize(req);
+          if (who.error) return reply(who.status || 403, { error: who.error }), true;
+        }
+        const r = join(body, who);
+        return reply(r.status, r.body), true;
+      }
+      if (req.method === 'POST' && path === '/api/lobby/state') {
+        const r = state(await readJson(req, res, 1024));
         return reply(r.status, r.body), true;
       }
       if (req.method === 'POST' && path === '/api/lobby/act') {
@@ -284,5 +346,5 @@ export function createLobby({ now = () => Date.now() } = {}) {
     return true;
   }
 
-  return { handle, rooms, players, view };
+  return { handle, rooms, players, view, close: () => clearInterval(ticker) };
 }

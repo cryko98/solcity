@@ -1,67 +1,35 @@
 // DaCity rewards, game side. Only active when the game is served by the Sol City server
 // (server/index.mjs answers /api/config); on a plain static host this does nothing.
-//   - "Connect wallet": Phantom signs a one-time sign-in message (no funds move)
+//   - "Connect wallet": Phantom signs a one-time sign-in message (no funds move; src/wallet.js)
 //   - while a story mission or a race runs, the player's position is sampled once a second
 //   - when it is passed, the trace goes to the server, which checks it and queues the payout
-const API = '/api';
-const KEY = 'solcity.dacity';
-const ALPHA = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function b58(bytes) {
-  let n = 0n;
-  for (const b of bytes) n = n * 256n + BigInt(b);
-  let s = '';
-  while (n > 0n) {
-    s = ALPHA[Number(n % 58n)] + s;
-    n /= 58n;
-  }
-  for (const b of bytes) {
-    if (b !== 0) break;
-    s = '1' + s;
-  }
-  return s;
-}
+import { wallet } from './wallet.js';
 
 export class DaCity {
   constructor({ hud }) {
     this.hud = hud;
     this.enabled = false;
-    this.session = null;
     this.run = null;
-    try {
-      this.session = JSON.parse(localStorage.getItem(KEY) || 'null');
-    } catch {}
     this.buildUi();
+    // signed in or out anywhere (the title screen, the lobby, the free-play limit): show it
+    addEventListener('solcity:wallet', (e) => this.show(e.detail.summary));
     this.init();
   }
 
-  async call(method, path, body) {
-    const r = await fetch(API + path, {
-      method,
-      headers: { 'Content-Type': 'application/json', ...(this.session ? { Authorization: 'Bearer ' + this.session.token } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const data = await r.json().catch(() => ({}));
-    if (r.status === 401 && this.session && path !== '/login') this.signOut();
-    if (!r.ok) throw new Error(data.error || r.statusText);
-    return data;
+  get session() {
+    return wallet.session;
+  }
+
+  call(method, path, body) {
+    return wallet.call(method, path, body);
   }
 
   async init() {
-    try {
-      this.cfg = await this.call('GET', '/config');
-      this.enabled = !!this.cfg.enabled;
-    } catch {
-      return; // no reward server: stay hidden
-    }
+    this.cfg = await wallet.config();
+    this.enabled = !!this.cfg;
+    if (!this.cfg) return; // no reward server: stay hidden
     this.el.style.display = 'inline-flex';
-    if (this.session) {
-      try {
-        this.show(await this.call('GET', '/me'));
-      } catch {
-        this.signOut();
-      }
-    } else this.show(null);
+    this.show(this.session ? await wallet.refresh() : null);
   }
 
   // ---------------------------------------------------------------- UI: a chip at the end of the top-right column
@@ -88,8 +56,7 @@ export class DaCity {
 
   // what a wallet needs to earn DaCity (only $SOLCITY holders do; everyone plays for dollars)
   get need() {
-    const n = this.cfg?.minHolding || 0;
-    return n ? `${n >= 1000 && n % 1000 === 0 ? n / 1000 + 'k' : n.toLocaleString('en-US')} $${this.cfg.holdTicker || 'SOLCITY'}` : '';
+    return wallet.need;
   }
 
   show(summary) {
@@ -118,25 +85,8 @@ export class DaCity {
 
   // ---------------------------------------------------------------- wallet
   async connect() {
-    const provider = window.phantom?.solana || (window.solana?.isPhantom ? window.solana : null);
-    if (!provider) {
-      this.hud.say('Install the <em>Phantom</em> wallet to earn DaCity (phantom.app).', 5);
-      window.open('https://phantom.app/', '_blank', 'noopener');
-      return;
-    }
     try {
-      document.exitPointerLock?.();
-      const res = await provider.connect();
-      const wallet = res.publicKey.toString();
-      const { nonce, message } = await this.call('POST', '/nonce', { wallet });
-      const signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
-      const turnstile = this.cfg.turnstileSiteKey ? await this.turnstile() : undefined;
-      const { token, summary } = await this.call('POST', '/login', { wallet, nonce, signature: b58(signed.signature), turnstile });
-      this.session = { wallet, token };
-      try {
-        localStorage.setItem(KEY, JSON.stringify(this.session));
-      } catch {}
-      this.show(summary);
+      const summary = await wallet.connect({ turnstile: () => this.turnstile() });
       this.hud.say(summary.eligible === false
         ? `Wallet connected. Hold at least <em>${this.need}</em> to earn DaCity; until then you play for dollars.`
         : `Wallet connected. Story missions and races now earn <em>DaCity</em>.${this.cfg.dryRun ? ' (test mode)' : ''}`, 5);
@@ -146,11 +96,7 @@ export class DaCity {
   }
 
   signOut() {
-    this.session = null;
-    try {
-      localStorage.removeItem(KEY);
-    } catch {}
-    this.show(null);
+    wallet.signOut();
   }
 
   // Cloudflare Turnstile, only if the server asks for it

@@ -1,8 +1,12 @@
 // The lobby on the title screen: players gather in a room (the public one, or a private room
 // with a code to share), see who's there, chat, say they're ready, and the host starts
-// everybody's game at the same moment. The server side is server/lobby.mjs.
+// everybody's game at the same moment; then they play in the same city (src/net.js). The server
+// side is server/lobby.mjs. On the Sol City server multiplayer needs a connected wallet that holds
+// the token and a username (shown over the player's head); the developer's server.js lets anyone in.
 // "PLAY SOLO" (or a click anywhere on the title screen) starts the game straight away, as before.
 import { isTouch, goLandscape } from './touch.js';
+import { wallet } from './wallet.js';
+import { Net } from './net.js';
 
 const API = '/api/lobby/';
 const overlay = document.getElementById('overlay');
@@ -114,24 +118,77 @@ const savedName = () => {
 };
 
 async function post(path, body) {
-  const r = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const auth = wallet.session ? { Authorization: 'Bearer ' + wallet.session.token } : {};
+  const r = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `The lobby server answered ${r.status}.`);
   return j;
 }
 
-function open() {
+// on the Sol City server: a wallet that holds the token, and a username, before the rooms
+async function open(msg = '') {
   panel.classList.add('show');
   if (me) return renderRoom();
+  const cfg = await wallet.config();
+  if (cfg) {
+    if (wallet.session && !wallet.summary) await wallet.refresh();
+    const s = wallet.summary;
+    if (!wallet.session || !s) return account('wallet', msg);
+    if (s.eligible === false) return account('holder', msg);
+    if (!s.username) return account('name', msg);
+  }
   box.innerHTML = `
     <h2>MULTIPLAYER LOBBY <button class="x" data-a="close">✕</button></h2>
-    <label for="lb-name">Your name</label>
-    <input id="lb-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="Player" value="${esc(savedName())}">
+    ${cfg
+      ? `<div class="note" style="margin-top:6px">Playing as <b style="color:#ffd23f">${esc(wallet.summary.username)}</b> <button data-a="rename" style="font-size:12px;padding:3px 8px;margin-left:6px">CHANGE</button></div>`
+      : `<label for="lb-name">Your name</label>
+    <input id="lb-name" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="Player" value="${esc(savedName())}">`}
     <div class="row"><button class="primary" data-a="public">JOIN PUBLIC LOBBY</button><button data-a="new">CREATE PRIVATE ROOM</button></div>
     <div class="row"><input id="lb-code" maxlength="8" autocapitalize="characters" spellcheck="false" placeholder="Room code"><button data-a="code">JOIN</button></div>
     <div class="err"></div>
     <div class="note">Gather here with your friends: when everybody is ready, the host starts the game for the whole room at once.</div>`;
   box.querySelector('#lb-code').addEventListener('keydown', (e) => e.key === 'Enter' && join(box.querySelector('#lb-code').value));
+  if (msg) box.querySelector('.err').textContent = msg;
+}
+
+// the steps before the rooms: connect a wallet, hold enough, pick a username
+function account(step, msg = '') {
+  const need = esc(wallet.need || '$SOLCITY'), s = wallet.summary;
+  const head = '<h2>MULTIPLAYER <button class="x" data-a="close">✕</button></h2>';
+  if (step === 'wallet') {
+    box.innerHTML = head + `<div class="note" style="font-size:14px;color:#ddd">Multiplayer is for holders of <b>at least ${need}</b> (that much or more). Connect your wallet (Phantom): you only sign a message, no funds move.</div>
+      <div class="row"><button class="primary" data-a="connect">CONNECT WALLET</button></div><div class="err"></div>`;
+  } else if (step === 'holder') {
+    box.innerHTML = head + `<div class="note" style="font-size:14px;color:#ddd">This wallet (${esc(s.wallet.slice(0, 4))}…${esc(s.wallet.slice(-4))}) holds less than <b>${need}</b>. Multiplayer is for holders of at least that much.</div>
+      <div class="row"><button class="primary" data-a="connect">USE ANOTHER WALLET</button></div><div class="err"></div>`;
+  } else {
+    box.innerHTML = head + `<label for="lb-user">Your username</label>
+      <input id="lb-user" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="3-16 letters, digits, _ . -" value="${esc(s?.username || savedName())}">
+      <div class="note">Everyone in the city sees it over your head. It's yours alone; you can change it once a day.</div>
+      <div class="row"><button class="primary" data-a="username">SAVE</button></div><div class="err"></div>`;
+    box.querySelector('#lb-user').addEventListener('keydown', (e) => e.key === 'Enter' && saveName());
+  }
+  if (msg) box.querySelector('.err').textContent = msg;
+}
+
+async function connectWallet() {
+  try {
+    if (wallet.session) wallet.signOut();
+    await wallet.connect();
+    open();
+  } catch (e) {
+    open(e.message || String(e));
+  }
+}
+
+async function saveName() {
+  const name = box.querySelector('#lb-user')?.value.trim() || '';
+  try {
+    await wallet.setUsername(name);
+    open();
+  } catch (e) {
+    account('name', e.message);
+  }
 }
 
 function close() {
@@ -143,7 +200,7 @@ async function join(room) {
   const err = box.querySelector('.err');
   if (!room) return void (err.textContent = 'Type the room code your friend sent you.');
   try {
-    localStorage.setItem('solcity.name', name.trim());
+    if (box.querySelector('#lb-name')) localStorage.setItem('solcity.name', name.trim());
   } catch {}
   if (isTouch()) goLandscape();
   box.querySelectorAll('button').forEach((b) => (b.disabled = true));
@@ -152,6 +209,11 @@ async function join(room) {
   } catch (e) {
     box.querySelectorAll('button').forEach((b) => (b.disabled = false));
     err.textContent = /fetch|network/i.test(e.message) ? 'The lobby server is not reachable. You can still play solo.' : e.message;
+    // (signed out, no longer a holder, no username: the step it needs)
+    if (/wallet|holder|username/i.test(e.message)) {
+      await wallet.refresh();
+      open(e.message);
+    }
     return;
   }
   state = null;
@@ -174,6 +236,10 @@ function connect() {
   };
   // the server forgot us (restarted, or we were away too long): back to the start
   es.onerror = () => {
+    if (inCity) {
+      if (es.readyState === EventSource.CLOSED) window.__game?.hud?.say('Lost the connection to the other players.', 5);
+      return;
+    }
     if (es.readyState !== EventSource.CLOSED || !me) return;
     me = null;
     state = null;
@@ -264,6 +330,9 @@ box.addEventListener('click', (e) => {
   const a = e.target.closest('[data-a]')?.dataset.a;
   if (!a) return;
   if (a === 'close') return close();
+  if (a === 'connect') return connectWallet();
+  if (a === 'username') return saveName();
+  if (a === 'rename') return account('name');
   if (a === 'public') return join('PUBLIC');
   if (a === 'new') return join('NEW');
   if (a === 'code') return join(box.querySelector('#lb-code').value.trim());
@@ -276,10 +345,11 @@ box.addEventListener('click', (e) => {
 
 // ------------------------------------------------------------------ the room starts
 let crew = [];
+let inCity = null; // { me, es }: the room's stream stays open in the city (src/net.js)
 function go() {
+  if (inCity) return;
   crew = state.players.filter((p) => p.id !== me.id).map((p) => p.name);
-  es?.close();
-  es = null;
+  inCity = { me, es, slot: Math.max(0, state.players.findIndex((p) => p.id === me.id)) };
   me = null;
   panel.classList.remove('show');
   pendingStart = true;
@@ -290,6 +360,7 @@ function go() {
 function startGame() {
   pendingStart = false;
   overlay.click(); // the title screen's own start (src/main.js)
+  if (inCity && window.__game) window.__net = new Net(window.__game, inCity.me, inCity.es, inCity.slot);
   // the start came from the network, not a tap: browsers keep the sound off until the next touch
   const unlock = () => {
     window.__game?.audio?.ctx?.resume?.();

@@ -6,7 +6,7 @@
   "engines": { "node": ">=22.13" },
   "scripts": {
     "start": "node index.mjs",
-    "test": "node test.mjs && node test-lobby.mjs"
+    "test": "node test.mjs && node test-lobby.mjs && node test-mp.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.9",

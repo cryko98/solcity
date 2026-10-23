@@ -93,6 +93,9 @@ export const config = {
   holdMint: str('SOLCITY_MINT', ''),
   holdTicker: str('HOLD_TICKER', 'SOLCITY'),
   minHolding: num('MIN_HOLDING', 10000),
+  // the game itself (solo and multiplayer) is for holders only: the title screen asks for a wallet
+  // with MIN_HOLDING of the token and a username before it starts. HOLDERS_ONLY=false opens it.
+  holdersOnly: bool('HOLDERS_ONLY', true),
   maxWalletsPerIpPerDay: num('MAX_WALLETS_PER_IP_PER_DAY', 3),
   maxRunStartsPerHour: num('MAX_RUN_STARTS_PER_HOUR', 30),
 

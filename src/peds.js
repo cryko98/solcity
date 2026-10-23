@@ -90,7 +90,7 @@ export class Peds {
     this.spawnTimer = 0;
     this.onCash = null;
     const clip = (n) => heroGltf.animations.find((a) => a.name === n);
-    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'HandsUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'Dance'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
+    this.clips = Object.fromEntries(['Idle', 'Walk', 'Run', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'GetUp', 'HandsUp', 'Drive', 'Ride', 'PistolAim', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'Dance', 'Swim', 'Tread', 'Jump'].map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     this.modelClips = {
       male: retargetClips(this.clips, heroGltf.scene, models.male.scene),
       female: retargetClips(this.clips, heroGltf.scene, models.female.scene),
@@ -148,7 +148,8 @@ export class Peds {
   // the clips for one avatar: the hero's, with the pelvis track scaled to this body's height
   rbClipsFor(av) {
     if (!this.rbClips.has(av)) {
-      const k = pelvisHeight(av.scene) / this.rb.heroPelvis;
+      // (the hero's own avatar, for the other players in multiplayer: his clips as they are)
+      const k = av.name === 'Hero' ? 1 : pelvisHeight(av.scene) / this.rb.heroPelvis;
       this.rbClips.set(av, Math.abs(k - 1) < 0.005 ? this.rb.clips : this.rb.clips.map((c) => new THREE.AnimationClip(c.name, c.duration, c.tracks.map((t) => {
         if (t.name !== 'Bip01_Pelvis.position') return t;
         const u = t.clone();
@@ -377,7 +378,7 @@ export class Peds {
   }
 
   // ------------------------------------------------------------- drivers / riders of AI vehicles
-  seatDriver(v, kind) {
+  seatDriver(v, kind, avatar = null) {
     const body = this.makeBody(kind);
     const anim = new AnimSet(body, this.modelClips[kind]);
     const hips = body.getObjectByName('hips').position.y;
@@ -395,7 +396,7 @@ export class Peds {
     anim.target = { [clip]: 1 };
     for (const n in anim.weights) anim.weights[n] = n === clip ? 1 : 0;
     const d = { body, anim, v, kind };
-    this.rbAttach(d, kind);
+    this.rbAttach(d, kind, avatar);
     this.drivers.push(d);
     v.npcDriver = d;
     return d;
@@ -662,6 +663,7 @@ export class Peds {
         if (p.life) this.updateLife(p, dt);
       }
       else if (p.state === 'board') this.updateBoard(p, dt);
+      else if (p.state === 'remote') {} // (another player: src/net.js moves them)
       else this.updateWalk(p, dt, onFoot);
       if (p.state === 'riding') continue;
       this.separate(p);
@@ -956,6 +958,11 @@ export class Peds {
     else if (p.state === 'board') a.target = p.cur > 2.2 ? { run: 1 } : { walk: 1 };
     else if (p.state === 'seated' || p.state === 'talking') a.target = { [p.pose || 'idle']: 1 };
     else if (p.state === 'contact' && p.pose && a.actions[p.pose]) a.target = { [p.pose]: 1 }; // (dancing at the club)
+    else if (p.state === 'remote' && !['idle', 'walk', 'run', 'sprint'].includes(p.netAnim)) {
+      // another player: what they're doing, as near as a pedestrian's clips come
+      const n = { aim: 'pistolaim', dead: 'knockdown', ride: 'ride', drive: 'drive' }[p.netAnim] || p.netAnim;
+      a.target = a.actions[n] ? { [n]: 1 } : { idle: 1 };
+    }
     else if (p.cur > 2.1) a.target = { run: 1 };
     else {
       const w = Math.min(1, p.cur / 0.6);

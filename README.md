@@ -25,6 +25,12 @@ in-game dollars. The game records where you drive while a mission runs; the serv
 trace against the mission's places (`src/shared/world.mjs`, shared by game and server), its own clock
 and believable speeds before it queues a payout, with per-wallet and global daily caps on top.
 Dollars in the game are not exchangeable: they live in the browser and could be edited.
+
+On the Sol City server the game itself is for holders of **at least 10 000 $SOLCITY**: without such a wallet
+there are 5 minutes of free play (a clock on screen, warnings near the end), then the game asks for one.
+**Multiplayer** (MULTIPLAYER LOBBY on the title screen) always needs a connected holder wallet and a
+username, which the others see over your head: gather in a room, the host starts, and everyone plays in
+the same city (`src/net.js`, `server/lobby.mjs`). Only where everyone is and what they do is shared so far.
 Game side: `src/dacity.js`; server: `server/`.
 
 ## Controls

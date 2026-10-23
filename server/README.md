@@ -155,15 +155,39 @@ Only the game: `/index.html`, `/src/`, `/assets/`, `/SolCity_Trailer.mp4`. Every
 (including `server/`, `.env`, the database, `.git`, `blender/`, `vendor/`) answers 404.
 `node test.mjs` checks this.
 
-## The multiplayer lobby
+## Holders only, free play, accounts
 
-`/api/lobby/` is where players gather before a game (`lobby.mjs`): rooms, names, ready, chat, and the
-host's START. It needs no wallet, keeps everything in memory (a restart empties it) and never touches the
-rewards or the database. Room updates go out as Server-Sent Events (`/api/lobby/events`, a long-lived
-GET with a ping every 15 s): the server sends `X-Accel-Buffering: no` so nginx passes them through at
-once; Caddy needs nothing. Limits: 8 players a room, 300 rooms, 20 joins a minute and 8 open streams
-per IP, chat 140 characters at most once every 0.8 s. Self-test: `node test-lobby.mjs` (no
-dependencies; `npm test` runs both tests).
+`HOLDERS_ONLY=true` (the default): Sol City is for wallets holding at least `MIN_HOLDING` (10 000 or more) of `SOLCITY_MINT`.
+Without one, the game gives 5 minutes of free play (a clock on screen, warnings at one minute and
+15 seconds), then stops until a wallet that holds enough is connected. That clock lives in the
+browser and can be got round; everything worth something is checked here, by the server: DaCity
+rewards and multiplayer. `HOLDERS_ONLY=false` turns the free-play limit off.
+
+Each wallet has an account with a **username** (`profile.mjs`, table `profiles`): 3-16 letters,
+digits, `_ . -`, unique whatever the case, a few names reserved, changeable once a day
+(`POST /api/profile`, signed in). It's the name over the player's head in multiplayer.
+
+## Multiplayer
+
+`/api/lobby/` (`lobby.mjs`): players gather in a room (rooms, ready, chat, the host's START), then
+play in the same city. Joining needs a signed-in wallet that holds at least `MIN_HOLDING` and has a
+username; the name comes from the account (never from the request) and one wallet is one player
+(joining again takes it out of its old room). Everything lives in memory (a restart empties it); it
+never touches the rewards.
+
+Once a room has started it stays open while anyone is in it. Each player POSTs where they are and
+what they're doing to `/api/lobby/state` about 8 times a second (checked field by field: on the map,
+finite numbers, a known animation and vehicle; more often than every 70 ms is dropped), and the
+room's event stream sends everyone's last state ten times a second (`event: world`). Room updates
+and these go out as Server-Sent Events (`/api/lobby/events`, a long-lived GET with a ping every
+15 s): the server sends `X-Accel-Buffering: no` so nginx passes them through at once; Caddy needs
+nothing. A room of 8 is about 64 small requests a second in and 80 events out: fine for a small
+VPS. Limits: 8 players a room, 300 rooms, 20 joins a minute and 8 open streams per IP, chat 140
+characters at most once every 0.8 s. Only positions are shared so far: each player's traffic,
+people, missions and fights are their own.
+
+Self-tests: `node test-lobby.mjs` (rooms) and `node test-mp.mjs` (usernames, the wallet check, the
+states in the city); `npm test` runs all three.
 
 ## Day to day
 

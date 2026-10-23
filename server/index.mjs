@@ -8,6 +8,7 @@ import { makeNonce, useNonce, verifySignature, issueSession, readSession, isWall
 import { startRun, finishRun, walletSummary, eligibility } from './rewards.mjs';
 import { startPayouts } from './payout.mjs';
 import { createLobby } from './lobby.mjs';
+import { getProfile, setUsername } from './profile.mjs';
 import { STORY, RACES } from '../src/shared/world.mjs';
 
 const problems = checkConfig();
@@ -107,17 +108,33 @@ const clientIp = (req) => {
 const authed = (req) => readSession((req.headers.authorization || '').replace(/^Bearer /, ''));
 
 // ------------------------------------------------------------------ API
-// the lobby where players gather before a game (no wallet needed; see lobby.mjs)
-const lobby = createLobby();
+// the lobby where players gather before a game and then play in the same city (see lobby.mjs):
+// only a signed-in wallet that holds the token, under its account's username
+const lobby = createLobby({
+  authorize: async (req) => {
+    const wallet = authed(req);
+    if (!wallet) return { status: 401, error: 'Connect your wallet to play multiplayer.' };
+    const e = await eligibility(wallet);
+    if (!e.eligible) return { status: 403, error: `Multiplayer is for holders of at least ${config.minHolding.toLocaleString('en-US')} $${config.holdTicker}.` };
+    const prof = getProfile(wallet);
+    if (!prof) return { status: 403, error: 'Choose a username first.' };
+    return { wallet, name: prof.username };
+  },
+});
+// what the game shows of a wallet: rewards, whether it holds enough, its username
+const me = async (wallet) => ({ ...walletSummary(wallet), ...(await eligibility(wallet)), username: getProfile(wallet)?.username || null });
 
 async function api(req, res, url) {
   const ip = clientIp(req);
+  // (a player in the city sends where they are ten times a second: the lobby limits that itself)
+  if (url === '/api/lobby/state') return void (await lobby.handle(req, res, req.url, ip));
   if (limited(ip, 'api', 120)) return json(res, 429, { error: 'too many requests' });
 
   if (req.method === 'GET' && url === '/api/config') {
     return json(res, 200, {
       enabled: true, dryRun: config.dryRun, mint: config.tokenMint || null, turnstileSiteKey: config.turnstileSiteKey || null,
       storyRewards: config.storyRewards, raceReward: config.raceReward, dailyCap: config.walletDailyCap, minHolding: config.minHolding, holdTicker: config.holdTicker,
+      holdersOnly: config.holdersOnly, trialSeconds: config.holdersOnly ? 300 : 0,
       story: STORY.map((m) => m.id), races: RACES.map((r) => r.id),
     });
   }
@@ -138,14 +155,20 @@ async function api(req, res, url) {
       return json(res, 429, { error: 'too many wallets from this connection today' });
     }
     recordLogin(wallet, ip);
-    return json(res, 200, { token: issueSession(wallet), summary: { ...walletSummary(wallet), ...(await eligibility(wallet)) } });
+    return json(res, 200, { token: issueSession(wallet), summary: await me(wallet) });
   }
 
   if (url.startsWith('/api/lobby/')) return void (await lobby.handle(req, res, req.url, ip));
 
   const wallet = authed(req);
   if (!wallet) return json(res, 401, { error: 'sign in first' });
-  if (req.method === 'GET' && url === '/api/me') return json(res, 200, { ...walletSummary(wallet), ...(await eligibility(wallet)) });
+  if (req.method === 'GET' && url === '/api/me') return json(res, 200, await me(wallet));
+  if (req.method === 'POST' && url === '/api/profile') {
+    if (limited(ip, 'profile', 10)) return json(res, 429, { error: 'too many requests' });
+    const { username } = await readBody(req, 1024);
+    const r = setUsername(wallet, username);
+    return json(res, r.status, r.error ? { error: r.error } : { username: r.username });
+  }
   if (req.method === 'POST' && url === '/api/run/start') {
     const { kind, ref } = await readBody(req, 4096);
     if (!['story', 'race'].includes(kind) || typeof ref !== 'string') return json(res, 400, { error: 'bad run' });

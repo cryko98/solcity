@@ -35,6 +35,9 @@ CREATE INDEX IF NOT EXISTS rewards_status ON rewards(status);
 CREATE INDEX IF NOT EXISTS rewards_wallet_day ON rewards(wallet, day);
 CREATE INDEX IF NOT EXISTS rewards_day_status ON rewards(day, status);
 CREATE INDEX IF NOT EXISTS rewards_story ON rewards(wallet, kind, ref);
+-- a player's account: the name shown over their head in multiplayer (one per wallet, unique)
+CREATE TABLE IF NOT EXISTS profiles (wallet TEXT PRIMARY KEY, username TEXT NOT NULL, created INTEGER NOT NULL, changed INTEGER NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_username ON profiles(lower(username));
 `);
 // added later: the last block height at which a sent transaction can still land
 try {
