@@ -56,7 +56,30 @@ export function chooseOutfit(root, want) {
     if (n.startsWith('Outfit_')) o.visible = n === outfit || n === outfit + '__shirt';
     else if (n.startsWith('Shoes_')) o.visible = n === shoes;
   });
+  coverSkin(root, outfit);
   return outfit;
+}
+
+// The skin under the outfit being worn isn't drawn: each outfit's mask ("_cov_<outfit>", 1 where
+// that outfit covers the skin all round a vertex) comes with the body mesh; the skin shader drops
+// the triangles inside it, so the body can't poke through the clothes when the arms move.
+function coverSkin(root, outfit) {
+  const attr = outfit && '_cov_' + outfit.slice(7);
+  root.traverse((o) => {
+    if (!o.isSkinnedMesh || !/^Skin/.test(o.material.name)) return;
+    const has = attr && o.geometry.attributes[attr];
+    const m = o.material; // (every body has its own skin material: its own skin colour)
+    if (m.userData.cover === (has ? attr : null)) return;
+    m.userData.cover = has ? attr : null;
+    m.onBeforeCompile = has
+      ? (sh) => {
+        sh.vertexShader = `attribute float ${attr};\nvarying float vCover;\n` + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\nvCover = ${attr};`);
+        sh.fragmentShader = 'varying float vCover;\n' + sh.fragmentShader.replace('void main() {', 'void main() {\nif (vCover > 0.995) discard;');
+      }
+      : () => {};
+    m.customProgramCacheKey = () => 'cover:' + (m.userData.cover || '');
+    m.needsUpdate = true;
+  });
 }
 
 // rest (bind) pose of every bone: its local rotation and its rotation in model space
@@ -70,10 +93,33 @@ function restPose(root) {
   skeleton.pose();
   root.updateMatrixWorld(true);
   const inv = root.getWorldQuaternion(new THREE.Quaternion()).invert();
+  const toModel = root.matrixWorld.clone().invert();
   for (const b of skeleton.bones) {
-    bones[b.name] = { local: b.quaternion.clone(), model: inv.clone().multiply(b.getWorldQuaternion(new THREE.Quaternion())) };
+    bones[b.name] = {
+      local: b.quaternion.clone(),
+      model: inv.clone().multiply(b.getWorldQuaternion(new THREE.Quaternion())),
+      pos: b.getWorldPosition(new THREE.Vector3()).applyMatrix4(toModel),
+      parent: b.parent?.isBone ? b.parent.name : null,
+      child: b.children.find((c) => c.isBone)?.name || null,
+    };
   }
   return bones;
+}
+
+// An anatomical frame for a finger bone, in model space: along the bone (y), across the palm
+// from little finger to index (x), out of the palm (z). The same for every body whatever way
+// its bones happen to be rolled.
+function fingerFrame(B, name) {
+  const s = name.slice(-1), b = B[name];
+  const next = b.child ? B[b.child].pos : null;
+  const along = next ? next.clone().sub(b.pos) : b.pos.clone().sub(B[b.parent].pos);
+  along.normalize();
+  const idx = B['index1' + s], pky = B['pinky1' + s];
+  if (!idx || !pky) return null;
+  const across = idx.pos.clone().sub(pky.pos);
+  across.addScaledVector(along, -across.dot(along)).normalize();
+  const out = new THREE.Vector3().crossVectors(across, along).normalize();
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, along, out));
 }
 
 // The NPC skeletons are fitted to their own bodies, so their bones' rest orientations
@@ -82,6 +128,7 @@ function restPose(root) {
 // the same rotation in model space and expressed in the NPC bone's own frame:
 //   q_npc = rest_npc * Mn^-1 * Mh * (rest_hero^-1 * q_hero) * Mh^-1 * Mn
 // The hips also move in absolute terms, so that track is shifted to the NPC's rest height.
+const FINGER = /^(thumb|index|middle|ring|pinky)\d[LR]$/;
 export function retargetClips(clips, heroRoot, npcRoot) {
   const hero = heroRoot.getObjectByName('hips').position;
   const npc = npcRoot.getObjectByName('hips').position;
@@ -92,6 +139,19 @@ export function retargetClips(clips, heroRoot, npcRoot) {
   for (const name of Object.keys(N)) {
     const h = H[name], n = N[name];
     if (!h) continue;
+    // fingers: the same bend in the finger's own anatomical frame. Their bones point almost
+    // straight down in the rest pose, where the rig builder's bone roll is unstable (each body's
+    // finger bones end up turned differently about their length), and a model-space copy curls
+    // them off to the side on a hand shaped a little differently: claws instead of fists.
+    //   q_npc = rest_n * Rn * Rh^-1 * rest_h^-1 * q_hero * Rh * Rn^-1,  R = M^-1 * A
+    const Ah = FINGER.test(name) && fingerFrame(H, name), An = Ah && fingerFrame(N, name);
+    if (Ah && An) {
+      const Rh = h.model.clone().invert().multiply(Ah), Rn = n.model.clone().invert().multiply(An);
+      const pre = n.local.clone().multiply(Rn).multiply(Rh.clone().invert()).multiply(h.local.clone().invert());
+      const post = Rh.clone().multiply(Rn.clone().invert());
+      conv[name] = { pre, post };
+      continue;
+    }
     // pre = rest_npc * Mn^-1 * Mh * rest_hero^-1, post = Mh^-1 * Mn
     const pre = n.local.clone().multiply(n.model.clone().invert()).multiply(h.model).multiply(h.local.clone().invert());
     const post = h.model.clone().invert().multiply(n.model);

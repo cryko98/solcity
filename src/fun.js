@@ -782,7 +782,8 @@ export class Fun {
     P.position.set(st.x, st.y || 0, st.z);
     P.yaw = st.yaw;
     P.object.rotation.y = st.yaw;
-    P.posed = { treadmill: 'run', bench: 'benchpress', dance: 'dance' }[st.kind] || 'idle';
+    P.posed = { treadmill: 'run', bench: 'benchpress', dance: 'dance', darts: 'darts', invaders: 'arcade', snake: 'arcade' }[st.kind] || 'idle';
+    if (!P.actions[P.posed]) P.posed = 'idle';
     P.showWeapon();
     if (P.posed === 'benchpress') P.actions.benchpress.timeScale = 0;
     if (P.posed === 'dance' && P.actions.dance) P.actions.dance.timeScale = P.actions.dance.getClip().duration / (4 * this.game.beat);

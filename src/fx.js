@@ -284,7 +284,7 @@ export class Fx {
   // the fire truck's water cannon: drops along a falling arc
   jet(x, y, z, vx, vy, vz) {
     const j = () => (Math.random() - 0.5) * 1.2;
-    this.smoke.emit(x, y, z, vx + j(), vy + j(), vz + j(), 0.9 + Math.random() * 0.4, 0.12, 0.5, 0.8, 0.88, 0.98, 0.6, 0.2, -9.8);
+    this.smoke.emit(x, y, z, vx + j(), vy + j(), vz + j(), 0.9 + Math.random() * 0.4, 0.3, 1.1, 0.86, 0.93, 1.0, 0.7, 0.2, -9.8);
   }
 
   // gun smoke drifting from the muzzle

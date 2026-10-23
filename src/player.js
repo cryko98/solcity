@@ -43,7 +43,7 @@ export class Player {
 
     this.mixer = new THREE.AnimationMixer(this.model);
     const clip = (n) => gltf.animations.find((a) => a.name === n);
-    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp', 'Swim', 'Tread', 'Dance', 'BenchPress'];
+    const names = ['Idle', 'Walk', 'Run', 'Jump', 'Drive', 'Ride', 'HandsUp', 'Guard', 'PunchL', 'PunchR', 'Hit', 'KnockDown', 'Roll', 'SitTalk', 'SitListen', 'StandTalk', 'StandListen', 'OpenDoor', 'GetIn', 'JackPull', 'GetUp', 'Swim', 'Tread', 'Dance', 'BenchPress', 'Arcade', 'Darts'];
     // Ride / HandsUp may be missing from older exports
     const clips = Object.fromEntries(names.map((n) => [n.toLowerCase(), clip(n)]).filter(([, c]) => c));
     // stride length = ground covered per gait cycle, measured from the foot motion in the clip
@@ -413,7 +413,7 @@ export class Player {
         this.yaw = dampAngle(this.yaw, Math.atan2(t.x - this.position.x, t.z - this.position.z), 18, dt);
         // step in so the punch reaches
         const d = Math.hypot(t.x - this.position.x, t.z - this.position.z);
-        if (d > 0.95 && this.overlay.t < this.overlay.dur * 0.35) this.moveSpeed = Math.min(2.6, (d - 0.85) * 6);
+        if (d > 1.15 && this.overlay.t < this.overlay.dur * 0.35) this.moveSpeed = Math.min(2.6, (d - 1.05) * 6);
         else this.moveSpeed = 0;
       }
     }

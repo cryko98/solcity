@@ -361,8 +361,14 @@ for s, sfx in ((1, ".L"), (-1, ".R")):
     comps0 = [g_ for g_ in connected_groups(np.where(hand_zone & (ax_d > 0))[0]) if len(g_) > 8]
     thumb = None
     hm = np.zeros(len(VS), dtype=bool)
-    if len(comps0) >= 2:
-        tcomp = min(comps0, key=len)
+    tcomp = min(comps0, key=len) if len(comps0) >= 2 else None
+    if tcomp is None:
+        # a lighter mesh: the thumb doesn't come away as its own piece past the knuckles. It is the
+        # part of the hand out on the front side (the arms hang with the thumbs forward)
+        tsign = -float(np.sign(lat.y)) or 1.0
+        cand = hand_zone & (lat_d * tsign > .03) & (ax_d < .06) & (ax_d > -.075)
+        tcomp = np.where(cand)[0] if cand.sum() > 8 else None
+    if tcomp is not None:
         tsign = float(np.sign(lat_d[tcomp].mean()))
         hm = hand_zone & (lat_d * tsign > .034) & (ax_d < .03) & (ax_d > -.075)
         tip_t = V(VS[tcomp[int(np.argmax(ax_d[tcomp]))]])
@@ -469,7 +475,10 @@ bpy.ops.object.parent_set(type="ARMATURE_AUTO")
 for b in BONE_NAMES:
     if b not in body.vertex_groups:
         body.vertex_groups.new(name=b)
-HAND_WEIGHTS = "--handweights" in ARGS  # default: trust bone heat now that every finger has its own chain
+# the hero's dense mesh: bone heat (every finger has its own chain); the lighter NPC bodies:
+# bone heat leaves most of their fingers on the palm bone (they wouldn't curl), so they get
+# the measured hand weights
+HAND_WEIGHTS = "--handweights" in ARGS or not HERO
 for vi, ws in (FW.items() if HAND_WEIGHTS else ()):
     for g_ in body.vertex_groups:
         g_.remove([vi])
@@ -477,6 +486,42 @@ for vi, ws in (FW.items() if HAND_WEIGHTS else ()):
         if w_ > 1e-4:
             body.vertex_groups[n_].add([vi], w_, "REPLACE")
 print("GROUPS", len(body.vertex_groups), "hand verts", len(FW))
+
+# the back and the chest stay on the chest bone: bone heat lets the upper-arm bones pull skin
+# from between the shoulder blades (and off the pecs), so with the arms out in front (aiming,
+# punching) the back caved in. Inward of the shoulder joint the upper arm's share goes over to the
+# chest, fading in over the first few centimetres (more on the back than in front).
+_chest = body.vertex_groups["chest"]
+_moved = 0
+for s_, sfx_ in ((1, ".L"), (-1, ".R")):
+    S_ = BONES["upper_arm" + sfx_][0]
+    ua_ = body.vertex_groups["upper_arm" + sfx_]
+    for v_ in body.data.vertices:
+        co = v_.co
+        if co.x * s_ <= 0 or co.z > S_.z + .1 or co.z < S_.z - .32:
+            continue
+        inward = (S_.x - co.x) * s_  # > 0: nearer the spine than the shoulder joint
+        if inward < -.005:
+            continue
+        try:
+            w_ = ua_.weight(v_.index)
+        except RuntimeError:
+            continue
+        if w_ <= 0:
+            continue
+        back = co.y > S_.y  # (the front is -y)
+        k_ = _sm(-.005, .07, inward) * (.9 if back else .65)
+        if k_ <= 0:
+            continue
+        move = w_ * k_
+        ua_.add([v_.index], w_ - move, "REPLACE")
+        try:
+            cw = _chest.weight(v_.index)
+        except RuntimeError:
+            cw = 0.0
+        _chest.add([v_.index], cw + move, "REPLACE")
+        _moved += 1
+print("SHOULDER BLADES", _moved, "verts eased onto the chest")
 
 # ================================================================ re-pose: A-pose arms down to the game rest pose
 REST_DIRS = {
@@ -1852,7 +1897,7 @@ def mh_cloth(folder, name, key, clearance, size=512, cut_above=None, post=None):
     return to_object(name, b_)
 
 
-def covered_faces(ob, rim_gap=.04):
+def covered_faces(ob, rim_gap=.04, reach=.035):
     """body faces with this garment right over them (within 3.5 cm along the skin normal), the
     garment there belonging to the same body part (not a shirt seen from the inside of the arm)"""
     fparts = CLOTH_PARTS.get(ob.name)
@@ -1875,7 +1920,7 @@ def covered_faces(ob, rim_gap=.04):
         c = f_.calc_center_median()
         if rim_pts and kd.find(c)[2] < rim_gap:
             continue
-        hit = tree.ray_cast(c + f_.normal * .001, f_.normal, .035)
+        hit = tree.ray_cast(c + f_.normal * .001, f_.normal, reach)
         if hit[0] is not None and (our_part(f_) in fparts[hit[2]] if fparts else our_part(f_) == "T"):
             out.add(f_.index)
     return out
@@ -2031,14 +2076,16 @@ def field_cut(b_, phi, smooth=0):
 HERO_OUTFIT = "male_casualsuit06" if HERO else None
 if HERO_OUTFIT:
     MAT["tank"] = material("Shirt", "f2f1ec", 0.92)
-    ob_ = mh_cloth(HERO_OUTFIT, "HeroOutfit", "Jeans", .003, size=1024, post=tank_from_tee)
-    HIDE |= covered_faces(ob_, .03)
+    ob_ = mh_cloth(HERO_OUTFIT, "HeroOutfit", "Jeans", .006, size=1024, post=tank_from_tee)  # (a little off the skin: it stretched thin at the sides)
+    HIDE |= covered_faces(ob_, .01, .08)
 
 _cover = None
+COVERS = {}  # outfit -> the body faces it covers (the game hides them for whoever wears it)
 for o_ in MH_OUTFITS:
     ob_ = mh_cloth(o_, "Outfit_" + o_, "Outfit_" + o_, .003, post=plain_top("Outfit_" + o_) if o_ in PLAIN_TOPS else None)
     if ob_:
         cv = covered_faces(ob_)
+        COVERS[o_] = covered_faces(ob_, .016, .05)
         _cover = cv if _cover is None else _cover & cv
 for s_ in MH_SHOES:
     # the MakeHuman shoes come with socks up the calf: cut them at the shoe collar (they would
@@ -2106,6 +2153,12 @@ for sfx in ((".L", ".R") if not MH_SHOES else ()):
         y0 = ymap(-.035 - k * .02)
         loft_part("Lace", [(V((fx - .02 * ws, y0, .1 - k * .011)), X, .003, .002, (0, 1, 0)), (V((fx + .02 * ws, y0, .1 - k * .011)), X, .003, .002, (0, 1, 0))], "shoe", 6, bone)
 
+# per outfit, a vertex attribute "_cov_<outfit>": 1 where every face round the vertex is under
+# that outfit (the skin shader drops those triangles for the one being worn; exported to glTF)
+for o_, cv in COVERS.items():
+    lay = bm.verts.layers.float.new("_cov_" + o_)
+    for v in bm.verts:
+        v[lay] = 1.0 if v.link_faces and all(f_.index in cv for f_ in v.link_faces) else 0.0
 # bare feet stay hidden inside the shoes, covered skin under the clothes is removed
 bmesh.ops.delete(bm, geom=[f for f in bm.faces if base(face_dom(f)) == "foot" or f.index in HIDE], context="FACES")
 bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
@@ -2424,13 +2477,16 @@ FIST = (80, 95, 45)  # knuckle, middle and tip joint flexion of a closed fist (d
 def hands(p, curl, thumb=None):
     """curl: 0 = open hand ... 95 = closed fist. The knuckles bend ~80, the middle joints
     ~95 and the tips ~45 degrees; the thumb folds across the curled index/middle fingers."""
-    k = curl / 95
+    k0 = curl / 95
     for sfx in (".L", ".R"):
         s = 1 if sfx == ".L" else -1
         ax, cv = FINGER_AXIS[sfx], FINGER_CONV[sfx]
         bends = {}
-        for fname, conv, extra in (("index", 5, 0), ("middle", 0, 0), ("ring", 4, 5), ("pinky", 9, 10)):
-            pull = -math.copysign(conv, FINGER_DL[sfx][fname]) * min(1, k)
+        for fname, conv, extra, relax in (("index", 5, 0, 12), ("middle", 0, 0, 17), ("ring", 4, 5, 22), ("pinky", 9, 10, 28)):
+            # a relaxed hand is never flat: each finger curls a little more than the one before
+            k = max(k0, relax / 95)
+            # and the fingers lie together (a hand with every finger fanned out reads as a claw)
+            pull = -math.copysign(conv, FINGER_DL[sfx][fname]) * max(.6, min(1, k))
             a1, a2, a3 = (FIST[0] + extra) * k, (FIST[1] + extra * .5) * k, FIST[2] * k
             bends[fname] = (a1, a2)
             # every phalanx hinges about (its own direction x palm normal)
@@ -2441,7 +2497,7 @@ def hands(p, curl, thumb=None):
                 p[bn] = rot(bn, (cv, pull), (hinge, ang)) if j == 1 else rot(bn, (hinge, ang))
         if "thumb1" + sfx not in REST:
             continue
-        tk = min(1.0, (curl * .45 if thumb is None else thumb) / 55)
+        tk = min(1.0, (max(curl, 14) * .45 if thumb is None else thumb) / 55)
         # where the middle phalanges of the index and middle fingers end up in this pose
         axv = V(ax)
         mids = []
@@ -3343,6 +3399,63 @@ def stand_talk(t_):
     return p, (.004 * s, 0, -.01)
 
 
+def arcade(t_):
+    """at an arcade cabinet: leaning in a little, the right hand on the joystick working it round,
+    the left hand tapping the fire buttons, eyes on the screen"""
+    s1, c1 = math.sin(2 * math.pi * t_), math.cos(2 * math.pi * t_)
+    tap = max(0.0, math.sin(8 * math.pi * t_)) ** 3
+    p = {}
+    for side, sgn in (("L", 1), ("R", -1)):
+        p["thigh." + side] = rot("thigh." + side, (YA, -sgn * 1.5), (ZA, sgn * 6), (XA, -3))
+        p["shin." + side] = rot("shin." + side, (XA, 6))
+        p["foot." + side] = rot("foot." + side, (XA, -3), (ZA, sgn * 7))
+    p["hips"] = rot("hips", (XA, 4), (YA, 2 * s1))
+    p["spine"] = rot("spine", (XA, 7))
+    p["chest"] = rot("chest", (XA, 4), (ZA, -2 * s1))
+    p["neck"] = rot("neck", (XA, 4))
+    p["head"] = rot("head", (XA, 6), (ZA, 2 * c1))
+    deck = BELT_Z + .02  # the control deck, just above the belt
+    for sfx, sgn in ((".L", 1), (".R", -1)):
+        if sgn < 0:  # the stick: small circles
+            wrist = V((-.11 + .025 * c1, -.36 + .02 * s1, deck + .06))
+        else:  # the buttons: quick taps
+            wrist = V((.13, -.38, deck + .04 - .025 * tap))
+        solve_chain(p, "upper_arm" + sfx, "forearm" + sfx, "hand" + sfx, wrist,
+                    V((sgn * .6, .25, BELT_Z + .1)), V((sgn * .15, -1, -.35)).normalized(), roll=(0, 0, -sgn * 10))
+    hands(p, 62, 40)
+    return p, (0, 0, -.005)
+
+
+def darts(t_):
+    """darts: aim with the dart by the eye (a little wobble), draw the forearm back, throw (the
+    elbow stays up, the forearm snaps forward and the hand follows through), back to aim"""
+    s1 = math.sin(2 * math.pi * t_)
+    draw = smooth01(.5, .62, t_) * (1 - smooth01(.62, .7, t_))
+    throw = smooth01(.62, .72, t_) * (1 - smooth01(.8, 1.0, t_))
+    p = {}
+    for side, sgn in (("L", 1), ("R", -1)):
+        p["thigh." + side] = rot("thigh." + side, (YA, -sgn * 1.5), (ZA, sgn * 7), (XA, -6 if side == "R" else 3))
+        p["shin." + side] = rot("shin." + side, (XA, 4))
+        p["foot." + side] = rot("foot." + side, (XA, -3), (ZA, sgn * 7))
+    p["hips"] = rot("hips", (YA, 14), (XA, 3))
+    p["spine"] = rot("spine", (XA, 5 + 4 * throw), (YA, -6))
+    p["chest"] = rot("chest", (XA, 3 + 3 * throw), (YA, -6))
+    p["neck"] = rot("neck", (XA, 2), (YA, -3))
+    p["head"] = rot("head", (XA, 1), (YA, -2))
+    shoulder_z = REST["upper_arm.R"][0].z
+    aim = V((-.12 + .006 * s1, -.3, shoulder_z + .14 + .006 * math.cos(3 * math.pi * t_)))
+    back = V((-.13, -.14, shoulder_z + .16))
+    out = V((-.1, -.62, shoulder_z + .08))
+    wrist = aim.lerp(back, draw).lerp(out, throw)
+    solve_chain(p, "upper_arm.R", "forearm.R", "hand.R", wrist, V((-.55, .05, shoulder_z - .3)),
+                V((.05, -1, .25 - .55 * throw)).normalized(), roll=(0, 0, 15))
+    # the other arm hangs easy
+    solve_chain(p, "upper_arm.L", "forearm.L", "hand.L", V((.24, -.12, BELT_Z - .12)), V((.6, .3, BELT_Z + .2)),
+                V((.2, -.4, -1)).normalized(), roll=(0, 0, -20))
+    hands(p, 58, 50)
+    return p, (0, 0, 0)
+
+
 def stand_listen(t_):
     """standing and listening: arms folded across the chest, weight on one leg, nodding"""
     key = round(t_, 3)
@@ -3412,6 +3525,8 @@ if HERO or PREVIEW:
         make_action("Swim", 54, swim, 1),
         make_action("Tread", 60, tread, 2),
         make_action("Dance", 60, dance, 1),
+        make_action("Arcade", 60, arcade, 2),
+        make_action("Darts", 60, darts, 1),
         make_action("BenchPress", 60, bench_press, 2),
         make_action("Ride", 72, ride, 6),
         make_action("HandsUp", 60, hands_up, 6),
@@ -3443,6 +3558,7 @@ bpy.ops.object.select_all(action="DESELECT")
 bpy.ops.export_scene.gltf(
     filepath=glb, export_format="GLB", export_animations=HERO, export_animation_mode="NLA_TRACKS",
     export_skins=True, export_yup=True, export_apply=False, export_image_format="WEBP", export_vertex_color="ACTIVE",
+    export_attributes=True,  # the outfits' "_cov_*" skin masks
 )
 print("EXPORTED", glb)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ROOT, "blender", out_name + ".blend"))

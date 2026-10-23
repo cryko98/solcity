@@ -744,14 +744,20 @@ export class Peds {
     }
     const dx = player.position.x - p.x, dz = player.position.z - p.z, d = Math.hypot(dx, dz);
     const busy = p.overlay && (p.overlay.name === 'hit' || p.overlay.name.startsWith('punch'));
-    const want = busy ? 0 : d > 1.0 ? Math.min(3.2, (d - 0.9) * 2.5) : 0;
+    // (squares up at arm's length: a punch lands on the face, it doesn't wrap round the head)
+    const want = busy ? 0 : d > 1.18 ? Math.min(3.2, (d - 1.08) * 2.5) : 0;
     this.move(p, want, Math.atan2(dx, dz), dt, 10);
+    // came in too fast: a half step back to arm's length
+    if (d < 1.08 && d > 0.01) {
+      p.x -= (dx / d) * (1.08 - d) * Math.min(1, dt * 6);
+      p.z -= (dz / d) * (1.08 - d) * Math.min(1, dt * 6);
+    }
     if (p.overlay && p.overlay.name.startsWith('punch') && !p.overlay.landed && p.overlay.t > p.overlay.dur * 0.32) {
       p.overlay.landed = true;
       const ahead = (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / (d || 1);
-      if (d < 1.3 && ahead > 0.6) player.takeHit(7, p);
+      if (d < 1.45 && ahead > 0.6) player.takeHit(7, p);
     }
-    if (!busy && d < 1.25 && (p.attackTimer -= dt) <= 0) {
+    if (!busy && d < 1.4 && (p.attackTimer -= dt) <= 0) {
       const name = Math.random() < 0.5 ? 'punchl' : 'punchr';
       p.overlay = { name, t: 0, dur: p.anim.once(name) };
       p.attackTimer = 0.9 + Math.random() * 0.8;
@@ -783,7 +789,7 @@ export class Peds {
     }
     const tx = v ? door.x : player.position.x, tz = v ? door.z : player.position.z;
     const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-    const reach = v ? 0.5 : 1.0;
+    const reach = v ? 0.5 : 1.12; // (arm's length on foot)
     const busy = p.overlay && (p.overlay.name === 'hit' || p.overlay.name.startsWith('punch'));
     const gun = p.body.userData.gun;
     if (gun) gun.visible = !!p.armed;
@@ -810,9 +816,9 @@ export class Peds {
     if (p.overlay && p.overlay.name.startsWith('punch') && !p.overlay.landed && p.overlay.t > p.overlay.dur * 0.32) {
       p.overlay.landed = true;
       const ahead = (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / (d || 1);
-      if (d < 1.3 && ahead > 0.6) player.takeHit(4, p);
+      if (d < 1.45 && ahead > 0.6) player.takeHit(4, p);
     }
-    if (!busy && d < 1.25 && (p.attackTimer -= dt) <= 0) {
+    if (!busy && d < 1.4 && (p.attackTimer -= dt) <= 0) {
       const name = Math.random() < 0.5 ? 'punchl' : 'punchr';
       p.overlay = { name, t: 0, dur: p.anim.once(name) };
       p.attackTimer = 1.4 + Math.random();

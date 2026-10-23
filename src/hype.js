@@ -547,8 +547,8 @@ const shots = [
     setup() {
       placeHero(19.5, -10.4, Math.PI / 2);
       for (const p of [...g.peds.list]) if (!p.keep && Math.hypot(p.x - 20, p.z + 10.4) < 6) g.peds.remove(p);
-      fightPed = g.peds.add('male', 20.55, -10.4, -Math.PI / 2);
-      fightPed.points = [{ x: 20.54, z: -10.4 }];
+      fightPed = g.peds.add('male', 20.65, -10.4, -Math.PI / 2);
+      fightPed.points = [{ x: 20.64, z: -10.4 }];
       fightPed.hits = 0;
       step(4);
     },
@@ -586,10 +586,10 @@ const shots = [
     setup() {
       const b = enter('mart');
       const S = g.shop(), clerk = S.clerks.get(b);
-      g.weapons().give('pistol');
-      g.weapons().equip('pistol');
       const c = b.counter;
       placeHero(c.x, c.z - 0.4, Math.atan2(clerk.x - c.x, clerk.z - c.z + 0.4), 0);
+      g.weapons().give('pistol');
+      g.weapons().equip('pistol');
       P.indoors = true;
       trigger(true, 2);
       S.startRobbery(b, clerk);
@@ -612,10 +612,10 @@ const shots = [
       g.shop().robbery = null;
       g.shop().alarm = false;
       const b = enter('bank');
-      g.weapons().give('smg');
-      g.weapons().equip('smg');
       const v = b.vault;
       placeHero(v.x - 1.5, v.z - 4, Math.atan2(1.5, 4), 0);
+      g.weapons().give('smg');
+      g.weapons().equip('smg');
       P.indoors = true;
       trigger(true, 2);
       step(6);

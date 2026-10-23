@@ -72,7 +72,10 @@ export class SideJobs {
     t.colorSpace = THREE.SRGBColorSpace;
     const grp = new THREE.Group();
     const y = this.city.groundHeight(x, z);
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.8), new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6, side: THREE.DoubleSide }));
+    // the name on the street side, a plain back (a double-sided sign reads backwards from behind)
+    const face = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6 });
+    const plain = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.7, metalness: 0.3 });
+    const board = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.8, 0.06), [plain, plain, plain, plain, face, plain]);
     board.position.y = 2.9;
     grp.add(board);
     for (const s of [-1.9, 1.9]) {
@@ -244,6 +247,7 @@ export class SideJobs {
     // the fire truck's water cannon works any time you're at the wheel
     if (driving?.model === 'firetruck' && !driving.wrecked) this.cannon(dt, driving.vehicle, input, follow);
     else this.spraying = false;
+    if (this.stream) this.stream.visible = !!this.spraying;
     // hitching works any time too (backing a truck up to a trailer, the tow truck to a car)
     if (driving && (driving.model === 'truck' || driving.model === 'towtruck')) this.hitchCheck(driving, input);
 
@@ -397,7 +401,25 @@ export class SideJobs {
     const dx = Math.sin(yaw), dz = Math.cos(yaw);
     const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
     const ox = v.pos.x + fx * 2.2, oy = v.groundY + 3.4, oz = v.pos.z + fz * 2.2, sp = 22;
-    for (let i = 0; i < 7; i++) this.fx.jet(ox, oy, oz, dx * sp * Math.cos(pitch) + v.vel.x, sp * Math.sin(pitch), dz * sp * Math.cos(pitch) + v.vel.z);
+    const vx = dx * sp * Math.cos(pitch) + v.vel.x, vy = sp * Math.sin(pitch), vz = dz * sp * Math.cos(pitch) + v.vel.z;
+    for (let i = 0; i < 12; i++) this.fx.jet(ox, oy, oz, vx, vy, vz);
+    // the stream itself: a thin glassy rope along the falling arc, to where it hits the ground
+    const pts = [];
+    for (let i = 0; i <= 18; i++) {
+      const t = i * 0.08, y = oy + vy * t - 4.9 * t * t;
+      pts.push(new THREE.Vector3(ox + vx * t, y, oz + vz * t));
+      if (y < v.groundY) break;
+    }
+    if (!this.stream) {
+      this.stream = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.6, roughness: 0.1, metalness: 0.1, emissive: 0x5a7a90, emissiveIntensity: 0.35, depthWrite: false }));
+      this.scene.add(this.stream);
+    }
+    this.stream.geometry.dispose();
+    this.stream.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.09, 6, false);
+    this.stream.visible = true;
+    // spray where it lands
+    const end = pts[pts.length - 1];
+    for (let i = 0; i < 3; i++) this.fx.splash(end.x, Math.max(v.groundY, end.y), end.z, 2);
     if ((this.hissT = (this.hissT || 0) - dt) <= 0) {
       this.hissT = 0.5;
       this.audio.hiss?.(0.6);
