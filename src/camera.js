@@ -6,6 +6,9 @@ const MODES = {
   // inside shops: closer and a little higher, under the ceiling
   indoor: { height: 1.5, zoom: 3.1, minZoom: 1.6, maxZoom: 4.6, pitch: 0.32, idle: 1.5, follow: 1.4, fov: 66 },
   car: { height: 1.35, zoom: 6.8, minZoom: 4.5, maxZoom: 14, pitch: 0.17, idle: 0.9, follow: 3.2, fov: 64 },
+  // trucks, the bus, the fire truck: from high up and further back, looking down over the roof
+  // (and over a trailer: `tow` is how much longer the rig is than the cab)
+  big: { height: 3.6, zoom: 12, minZoom: 8, maxZoom: 24, pitch: 0.36, idle: 0.9, follow: 2.6, fov: 66 },
 };
 
 export class FollowCamera {
@@ -27,6 +30,7 @@ export class FollowCamera {
     this.assist = null; // aim assist: turn onto a target { yaw, pitch, t }
     this.slow = false; // crosshair over a target: finer mouse
     this.lift = 0; // backed up against a wall: the camera rises to look down over the subject
+    this.tow = 0; // length of whatever the driven vehicle is towing (the camera backs off over it)
   }
 
   // the pitch the camera actually looks with (recoil included)
@@ -101,30 +105,34 @@ export class FollowCamera {
     this.aimK += ((this.aim ? 1 : 0) - this.aimK) * Math.min(1, dt * 10);
     if (this.aim) this.idleTime = 0;
     // speed pulls the camera back a touch in cars
-    const want0 = THREE.MathUtils.lerp(this.zoom + (M === MODES.car ? Math.min(3, Math.abs(subject.speed) * 0.06) : 0), 2.1, this.aimK);
+    const inCar = M === MODES.car || M === MODES.big;
+    this.towK = (this.towK || 0) + (this.tow - (this.towK || 0)) * Math.min(1, dt * 2);
+    const want0 = THREE.MathUtils.lerp(this.zoom + (inCar ? Math.min(3, Math.abs(subject.speed) * 0.06) + this.towK * 0.75 : 0), 2.1, this.aimK);
+    // the pitch to look with: the player's, a little steeper over a trailer so the cab shows over it
+    const base = this.viewPitch + this.towK * 0.014;
     const ray = (pitch) => {
       const cp = Math.cos(pitch);
       this.dir.set(-Math.sin(this.yaw) * cp, Math.sin(pitch), -Math.cos(this.yaw) * cp);
       const d = this.city.raycast(this.target, this.dir, want0 + 0.3) - 0.3;
       // lifted: no higher than 1.5 m over the head (up there are the awnings and cornices)
-      return pitch > this.viewPitch + 0.05 ? Math.min(d, 1.5 / Math.sin(pitch)) : d;
+      return pitch > base + 0.05 ? Math.min(d, 1.5 / Math.sin(pitch)) : d;
     };
     // a wall right behind (backed up against it): rather than pushing in through the head, the
     // camera rises and looks down over the shoulders, as far as it needs to see past the wall
     let liftWant = 0;
-    if (!this.ceiling && this.aimK < 0.5 && ray(this.viewPitch) < 1.3) {
-      let best = ray(this.viewPitch);
+    if (!this.ceiling && this.aimK < 0.5 && ray(base) < 1.3) {
+      let best = ray(base);
       for (const extra of [0.3, 0.6, 0.9, 1.2]) {
-        const p2 = Math.min(1.45, this.viewPitch + extra), h2 = ray(p2);
+        const p2 = Math.min(1.45, base + extra), h2 = ray(p2);
         if (h2 > best + 0.3) {
           best = h2;
-          liftWant = p2 - this.viewPitch;
+          liftWant = p2 - base;
         }
         if (best >= 1.6) break;
       }
     }
     this.lift += (liftWant - this.lift) * Math.min(1, dt * 4);
-    const hit = ray(this.viewPitch + this.lift);
+    const hit = ray(base + this.lift);
     const want = Math.max(0.25, Math.min(want0, hit));
     this.distance = want < this.distance ? want : this.distance + (want - this.distance) * Math.min(1, dt * 3);
 
@@ -170,7 +178,7 @@ export class FollowCamera {
       cam.lookAt(this.target.clone().lerp(look, this.aimK));
     } else cam.lookAt(this.target);
 
-    const fov = THREE.MathUtils.lerp(M.fov + (M === MODES.car ? Math.min(14, Math.abs(subject.speed) * 0.3) : 0), 48, this.aimK);
+    const fov = THREE.MathUtils.lerp(M.fov + (inCar ? Math.min(14, Math.abs(subject.speed) * 0.3) : 0), 48, this.aimK);
     if (Math.abs(cam.fov - fov) > 0.01) {
       cam.fov += (fov - cam.fov) * Math.min(1, dt * 3);
       cam.updateProjectionMatrix();

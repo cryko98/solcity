@@ -536,9 +536,10 @@ function seatPlayer(c) {
   v.driven = true;
   driving = c;
   player.enterVehicle(v);
-  follow.setMode('car');
-  // a bus or a fire truck needs the camera further back
-  follow.zoom = Math.min(follow.mode.maxZoom, follow.mode.zoom * Math.max(1, (v.spec.halfL / 2.4) ** 0.75));
+  // a truck, a bus or a fire truck: the camera high up and further back, over the roof
+  const big = v.spec.halfL > 3.5 && !v.spec.boat;
+  follow.setMode(big ? 'big' : 'car');
+  follow.zoom = big ? Math.min(follow.mode.maxZoom, follow.mode.zoom * (v.spec.halfL / 4.75) ** 0.5) : Math.min(follow.mode.maxZoom, follow.mode.zoom * Math.max(1, (v.spec.halfL / 2.4) ** 0.75));
   follow.yaw = v.heading;
 }
 
@@ -918,6 +919,7 @@ function step(dt) {
       const v = driving.vehicle;
       subject = { position: v.object.position, yaw: v.heading, speed: v.vf };
       focus = v.pos;
+      follow.tow = v.towing ? v.towing.spec.halfL * 2 : 0;
       if (v.impact > 3) follow.shake = Math.min(0.5, v.impact * 0.04);
       audio.update(true, v.vf, v.spec.vmax, v.throttle, v.slip);
       // headlight beam at night
@@ -928,6 +930,7 @@ function step(dt) {
     } else {
       subject = { position: player.position, yaw: player.yaw, speed: player.speed };
       focus = player.position;
+      follow.tow = 0;
       audio.update(false, 0, 1, 0, 0);
       headlight.intensity = 0;
     }
