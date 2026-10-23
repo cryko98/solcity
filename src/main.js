@@ -354,10 +354,7 @@ Promise.all([
       police.clear();
       hud.wasted(true);
       setTimeout(() => {
-        player.respawn(city.spawn, city.spawnYaw);
-        follow.yaw = city.spawnYaw;
-        follow.zoom = follow.mode.zoom;
-        follow.pitch = follow.mode.pitch;
+        respawnAt('hospital');
         peds.calm();
         hud.setHealth(100);
         hud.setArmor(0);
@@ -634,7 +631,26 @@ function blast(p, c) {
   }
 }
 
-// arrested: hands up, pay a fine, start over at the spawn point
+// back on your feet after dying (out front of Sol General) or an arrest (out of the precinct),
+// on the pavement facing the street
+function respawnAt(where) {
+  let x = city.spawn.x, z = city.spawn.z, yaw = city.spawnYaw;
+  if (where === 'hospital' && jobs?.hospital) {
+    x = jobs.hospital.x;
+    z = jobs.hospital.z + 2.8; // (the ambulance bay is at the kerb)
+    yaw = Math.PI;
+  } else if (where === 'precinct' && bounties?.board) {
+    x = bounties.board.x - 3.5;
+    z = bounties.board.z + 1.6;
+    yaw = Math.PI;
+  }
+  player.respawn(new THREE.Vector3(x, city.groundHeight(x, z), z), yaw);
+  follow.yaw = yaw;
+  follow.zoom = follow.mode.zoom;
+  follow.pitch = follow.mode.pitch;
+}
+
+// arrested: hands up, pay a fine, start over outside the precinct
 function bust() {
   if (entry.active) entry.cancel();
   if (driving) {
@@ -649,10 +665,7 @@ function bust() {
   hud.wasted(true, 'BUSTED');
   const fine = -Math.min(hud.money, Math.round(100 + hud.money * 0.1));
   setTimeout(() => {
-    player.respawn(city.spawn, city.spawnYaw);
-    follow.yaw = city.spawnYaw;
-    follow.zoom = follow.mode.zoom;
-    follow.pitch = follow.mode.pitch;
+    respawnAt('precinct');
     wanted.clear();
     police.clear();
     peds.calm();
@@ -904,7 +917,7 @@ function step(dt) {
     }
     fx.update(dt);
     hud.minutes = env.minutes;
-    hud.update(dt, shop.inside ? shop.inside.door : focus, subject.yaw, follow.yaw, driving ? driving.vehicle.vf : null, !driving && !entry.active && vehicles.nearest(player.position));
+    hud.update(dt, shop.inside ? shop.inside.door : focus, subject.yaw, follow.yaw, driving ? driving.vehicle.vf : null, !driving && !entry.active && !player.dead && !player.busted && !fun.active && vehicles.nearest(player.position));
 
   } else {
     camera.position.set(Math.sin(elapsed * 0.1) * 90, 45, Math.cos(elapsed * 0.1) * 90);

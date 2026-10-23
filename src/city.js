@@ -203,7 +203,11 @@ export function buildCity(scene) {
   const waterNormal = TX.waterNormal();
   waterNormal.wrapS = waterNormal.wrapT = THREE.RepeatWrapping;
   waterNormal.repeat.set(90, 90);
-  const seaU = { uTime: { value: 0 }, uExt: { value: EXT } };
+  // (Mount Sol's slopes run down into the sea: their heights, baked once the hill is built)
+  const noHill = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat);
+  noHill.unpackAlignment = 1;
+  noHill.needsUpdate = true;
+  const seaU = { uTime: { value: 0 }, uExt: { value: EXT }, uHill: { value: noHill }, uHillRect: { value: new THREE.Vector4(0, 0, 1, 1) } };
   const seaMat = std({ color: 0xffffff, roughness: 0.04, metalness: 0.32, normalMap: waterNormal, normalScale: new THREE.Vector2(0.45, 0.45), transparent: true });
   seaMat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, seaU);
@@ -240,6 +244,8 @@ export function buildCity(scene) {
         vCrest = sw.x;`);
     sh.fragmentShader = `uniform float uTime;
       uniform float uExt;
+      uniform sampler2D uHill;
+      uniform vec4 uHillRect;
       varying vec2 vSea;
       varying float vCrest;
     ` + sh.fragmentShader
@@ -250,6 +256,8 @@ export function buildCity(scene) {
         float hw = vSea.x < -uExt ? clamp((-40.0 - vSea.y) / 25.0, 0.0, 1.0) : 0.0;
         float hn = vSea.y < -uExt ? clamp(-vSea.x / 25.0, 0.0, 1.0) : 0.0;
         bed = mix(bed, min(bed, -6.0), max(hw, hn));
+        vec2 huv = (vSea - uHillRect.xy) / uHillRect.zw;
+        if (huv.x > 0.0 && huv.x < 1.0 && huv.y > 0.0 && huv.y < 1.0) bed = max(bed, texture2D(uHill, huv).r * 14.0 - 12.0);
         float depth = max(0.0, -0.55 + vCrest - bed);
         vec3 shallow = vec3(0.05, 0.72, 0.72), mid = vec3(0.03, 0.5, 0.62), deep = vec3(0.01, 0.16, 0.34);
         vec3 sea = mix(shallow, mid, smoothstep(0.0, 1.6, depth));
@@ -894,6 +902,8 @@ export function buildCity(scene) {
   // is scenery. Heights are analytic so cars, people and the camera can follow the ground.
   const MC = { x: 175, z: -HALF - 118 }, MR = 116, MH = 118;
   let hillPatch = () => 0.5;
+  // the height of the hill's mesh itself (its triangles), so feet and tyres sit on what you see
+  let hillMesh = () => null;
   const bell = (d, r) => (d >= r ? 0 : 0.5 + 0.5 * Math.cos((Math.PI * d) / r));
   const mountainRaw = (x, z) => {
     if (z > -HALF - 5) return 0;
@@ -919,16 +929,50 @@ export function buildCity(scene) {
     mat.customProgramCacheKey = () => 'lightfog';
     return mat;
   };
-  city.terrain = (x, z) => (z > -HALF - 5 ? 0 : Math.max(0, mountainRaw(x, z) - 0.6));
+  // (the hill above sea level, as its mesh is built: cars follow the same triangles as feet)
+  city.terrain = (x, z) => (z > -HALF - 5 ? 0 : Math.max(0, hillMesh(x, z) ?? 0));
   {
     const W = 2 * MR * 1.5 + 60, D = 2 * MR + 30, SX = 120, SZ = 76;
     const geo = new THREE.PlaneGeometry(W, D, SX, SZ).rotateX(-HALF_PI);
     const pos = geo.attributes.position, col = [];
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i) + MC.x, z = pos.getZ(i) + MC.z;
-      pos.setXYZ(i, x, mountainRaw(x, z) - 0.6, z);
+      // (where the hill has run out it lies just under the beach and the sea bed)
+      const raw = mountainRaw(x, z);
+      pos.setXYZ(i, x, Math.max(raw > 0 ? raw - 0.6 : -99, seaBed(x, z) - 0.3), z);
+    }
+    // the sea shader needs the hill's shore: shallow water and surf where it runs into the sea
+    {
+      const NX = Math.ceil(W / 2), NZ = Math.ceil(D / 2), data = new Uint8Array(NX * NZ);
+      for (let j = 0; j < NZ; j++) {
+        for (let i = 0; i < NX; i++) {
+          const x = MC.x - W / 2 + ((i + 0.5) / NX) * W, z = MC.z - D / 2 + ((j + 0.5) / NZ) * D;
+          const raw = mountainRaw(x, z);
+          // (the sea bed where there is no hill, so the two blend without a seam)
+          const y = Math.max(raw > 0 ? raw - 0.6 : -12, seaBed(x, z));
+          data[j * NX + i] = Math.round(THREE.MathUtils.clamp((y + 12) / 14, 0, 1) * 255);
+        }
+      }
+      const tex = new THREE.DataTexture(data, NX, NZ, THREE.RedFormat);
+      tex.magFilter = tex.minFilter = THREE.LinearFilter;
+      tex.unpackAlignment = 1;
+      tex.needsUpdate = true;
+      seaU.uHill.value = tex;
+      seaU.uHillRect.value.set(MC.x - W / 2, MC.z - D / 2, W, D);
     }
     geo.computeVertexNormals();
+    {
+      const ys = pos.array, X0 = MC.x - W / 2, Z0 = MC.z - D / 2, dx = W / SX, dz = D / SZ, NX = SX + 1;
+      const h = (i, j) => ys[(j * NX + i) * 3 + 1];
+      hillMesh = (x, z) => {
+        const fi = (x - X0) / dx, fj = (z - Z0) / dz;
+        if (!(fi >= 0 && fj >= 0 && fi < SX && fj < SZ)) return null;
+        const i = Math.floor(fi), j = Math.floor(fj), a = fi - i, b = fj - j;
+        // (the plane's two triangles per cell: i,j / i,j+1 / i+1,j and i,j+1 / i+1,j+1 / i+1,j)
+        if (a + b <= 1) return h(i, j) + (h(i + 1, j) - h(i, j)) * a + (h(i, j + 1) - h(i, j)) * b;
+        return h(i + 1, j + 1) + (h(i, j + 1) - h(i + 1, j + 1)) * (1 - a) + (h(i + 1, j) - h(i + 1, j + 1)) * (1 - b);
+      };
+    }
     const nrm = geo.attributes.normal, c = new THREE.Color();
     // California hills: golden dry grass, patches of olive chaparral, rock on the steep parts
     const sand = new THREE.Color(0xc7b48a), dry = new THREE.Color(0xb59a5c), scrub = new THREE.Color(0x6b6a38), bush = new THREE.Color(0x4a5329), rock = new THREE.Color(0x8c8172);
@@ -1321,8 +1365,9 @@ export function buildCity(scene) {
     if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) return baseGround(x, z);
     for (const d of city.decks) if (x > d.minX && x < d.maxX && z > d.minZ && z < d.maxZ) return d.y;
     if (onQuayDeck(x, z)) return 0;
-    const t = city.terrain(x, z);
-    return t > 0 ? Math.max(t, seabed(x, z)) : seabed(x, z);
+    // (the hill all the way down to where it meets the sea bed: its mesh's own triangles)
+    const m = hillMesh(x, z);
+    return m !== null ? Math.max(m, seabed(x, z)) : seabed(x, z);
   };
   // how deep the water is here (0 on dry land)
   city.waterDepth = (x, z) => Math.max(0, city.WATER_Y - city.groundHeight(x, z));

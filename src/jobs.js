@@ -627,6 +627,7 @@ export class SideJobs {
   }
 
   towtruckStop() {
+    this.hookedOnce = false;
     if (this.target) this.target.keep = false;
     if (this.v?.towing && this.c) this.vehicles.unhitch(this.c);
   }

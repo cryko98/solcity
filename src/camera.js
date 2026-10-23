@@ -26,6 +26,7 @@ export class FollowCamera {
     this.recoil = 0; // view kick from a shot; it settles back by itself
     this.assist = null; // aim assist: turn onto a target { yaw, pitch, t }
     this.slow = false; // crosshair over a target: finer mouse
+    this.lift = 0; // backed up against a wall: the camera rises to look down over the subject
   }
 
   // the pitch the camera actually looks with (recoil included)
@@ -99,11 +100,31 @@ export class FollowCamera {
     // aiming: closer, over the right shoulder, narrower view
     this.aimK += ((this.aim ? 1 : 0) - this.aimK) * Math.min(1, dt * 10);
     if (this.aim) this.idleTime = 0;
-    const vp = this.viewPitch, cp = Math.cos(vp);
-    this.dir.set(-Math.sin(this.yaw) * cp, Math.sin(vp), -Math.cos(this.yaw) * cp);
     // speed pulls the camera back a touch in cars
     const want0 = THREE.MathUtils.lerp(this.zoom + (M === MODES.car ? Math.min(3, Math.abs(subject.speed) * 0.06) : 0), 2.1, this.aimK);
-    const hit = this.city.raycast(this.target, this.dir, want0 + 0.3) - 0.3;
+    const ray = (pitch) => {
+      const cp = Math.cos(pitch);
+      this.dir.set(-Math.sin(this.yaw) * cp, Math.sin(pitch), -Math.cos(this.yaw) * cp);
+      const d = this.city.raycast(this.target, this.dir, want0 + 0.3) - 0.3;
+      // lifted: no higher than 1.5 m over the head (up there are the awnings and cornices)
+      return pitch > this.viewPitch + 0.05 ? Math.min(d, 1.5 / Math.sin(pitch)) : d;
+    };
+    // a wall right behind (backed up against it): rather than pushing in through the head, the
+    // camera rises and looks down over the shoulders, as far as it needs to see past the wall
+    let liftWant = 0;
+    if (!this.ceiling && this.aimK < 0.5 && ray(this.viewPitch) < 1.3) {
+      let best = ray(this.viewPitch);
+      for (const extra of [0.3, 0.6, 0.9, 1.2]) {
+        const p2 = Math.min(1.45, this.viewPitch + extra), h2 = ray(p2);
+        if (h2 > best + 0.3) {
+          best = h2;
+          liftWant = p2 - this.viewPitch;
+        }
+        if (best >= 1.6) break;
+      }
+    }
+    this.lift += (liftWant - this.lift) * Math.min(1, dt * 4);
+    const hit = ray(this.viewPitch + this.lift);
     const want = Math.max(0.25, Math.min(want0, hit));
     this.distance = want < this.distance ? want : this.distance + (want - this.distance) * Math.min(1, dt * 3);
 
@@ -119,6 +140,23 @@ export class FollowCamera {
     cam.position.x += -Math.cos(this.yaw) * so;
     cam.position.z += Math.sin(this.yaw) * so;
     cam.position.y += 0.1 * this.aimK;
+    // the lens never touches a wall: keep a small ball of room around it (sideways only)
+    const R = 0.35, cp_ = cam.position;
+    for (const c of this.city.query ? this.city.query(cp_.x - 1, cp_.x + 1, cp_.z - 1, cp_.z + 1) : []) {
+      if (cp_.y > c.h) continue;
+      if (c.type === 'box') {
+        const qx = THREE.MathUtils.clamp(cp_.x, c.minX, c.maxX), qz = THREE.MathUtils.clamp(cp_.z, c.minZ, c.maxZ);
+        const dx = cp_.x - qx, dz = cp_.z - qz, d = Math.hypot(dx, dz);
+        if (d >= R || d < 1e-6) continue;
+        cp_.x += (dx / d) * (R - d);
+        cp_.z += (dz / d) * (R - d);
+      } else if (c.r > 0.5) {
+        const dx = cp_.x - c.x, dz = cp_.z - c.z, d = Math.hypot(dx, dz), r = c.r + R;
+        if (d >= r || d < 1e-6) continue;
+        cp_.x += (dx / d) * (r - d);
+        cp_.z += (dz / d) * (r - d);
+      }
+    }
     cam.position.y = Math.max(cam.position.y, this.city.groundHeight(cam.position.x, cam.position.z) + 0.4);
     if (this.ceiling) cam.position.y = Math.min(cam.position.y, this.ceiling);
     if (this.shake > 0.001) {

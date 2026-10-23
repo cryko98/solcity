@@ -334,6 +334,7 @@ class Vehicle {
     const air = this.hopY > 0.3 && !this.rampOn;
     const thr = ctl && !air ? ctl.throttle : 0, steerIn = ctl ? ctl.steer : 0, hb = ctl && !air && ctl.handbrake;
     this.hb = !!hb;
+    this.idle = !thr; // (nobody on the pedals: stopped on a hill, it holds)
 
     this.braking = false;
     if (thr > 0) {
@@ -518,10 +519,15 @@ class Vehicle {
       const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = -fz, rz = fx;
       const slope = (ter(this.pos.x + fx * 1.4, this.pos.z + fz * 1.4) - ter(this.pos.x - fx * 1.4, this.pos.z - fz * 1.4)) / 2.8;
       const side = (ter(this.pos.x - rx * 0.9, this.pos.z - rz * 0.9) - ter(this.pos.x + rx * 0.9, this.pos.z + rz * 0.9)) / 1.8;
-      // a bit more than real gravity: cars stall on slopes steeper than ~35 degrees and slide back
-      const g = (9.8 * 1.6 * slope) / Math.sqrt(1 + slope * slope);
-      this.vel.x -= fx * g * dt;
-      this.vel.z -= fz * g * dt;
+      // a bit more than real gravity: cars stall on slopes steeper than ~35 degrees and slide back;
+      // stopped with nobody on the pedals, a car holds on anything gentler (in gear, handbrake on)
+      if (this.idle !== false && this.speed < 1.5 && Math.abs(slope) < 0.7) {
+        this.vel.multiplyScalar(Math.exp(-8 * dt));
+      } else {
+        const g = (9.8 * 1.6 * slope) / Math.sqrt(1 + slope * slope);
+        this.vel.x -= fx * g * dt;
+        this.vel.z -= fz * g * dt;
+      }
       pitch = THREE.MathUtils.clamp(-Math.atan(slope), -0.7, 0.7);
       roll = THREE.MathUtils.clamp(Math.atan(side), -0.6, 0.6);
     }
