@@ -7,6 +7,7 @@
 import { isTouch, goLandscape } from './touch.js';
 import { wallet } from './wallet.js';
 import { Net } from './net.js';
+import { openHowTo } from './howto.js';
 
 const API = '/api/lobby/';
 const overlay = document.getElementById('overlay');
@@ -73,10 +74,14 @@ document.head.appendChild(css);
 // ------------------------------------------------------------------ the two buttons on the title screen
 const menu = document.createElement('div');
 menu.id = 'menu';
-menu.innerHTML = '<button class="primary" id="m-solo" disabled>LOADING…</button><button id="m-lobby">MULTIPLAYER LOBBY<small id="m-count"></small></button>';
+menu.innerHTML = '<button class="primary" id="m-solo" disabled>LOADING…</button><button id="m-lobby">MULTIPLAYER LOBBY<small id="m-count"></small></button><button id="m-howto">HOW TO PLAY</button>';
 overlay.appendChild(menu);
 const soloBtn = menu.querySelector('#m-solo');
 // the solo button just lets its click reach the title screen, which starts the game (src/main.js)
+menu.querySelector('#m-howto').addEventListener('click', (e) => {
+  e.stopPropagation();
+  openHowTo();
+});
 menu.querySelector('#m-lobby').addEventListener('click', (e) => {
   e.stopPropagation();
   open();

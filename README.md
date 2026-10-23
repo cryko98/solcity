@@ -79,13 +79,16 @@ button is the keyboard key the game's hints talk about (USE is E, CAR is F, JOB 
 
 ## Multiplayer lobby
 
-The title screen has **PLAY SOLO** and **MULTIPLAYER LOBBY**. In the lobby players pick a name and join the
-public lobby, or create a private room and send its 5-letter code to their friends. Everybody sees who is in the
-room, can chat and says READY; the host presses START, and after a 5-second countdown the game starts for the
-whole room at once. The city itself is still single-player: each player plays their own Sol City (no shared world
-yet). The lobby lives in the server's memory (`server/lobby.mjs`, used by both `server.js` and
-`server/index.mjs`): no database, no accounts, nothing to do with the rewards. Code: `src/lobby.js`; test:
-`node server/test-lobby.mjs`.
+The title screen has **PLAY SOLO**, **MULTIPLAYER LOBBY** and **HOW TO PLAY** (everything there is to do, in
+short, by topic: `src/howto.js`). In the lobby players join the public lobby, or create a private room and send
+its 5-letter code to their friends. Everybody sees who is in the room, can chat and says READY; the host presses
+START, and after a 5-second countdown the game starts for the whole room at once: everyone starts side by side
+in the same city and sees the others (the hero's avatar with their name over the head) walking, fighting,
+swimming and driving (`src/net.js`). Only positions and what each player is doing are shared so far; traffic,
+people and missions are each player's own. On the Sol City server the lobby needs a connected wallet holding at
+least 10 000 $SOLCITY and a username (the account's; `server/profile.mjs`); the developer's `server.js` lets
+anyone in under any name. Code: `src/lobby.js`, `server/lobby.mjs`; tests: `node server/test-lobby.mjs`,
+`node server/test-mp.mjs`.
 
 ## Getting in and out
 
