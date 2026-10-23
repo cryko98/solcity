@@ -293,14 +293,34 @@ if cmu_specs:
     C = {rb: (G0 @ S0[s][0]).inverted() @ R0[rb][0] for rb, s in bmap.items()}
     stand = S0[bmap[PEL]][1].z
     step = 120 / bpy.context.scene.render.fps
-    for game_name, spec in cmu_specs.items():
+    turns = {}
+    # (^like:<clip> takes that clip's turn, so it goes after it)
+    for game_name, spec in sorted(cmu_specs.items(), key=lambda kv: "^like:" in kv[1]):
         take, rng = spec.split("@")
+        rng, _, mode = rng.partition("^")
+        aim = mode == "aim"
         f0, f1 = (int(x) for x in rng.split("-"))
         src = load_bvh(take)
         bpy.context.scene.frame_set(1)
         k = world_pose(src)[bmap[PEL]][1].z / cal_t  # (a taller subject stands higher)
         bpy.context.scene.frame_set(f0)
         G = Q((0, 0, 1), rig_face - facing(world_pose(src), LT, RT))
+        if aim:
+            # a boxer stands bladed, hips turned from his man: turned so that the punch lands straight
+            # ahead (the fist that reaches furthest from the chest)
+            best = Vec()
+            for f in range(f0, f1 + 1, 4):
+                bpy.context.scene.frame_set(f)
+                P = world_pose(src)
+                for hand in ("LeftHand", "RightHand"):
+                    v = P[hand][1] - P["Spine1"][1]
+                    v.z = 0
+                    if v.length > best.length:
+                        best = v
+            G = Q((0, 0, 1), rig_face - (math.atan2(best.y, best.x) + math.pi / 2))
+        elif mode.startswith("like:"):
+            G = turns[mode[5:]]
+        turns[game_name] = G
         frames = [f0 + i * step for i in range(int((f1 - f0) / step) + 1)]
         retarget(game_name, src, bmap, C, stand * k, R0[PEL][1].z / (stand * k), frames, G)
         bpy.data.objects.remove(src)

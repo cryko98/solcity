@@ -364,8 +364,9 @@ class Vehicle {
     vf -= vf * Math.abs(vf) * 0.0007 * dt;
     this.throttle = Math.max(0, thr);
 
-    const maxSteer = s.steer / (1 + Math.abs(vf) * 0.05);
-    this.steer += (steerIn * maxSteer - this.steer) * (1 - Math.exp(-7 * dt));
+    // (a bike's short wheelbase turns sharply: at speed its bars give less, and they move gentler)
+    const maxSteer = s.steer / (1 + Math.abs(vf) * (s.bike ? 0.15 : 0.05));
+    this.steer += (steerIn * maxSteer - this.steer) * (1 - Math.exp(-(s.bike ? 6 : 7) * dt));
     const targetW = (vf / s.wheelbase) * Math.tan(this.steer) * (hb ? 1.6 : 1);
     if (!air) this.angVel += (targetW - this.angVel) * (1 - Math.exp(-(hb ? 2.5 : 9) * dt));
     // wet roads: less grip, longer slides
@@ -387,7 +388,8 @@ class Vehicle {
     let tRoll = THREE.MathUtils.clamp(vf * this.angVel * 0.005, -0.05, 0.05);
     if (s.bike) {
       // lean into the turn; parked bikes rest on the side stand
-      tRoll = this.driven || this.data.ai ? THREE.MathUtils.clamp(-Math.atan((vf * this.angVel) / 9.81), -0.75, 0.75) : -0.2;
+      // (about half the lean the physics would ask for: a full one reads as falling over)
+      tRoll = this.driven || this.data.ai ? THREE.MathUtils.clamp(-0.55 * Math.atan((vf * this.angVel) / 9.81), -0.42, 0.42) : -0.2;
     }
     this.pitchV += ((tPitch - this.pitch) * 90 - this.pitchV * 11) * dt;
     this.rollV += ((tRoll - this.roll) * 90 - this.rollV * 11) * dt;
