@@ -2548,6 +2548,14 @@ def arm_ik(side, target, pole, twist):
     }
 
 
+def unlean(pt, pitch_deg):
+    """undo a forward lean of the trunk (about the hips) so a target stays put in the world"""
+    th = math.radians(-pitch_deg)
+    piv = REST["hips"][0]
+    r = V(pt) - piv
+    return piv + V((r.x, r.y * math.cos(th) - r.z * math.sin(th), r.y * math.sin(th) + r.z * math.cos(th)))
+
+
 def to_torso(pt, theta_deg):
     """undo the trunk's turn about the vertical axis so targets stay fixed relative to the face"""
     th = math.radians(-theta_deg)
@@ -2586,10 +2594,10 @@ RUN_F0, RUN_B0 = .34, .58  # ankle ahead of the hips at touch-down / behind them
 # height above the ground, toe-down pitch of the foot in degrees
 RUN_SWING = [
     (0.00, -RUN_B0, .07, 34),
-    (0.20, -0.52, .34, 58),   # the heel kicks up behind
-    (0.44, -0.14, .50, 30),   # folded under the hips, high
-    (0.66, 0.26, .36, 4),     # the knee drives forward, the shin swings out
-    (0.85, 0.42, .13, -10),   # reaching
+    (0.20, -0.50, .27, 50),   # the heel comes up behind (a runner's, not a cartoon butt-kick)
+    (0.44, -0.16, .38, 28),   # folded under the hips
+    (0.66, 0.24, .29, 4),     # the knee comes through, the shin swings out
+    (0.85, 0.40, .11, -10),   # reaching
     (1.00, RUN_F0, .0, -8),   # pawing back onto the ground, heel first
 ]
 
@@ -2635,18 +2643,21 @@ def run_cycle(t_):
     and the foot reaches out and paws back onto the ground. Two flight phases: the hips are
     lowest at each mid-stance and highest in the air. The pelvis and the shoulders turn
     against each other, the trunk leans in from the ankles, the arms swing from the shoulder
-    against the legs with the elbows near 90 degrees, the hands relaxed fists."""
+    against the legs, the hands relaxed fists. Tall and driving, not crouched: the feet land
+    under each hip (never on one line), the hips ride high, the body leans into the run, the
+    arms come forward to chest height (elbow ~90) and back past the hip (elbow opening), carried
+    a little off the body."""
     c1, s1 = math.cos(2 * math.pi * t_), math.sin(2 * math.pi * t_)
     # hips: lowest at mid-stance (left .13, right .63), highest in flight
-    z = -.04 - .034 * math.cos(4 * math.pi * (t_ - RUN_ST / 2))
-    sway = .012 * math.sin(2 * math.pi * (t_ - RUN_ST / 2))  # a touch over the planted foot
+    z = -.03 - .032 * math.cos(4 * math.pi * (t_ - RUN_ST / 2))
+    sway = .007 * math.sin(2 * math.pi * (t_ - RUN_ST / 2))  # a touch over the planted foot
     pelvis_rot = 8 * -c1
     drop = 4 * -math.sin(2 * math.pi * (t_ - RUN_ST / 2 + .25))  # the swing side's hip dips in stance
-    lean = 11
+    lean = 16
     p = {}
-    p["hips"] = rot("hips", (ZA, pelvis_rot), (YA, drop), (XA, lean * .4))
-    p["spine"] = rot("spine", (XA, lean * .3), (ZA, -pelvis_rot * 1.0))
-    p["chest"] = rot("chest", (XA, lean * .15), (ZA, -pelvis_rot * 1.9 - 2 * c1), (YA, -drop * 1.1))
+    p["hips"] = rot("hips", (ZA, pelvis_rot), (YA, drop), (XA, lean * .35))
+    p["spine"] = rot("spine", (XA, lean * .35), (ZA, -pelvis_rot * 1.0))
+    p["chest"] = rot("chest", (XA, lean * .2), (ZA, -pelvis_rot * 2.3 - 2 * c1), (YA, -drop * 1.1))
     p["neck"] = rot("neck", (XA, -lean * .4 + 2), (ZA, pelvis_rot * 1.1))
     p["head"] = rot("head", (XA, -lean * .5 + 3 * math.cos(4 * math.pi * (t_ - RUN_ST / 2))), (ZA, pelvis_rot * .7))
     ankle_h = REST["foot.L"][0].z
@@ -2655,18 +2666,19 @@ def run_cycle(t_):
         fwd, up, pitch = run_foot(tt)
         apply_pose(p)
         hip = pbones["thigh." + side].head
-        target = V((sgn * .085 - sway, -fwd, ankle_h + up - z))
+        target = V((sgn * .115 - sway, -fwd, ankle_h + up - z))
         foot0 = (REST["foot." + side][1] - REST["foot." + side][0]).normalized()
         flat = V((foot0.x, foot0.y, 0)).normalized()
         fdir = Matrix.Rotation(math.radians(pitch), 3, "X") @ V((flat.x, flat.y, foot0.z))
         solve_chain(p, "thigh." + side, "shin." + side, "foot." + side, target,
                     V((hip.x + sgn * .1, hip.y - 1.2, hip.z - .3)), fdir.normalized())
-        # arms: against the legs, from the shoulder; the elbow opens a little as it goes back
+        # arms: against the legs, from the shoulder: forward to chest height with the elbow at ~90,
+        # back past the hip with the elbow opening up
         c = math.cos(2 * math.pi * (tt - .04))
-        sw = 44 * c - 6
-        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * 9), (XA, sw), (ZA, -sgn * 8))
-        el = -(84 + 16 * max(0.0, -c) - 10 * max(0.0, c))
-        p["forearm." + side] = rot("forearm." + side, (XA, el), (ZA, -sgn * 8))
+        sw = 40 * c + 4
+        p["upper_arm." + side] = rot("upper_arm." + side, (YA, -sgn * 20), (XA, sw), (ZA, -sgn * 8))
+        el = -(80 + 8 * max(0.0, -c) - 16 * max(0.0, c))
+        p["forearm." + side] = rot("forearm." + side, (XA, el), (ZA, -sgn * 18))
         p["hand." + side] = rot("hand." + side, (XA, -10), (ZA, sgn * 6))
     hands(p, 78, 50)  # fists
     return p, (sway, 0, z)
@@ -2727,34 +2739,49 @@ def idle(t_):
 
 
 def guard_pose(bounce=0.0, lead=0.0, cross=0.0, recoil=0.0):
-    """Orthodox guard (boxing basics): chin tucked, elbows low and in to cover the ribs,
-    lead fist ~25cm in front of the face at cheek height, rear fist by the chin.
-    lead/cross 0..1 drive the jab/cross straight down the centre line, the fist turning palm-down."""
+    """Orthodox guard (boxing basics): bladed stance, chin tucked, elbows in to cover the ribs,
+    lead fist ~25cm in front of the face at cheekbone height, rear fist by the cheek.
+    lead/cross 0..1 drive the jab/cross straight down the centre line to the other man's head
+    (fighters square up ~1.1 m apart), the fist turning palm-down. The power comes up from the
+    floor: the hips turn first, the shoulders follow, the arm snaps out last; on the cross the
+    rear heel pivots out and the weight goes onto the lead leg, on the jab a short step in."""
     p = {}
-    trunk = -24 + 44 * cross - 12 * lead
-    hips_z, spine_z, chest_z = trunk * .45 + 6 * cross, trunk * .3, trunk * .35
+    trunk = -26 + 62 * cross - 16 * lead
+    hips_z, spine_z, chest_z = trunk * .45 + 8 * cross, trunk * .3, trunk * .35
     total = hips_z + spine_z + chest_z
-    # weight a little forward, over the lead leg (a boxer never leans back into his guard)
-    p["hips"] = rot("hips", (ZA, hips_z), (XA, 11))
-    p["spine"] = rot("spine", (XA, 12 + 5 * cross + 3 * lead), (ZA, spine_z))
-    p["chest"] = rot("chest", (XA, 8 - 12 * recoil), (ZA, chest_z))
-    p["neck"] = rot("neck", (XA, 7 - 15 * recoil), (ZA, -total * .45))
-    p["head"] = rot("head", (XA, 6 - 22 * recoil), (ZA, -total * .45))
+    # tall in the guard, only a little forward over the lead leg (a boxer never leans back into
+    # his guard, nor hunches over it); the punches lean in a touch more as the weight transfers
+    hips_x, spine_x, chest_x = 5 + 4 * cross + 2 * lead, 4 + 7 * cross + 6 * lead, 2 - 12 * recoil
+    p["hips"] = rot("hips", (ZA, hips_z), (XA, hips_x))
+    p["spine"] = rot("spine", (XA, spine_x), (ZA, spine_z))
+    p["chest"] = rot("chest", (XA, chest_x), (ZA, chest_z))
+    p["neck"] = rot("neck", (XA, -15 * recoil), (ZA, -total * .45))
+    p["head"] = rot("head", (XA, -2 - 22 * recoil), (ZA, -total * .45))
     face_y = NOSE.y
-    # the hand that isn't punching comes back to the chin (the jab hand on a cross, and the other way)
-    lead_w = V((.09, face_y - .27, EYE_Z - .18)).lerp(V((.015, face_y - .55, EYE_Z - .085)), lead)
-    lead_w = lead_w.lerp(V((.07, face_y - .12, EYE_Z - .19)), cross)
-    rear_w = V((-.095, face_y - .11, EYE_Z - .2)).lerp(V((.0, face_y - .55, EYE_Z - .085)), cross)
-    p.update(arm_ik("L", to_torso(lead_w, total), to_torso(V((.32, -.05, BELT_Z + .05 + .3 * lead)), total), -78 * lead))
-    p.update(arm_ik("R", to_torso(rear_w, total), to_torso(V((-.32, .02, BELT_Z + .05 + .3 * cross)), total), 78 * cross))
-    p["thigh.L"] = rot("thigh.L", (XA, -20 - 6 * cross - 4 * lead), (ZA, 8))
-    p["thigh.R"] = rot("thigh.R", (XA, 16 - 10 * cross), (ZA, -10), (YA, 14 * cross))
-    p["shin.L"] = rot("shin.L", (XA, 24 + 4 * bounce + 6 * lead))
-    p["shin.R"] = rot("shin.R", (XA, 20 + 4 * bounce + 10 * cross))
+    pitch = hips_x + spine_x + chest_x
+
+    def body(pt):
+        # targets are given in the world (the other man's head): undo the trunk's lean, then its turn
+        return to_torso(unlean(pt, pitch), total)
+
+    # the hand that isn't punching comes back to the chin (the jab hand on a cross, and the other way);
+    # the punches go out at the other man's face
+    lead_w = V((.09, face_y - .27, EYE_Z - .11)).lerp(V((.01, face_y - .66, EYE_Z - .06)), lead)
+    lead_w = lead_w.lerp(V((.07, face_y - .12, EYE_Z - .11)), cross)
+    rear_w = V((-.095, face_y - .11, EYE_Z - .13)).lerp(V((.0, face_y - .68, EYE_Z - .06)), cross)
+    p.update(arm_ik("L", body(lead_w), body(V((.32, -.05, BELT_Z + .05 + .3 * lead))), -78 * lead))
+    p.update(arm_ik("R", body(rear_w), body(V((-.32, .02, BELT_Z + .05 + .3 * cross))), 78 * cross))
+    # the legs keep their stance whatever the pelvis does (the thighs hang from it)
+    dh = hips_x - 11 - 4 * cross
+    p["thigh.L"] = rot("thigh.L", (XA, -20 - 8 * cross - 6 * lead - dh), (ZA, 8))
+    p["thigh.R"] = rot("thigh.R", (XA, 16 - 6 * cross - dh), (ZA, -10 - 10 * cross), (YA, 18 * cross))
+    p["shin.L"] = rot("shin.L", (XA, 24 + 4 * bounce + 8 * lead + 6 * cross))
+    p["shin.R"] = rot("shin.R", (XA, 20 + 4 * bounce + 6 * cross))
     p["foot.L"] = rot("foot.L", (XA, -6), (ZA, 15))
-    p["foot.R"] = rot("foot.R", (XA, -6 + 22 * cross), (ZA, -25))
+    # the rear foot: up on the ball and the heel turned out as the hip drives through
+    p["foot.R"] = rot("foot.R", (XA, -6 + 30 * cross), (ZA, -25 - 30 * cross))
     hands(p, 96, 55)
-    return p, (0, .02 + .05 * recoil - .06 * lead - .05 * cross, -.05 - .015 * bounce)
+    return p, (0, .02 + .05 * recoil - .14 * lead - .13 * cross, -.05 - .015 * bounce - .015 * cross)
 
 
 def guard(t_):
