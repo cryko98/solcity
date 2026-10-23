@@ -44,9 +44,9 @@ export function buildCity(scene) {
 
   const city = { N, BLOCK, ROAD, SW, CURB, PITCH, SIZE, HALF, colliders: [], nightMats: [], wetMats: [], nightGlow: [], benches: [], shopFronts: {} };
   // the south (street) face of this building becomes the shop's: record it, dress nothing on it
-  const takeFront = (nx, nz, cx, cz, w, d, h) => {
+  const takeFront = (nx, nz, cx, cz, w, d, h, glass = false) => {
     if (!reserve || nx !== 0 || nz !== -1 || city.shopFronts[reserve] || w < 9) return false;
-    city.shopFronts[reserve] = { x: cx, z: cz - d / 2, w, top: CURB + h };
+    city.shopFronts[reserve] = { x: cx, z: cz - d / 2, w, top: CURB + h, glass };
     return true;
   };
 
@@ -148,6 +148,7 @@ export function buildCity(scene) {
   ].map((o, i) => lit(TX.villa({ ...o, seed: i * 17 + 401 }), { roughness: 0.85 }, 0.6));
   const rollerMat = std({ map: TX.rollerDoor(), roughness: 0.6, metalness: 0.3 });
   const trimWhite = std({ color: 0xf3f0e8, roughness: 0.7 });
+  const fasciaMats = [0x24262b, 0x1f2a3a, 0x3a2224, 0xe9e3d6].map((c) => std({ color: c, roughness: 0.6 })); // sign boards
   const finMat = std({ color: 0xaab3bb, roughness: 0.3, metalness: 0.75 }); // tower fins and bands (brushed aluminium)
   const graniteMat = std({ color: 0x45474c, roughness: 0.5, metalness: 0.1 }); // tower podiums
   const poolMat = std({ color: 0x48c0e0, roughness: 0.04, metalness: 0.1 });
@@ -384,27 +385,42 @@ export function buildCity(scene) {
   };
   const solid = (mat, x, y, z, sx, sy, sz) => add(mat, new THREE.BoxGeometry(sx, sy, sz).translate(x, y + sy / 2, z));
 
-  const storefront = (cx, cz, w, d, nx, nz, withSign) => {
+  // The facade textures are a grid: a floor every 3.5 m from the pavement (the window from 0.77 to
+  // 2.84 m up it) and a window column every 4 m from a face's left edge (the wall between two
+  // windows on the multiples of 4). Whatever goes on a face lines up with it, so no window is cut.
+  // u: metres from the face's left edge (as its texture runs) for a point \`along\` the face
+  const uSign = (nx, nz) => (nz > 0 || nx < 0 ? 1 : -1);
+  const storefront = (cx, cz, w, d, nx, nz, withSign, h = 99) => {
     const fw = nx ? d : w;
     const wx = cx + nx * (w / 2), wz = cz + nz * (d / 2);
     const ry = faceYaw(nx, nz);
     const place = (g) => g.rotateY(ry).translate(wx, 0, wz);
-    const front = new THREE.PlaneGeometry(fw - 0.4, 3.6);
-    scaleUV(front, (fw - 0.4) / 8, 1);
+    // the whole width of the ground floor (no sliver of the facade's own windows at the sides)
+    const front = new THREE.PlaneGeometry(fw, 3.6);
+    scaleUV(front, fw / 8, 1);
     add(pick(shopMats), place(front.translate(0, CURB + 1.8, 0.04)));
-    if (!withSign) return;
+    if (!withSign) return null;
     const aw = Math.min(fw * 0.8, 10);
     const awn = new THREE.PlaneGeometry(aw, 1.7).rotateX(-HALF_PI + 0.36).translate(0, CURB + 3.5, 0.8);
     scaleUV(awn, aw / 3, 1);
     add(pick(awningMats), place(awn));
+    // the sign on a fascia board over the shop: from the shopfront's top up past the first-floor
+    // windows (to 6.6 m, between two rows of them), across whole window columns
     const sw = Math.min(fw * 0.7, 8);
+    const top = Math.min(CURB + 6.6, CURB + h - 0.4), fh = top - (CURB + 3.6);
+    const u0 = Math.max(0, Math.floor((fw / 2 - sw / 2 - 0.3) / 4) * 4), u1 = Math.min(fw, Math.ceil((fw / 2 + sw / 2 + 0.3) / 4) * 4);
+    const mid = uSign(nx, nz) * ((u0 + u1) / 2 - fw / 2);
+    faceBox(fasciaMats[Math.floor(hr(cx, cz + nx, 31) * fasciaMats.length)], cx, cz, w, d, nx, nz, mid, CURB + 3.6, u1 - u0, fh, 0.12);
+    const sh = Math.min(sw / 4, fh - 0.5);
     const text = pick(SHOPS);
     const sm = signMat(text, pick(NEON));
-    const s = new THREE.Mesh(new THREE.BoxGeometry(sw, sw / 4, 0.25), [signBody, signBody, signBody, signBody, sm, signBody]);
-    s.position.set(wx + nx * 0.14, CURB + 4.35 + sw / 8, wz + nz * 0.14);
+    const s = new THREE.Mesh(new THREE.BoxGeometry(sh * 4, sh, 0.25), [signBody, signBody, signBody, signBody, sm, signBody]);
+    const [sx, sz] = onFace(cx, cz, w, d, nx, nz, mid, 0.25);
+    s.position.set(sx, CURB + 3.6 + fh / 2, sz);
     s.rotation.y = ry;
     s.castShadow = true;
     scene.add(s);
+    return [mid - (u1 - u0) / 2, mid + (u1 - u0) / 2];
   };
 
   const rooftopJunk = (cx, cz, w, d, top) => {
@@ -465,7 +481,7 @@ export function buildCity(scene) {
         const fw = nx ? d : w;
         faceBox(neon, cx, cz, w, d, nx, nz, 0, CURB + h - 0.95, fw * 0.92, 0.14, 0.1);
         if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
-        storefront(cx, cz, w, d, nx, nz, true);
+        storefront(cx, cz, w, d, nx, nz, true, h);
       }
       mrect(x0, z0, w, d, '#7f6a78');
     } else if (dist === 'Little Havana') {
@@ -473,7 +489,7 @@ export function buildCity(scene) {
       h = 6.8 + rand() * 4.4;
       walls(pick(havanaMats), cx, cz, w, d, CURB, h);
       band(stoneMat, cx, cz, w, d, CURB, 0.5, 0.07);
-      for (const [nx, nz] of street) acUnits(cx, cz, w, d, nx, nz, CURB + 4.6 + FLOOR, CURB + h); // (over the shop signs)
+      for (const [nx, nz] of street) acUnits(cx, cz, w, d, nx, nz, 2, CURB + h); // (over the shop signs)
       rooftopJunk(cx, cz, w, d, CURB + h);
       band(trimWhite, cx, cz, w, d, CURB + h - 0.35, 0.35, 0.12);
       if (rand() < 0.4) {
@@ -486,11 +502,11 @@ export function buildCity(scene) {
       for (const [nx, nz] of street) {
         if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
         const fw = nx ? d : w;
-        storefront(cx, cz, w, d, nx, nz, true);
+        const [b0, b1] = storefront(cx, cz, w, d, nx, nz, true, h);
         const n = Math.max(1, Math.floor(fw / 6));
         for (let k = 0; k < n; k++) {
           const along = (k + 0.5) * (fw / n) - fw / 2;
-          if (Math.abs(along) < Math.min(fw * 0.7, 8) / 2 + 1.4) continue; // (not in front of the shop sign)
+          if (along + 1.3 > b0 && along - 1.3 < b1) continue; // (not on the sign board)
           faceBox(stoneMat, cx, cz, w, d, nx, nz, along, CURB + 4.1, 2.6, 0.14, 0.95);
           // railing along the balcony's outer edge
           const [rx, rz] = onFace(cx, cz, w, d, nx, nz, along, 0.92);
@@ -610,7 +626,7 @@ export function buildCity(scene) {
     const v = Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453;
     return v - Math.floor(v);
   };
-  const FLOOR = 3.2;
+  const FLOOR = 3.5; // (the facade textures' floor height)
   // a slab tilted along a face (a fire-escape flight): from (a0, y0) to (a1, y1), out from the wall
   const flight = (cx, cz, w, d, nx, nz, a0, y0, a1, y1, out) => {
     const len = Math.hypot(a1 - a0, y1 - y0), ang = Math.atan2(y1 - y0, a1 - a0);
@@ -622,7 +638,7 @@ export function buildCity(scene) {
   };
   const fireEscape = (cx, cz, w, d, nx, nz, along, top) => {
     const fl = [];
-    for (let y = CURB + 4.3; y < top - 1.8; y += FLOOR) fl.push(y);
+    for (let y = CURB + FLOOR + 0.72; y < top - 1.8; y += FLOOR) fl.push(y); // (at the sills)
     fl.forEach((y, i) => {
       faceBox(metalMat, cx, cz, w, d, nx, nz, along, y, 3.6, 0.07, 1.15); // the landing
       const [rx, rz] = onFace(cx, cz, w, d, nx, nz, along, 1.13);
@@ -643,26 +659,27 @@ export function buildCity(scene) {
       solid(metalMat, lx, fl[0] - 2.2, lz, nx ? 0.05 : 0.5, 2.2, nx ? 0.5 : 0.05);
     }
   };
+  // window air-conditioners: in a window, on its sill, from floor `from` (0 = the ground floor) up
   const acUnits = (cx, cz, w, d, nx, nz, from, top) => {
-    const fw = nx ? d : w;
-    for (let y = from, k = 0; y < top - 1.5; y += FLOOR, k++) {
-      for (let j = 0; j < 3; j++) {
-        if (hr(cx + j * 3.1 + nx, cz + k * 1.7 + nz, 3) > 0.3) continue;
-        const along = (hr(cx + k, cz - j + nx * 2, 5) - 0.5) * (fw - 2);
-        faceBox(ventMat, cx, cz, w, d, nx, nz, along, y + 0.9, 0.85, 0.55, 0.5);
+    const fw = nx ? d : w, cols = Math.floor(fw / 4);
+    for (let f = from; CURB + f * FLOOR + 2.84 < top - 0.8; f++) {
+      for (let c = 0; c < cols; c++) {
+        if (hr(cx + c * 3.1 + nx, cz + f * 1.7 + nz, 3) > 0.22) continue;
+        const along = uSign(nx, nz) * (c * 4 + 2 - fw / 2);
+        faceBox(ventMat, cx, cz, w, d, nx, nz, along, CURB + f * FLOOR + 0.77, 0.85, 0.5, 0.45);
       }
     }
   };
   const midDetail = (cx, cz, w, d, h, street, trim, brick) => {
     const top = CURB + h;
     band(stoneMat, cx, cz, w, d, CURB, 0.3, 0.07); // plinth (low: the shop doors start right above it)
-    for (let y = CURB + 4.0; y < top - 1.6; y += FLOOR) band(trim, cx, cz, w, d, y, 0.14, 0.06); // floor ledges
+    for (let y = CURB + 2 * FLOOR + 0.08; y < top - 1.6; y += FLOOR) band(trim, cx, cz, w, d, y, 0.14, 0.06); // floor ledges (between the window rows)
     band(trim, cx, cz, w, d, top - 0.75, 0.16, 0.12); // the cornice: a fillet and the crown moulding
     band(trim, cx, cz, w, d, top - 0.55, 0.55, 0.24);
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) solid(trim, cx + (sx * w) / 2, CURB + 0.3, cz + (sz * d) / 2, 0.62, h - 0.85, 0.62); // pilasters
     if (h < 8) return;
     street.forEach(([nx, nz], i) => {
-      acUnits(cx, cz, w, d, nx, nz, CURB + 4.0 + FLOOR, top); // (over the shop signs)
+      acUnits(cx, cz, w, d, nx, nz, 2, top); // (over the shop signs)
       const fw = nx ? d : w;
       if (brick && i === 0 && fw > 9 && hr(cx, cz, 7) < 0.7) fireEscape(cx, cz, w, d, nx, nz, (hr(cz, cx, 9) - 0.5) * (fw - 6), top);
     });
@@ -678,13 +695,14 @@ export function buildCity(scene) {
   const towerDetail = (cx, cz, w, d, h, cw, cd, ch) => {
     const top = CURB + h;
     band(graniteMat, cx, cz, w, d, CURB, 0.5, 0.1);
-    band(graniteMat, cx, cz, w, d, CURB + 4.3, 0.45, 0.45); // the canopy ledge over the ground floor
-    // vertical fins up the glass, and a band every four floors
+    band(graniteMat, cx, cz, w, d, CURB + 3.6, 0.38, 0.45); // the canopy ledge over the ground floor
+    // vertical fins up the glass on the mullions between window columns, and a band every four
+    // floors on the dark strip under a row of windows
     for (const [nx, nz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-      const fw = nx ? d : w, n = Math.max(2, Math.round(fw / 4.5));
-      for (let k = 1; k < n; k++) faceBox(finMat, cx, cz, w, d, nx, nz, (k / n - 0.5) * fw, CURB + 4.75, 0.2, h - 4.75, 0.32);
+      const fw = nx ? d : w;
+      for (let u = 8; u < fw - 2; u += 8) faceBox(finMat, cx, cz, w, d, nx, nz, uSign(nx, nz) * (u - fw / 2), CURB + 3.98, 0.16, h - 3.98, 0.32);
     }
-    for (let y = CURB + 4.75 + 4 * FLOOR; y < top - 3; y += 4 * FLOOR) band(finMat, cx, cz, w, d, y, 0.4, 0.2);
+    for (let y = CURB + 4 * FLOOR; y < top - 3; y += 4 * FLOOR) band(finMat, cx, cz, w, d, y, 0.4, 0.2);
     band(finMat, cx, cz, w, d, top - 0.2, 0.7, 0.28); // the roof edge
     band(finMat, cx, cz, cw, cd, top + ch - 0.2, 0.6, 0.22); // and the crown's
     for (let k = 0; k < 3; k++) {
@@ -716,11 +734,11 @@ export function buildCity(scene) {
       if (rand() < 0.6) solid(metalMat, cx, CURB + h + ch, cz, 0.3, 6 + rand() * 10, 0.3);
       towerDetail(cx, cz, w, d, h, cw, cd, ch);
       for (const [nx, nz] of street) {
-        if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
+        if (takeFront(nx, nz, cx, cz, w, d, h, true)) continue;
         const fw = nx ? d : w;
-        const g = new THREE.PlaneGeometry(fw - 1, 4.2);
-        scaleUV(g, (fw - 1) / 8, 1);
-        g.translate(0, CURB + 2.1, 0.04).rotateY(faceYaw(nx, nz)).translate(cx + nx * (w / 2), 0, cz + nz * (d / 2));
+        const g = new THREE.PlaneGeometry(fw, 3.6);
+        scaleUV(g, fw / 8, 1);
+        g.translate(0, CURB + 1.8, 0.04).rotateY(faceYaw(nx, nz)).translate(cx + nx * (w / 2), 0, cz + nz * (d / 2));
         add(shopMats[2], g);
       }
       mrect(x0, z0, w, d, '#56666f');
@@ -732,7 +750,7 @@ export function buildCity(scene) {
       midDetail(cx, cz, w, d, h, street, fam === urban ? stoneMat : trimWhite, fam === urban);
       for (const [nx, nz] of street) {
         if (takeFront(nx, nz, cx, cz, w, d, h)) continue;
-        if (type === 'shop' || rand() < 0.65) storefront(cx, cz, w, d, nx, nz, type === 'shop' || rand() < 0.55);
+        if (type === 'shop' || rand() < 0.65) storefront(cx, cz, w, d, nx, nz, type === 'shop' || rand() < 0.55, h);
       }
       mrect(x0, z0, w, d, type === 'shop' ? '#5c6870' : '#52616a');
     }

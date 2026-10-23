@@ -1017,8 +1017,17 @@ export class Shops {
   front(type, name, bi, bj) {
     const C = this.city, f = C.shopFronts?.[`${bi},${bj}`];
     if (!f) return null;
-    const x = f.x, z = f.z;
-    const W = Math.min(f.w - 0.6, 18); // the shop's width along the street
+    // The building's facade texture is a grid: a window column every 4 m from the face's right end
+    // (seen from the street) with wall between them on the multiples of 4, and a row of windows a
+    // floor (3.5 m) from 0.77 to 2.84 m up it (glass towers: 0.49 to 3.33). The front is cut to
+    // that grid, so it never shows half a window at its sides or over its top.
+    const right = f.x + f.w / 2, left = f.x - f.w / 2;
+    const snap = (xw) => Math.min(right, Math.max(left, right - Math.round((right - xw) / 4) * 4));
+    const want = Math.min(f.w - 0.6, 18);
+    let xl = snap(f.x - want / 2), xr = snap(f.x + want / 2);
+    if (xr - xl < 8) [xl, xr] = [Math.max(left, xl - 4), Math.min(right, xr + 4)];
+    const x = (xl + xr) / 2, z = f.z;
+    const W = xr - xl; // the shop's width along the street
     const st = STYLE[type];
     const g = new THREE.Group();
     g.position.set(x, C.groundHeight(x, z - 1), z);
@@ -1054,14 +1063,16 @@ export class Shops {
       g.add(b);
       return b;
     };
-    const SH = 3.3; // shop-floor height (top of the windows / door head)
+    // the ground floor only: under the first row of upper windows (on a glass tower, under its canopy)
+    const T0 = f.glass ? 3.56 : 4.2;
+    const SH = T0 - 0.86; // shop-floor height (top of the windows / door head)
     // the shop's face over the whole ground floor, standing just proud of the building's wall
-    box(facade, W, SH + 1.25, 0.12, 0, 0, -0.06);
+    box(facade, W, T0 - 0.1, 0.12, 0, 0, -0.06);
     // pilasters at both ends, a cornice on top
-    for (const s of [-1, 1]) box(trim, 0.42, SH + 1.25, 0.34, s * (W / 2 - 0.21), 0, -0.17);
-    box(trim, W + 0.3, 0.16, 0.42, 0, SH + 1.25, -0.2);
+    for (const s of [-1, 1]) box(trim, 0.42, T0 - 0.1, 0.34, s * (W / 2 - 0.21), 0, -0.17);
+    box(trim, W + 0.3, 0.1, 0.42, 0, T0 - 0.1, -0.2);
     // the door: steel frame, two glass leaves with push bars, a step
-    const DW = 2.1, DH = 2.55;
+    const DW = 2.1, DH = Math.min(2.55, SH - 0.2);
     box(frame, DW + 0.24, DH + 0.12, 0.16, 0, 0, -0.14);
     for (const s of [-1, 1]) {
       box(glass, DW / 2 - 0.08, DH - 0.1, 0.04, s * (DW / 4), 0.06, -0.2);
@@ -1085,13 +1096,25 @@ export class Shops {
         box(frame, span, 0.09, 0.14, x0 + s * span / 2, SH - 0.1, -0.16); // head
       }
     }
-    // fascia across the front with the shop's name, lit
-    box(std({ color: st.awning, roughness: 0.5 }), W - 0.84, 1.0, 0.3, 0, SH + 0.1, -0.2);
+    // fascia across the front, in the shop's colour
+    const brand = std({ color: st.awning, roughness: 0.5 });
+    const fh = T0 - 0.2 - SH;
+    box(brand, W - 0.84, fh, 0.3, 0, SH + 0.08, -0.2);
+    // the name, lit, on a sign board over the shop: from the front's top up past the first row of
+    // upper windows (to the wall between two rows), across whole window columns. A low building
+    // without room for one has it on the fascia.
     const t = TX.sign(name, st.sign);
     const sm = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 1.2, roughness: 0.5 });
-    const sw = Math.min(W - 1.4, 7.5);
+    const b0 = f.glass ? 3.98 : T0, b1 = Math.min(f.glass ? 6.9 : 6.6, f.top - g.position.y - 0.4);
+    let sw = Math.min(W - 1.4, 7.5), signY = SH + 0.08 + fh / 2;
+    if (b1 - b0 > 1.2) {
+      const bl = snap(x - sw / 2 - 1.5), br = snap(x + sw / 2 + 1.5);
+      box(brand, br - bl, b1 - b0, 0.14, (bl + br) / 2 - x, b0, -0.07);
+      sw = Math.min(sw, br - bl - 0.6, (b1 - b0 - 0.5) * 4.2);
+      signY = (b0 + b1) / 2;
+    } else sw = Math.min(sw, (fh - 0.1) * 4.2);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(sw, sw / 4.2), sm);
-    sign.position.set(0, SH + 0.6, -0.36);
+    sign.position.set(0, signY, signY > T0 ? -0.16 : -0.36);
     sign.rotation.y = Math.PI; // faces the street (-z)
     g.add(sign);
     // striped awning over each run of windows (the door stays open to the sky)
@@ -1138,7 +1161,7 @@ export class Shops {
       C.addColliders([{ type: 'box', minX: x + ax - 0.38, maxX: x + ax + 0.38, minZ: z + az - 0.25, maxZ: z + az + 0.25, h: g.position.y + 1.8 }]);
     }
     // the front stands ~0.35 m proud of the building: solid, so nobody walks into it
-    C.addColliders([{ type: 'box', minX: x - W / 2, maxX: x + W / 2, minZ: z - 0.36, maxZ: z + 0.05, h: g.position.y + SH + 1.4 }]);
+    C.addColliders([{ type: 'box', minX: x - W / 2, maxX: x + W / 2, minZ: z - 0.36, maxZ: z + 0.05, h: g.position.y + T0 }]);
     // the entrance ring on the pavement and a floating icon above it
     const door = { x, z: z - 1.4 };
     const ring = this.ring(st.sign, door.x, door.z, 0.9, g.position.y);
