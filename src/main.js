@@ -239,6 +239,7 @@ Promise.all([
     const carModels = Object.fromEntries(Object.entries({ sedan, coupe, van, police: policeCar, bike, taxi, super: superCar, lux, ambulance, firetruck, bus, truck, trailer, towtruck, boat, jetski }).filter(([, g]) => g));
     vehicles = new Vehicles(scene, city, carModels);
     traffic = new Traffic(city, vehicles);
+    traffic.camera = camera; // (to tell a jam out of sight from one in view)
     const byName = Object.fromEntries(PEOPLE_ALL.map((n, i) => [n, people[i]]));
     const rbPeople = rbModel && {
       hero: rbModel.scene, // (still in its rest pose here: the people's pelvis heights are measured against it)

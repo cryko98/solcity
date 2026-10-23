@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import { colorFor } from './vehicles.js';
 
 const LANE = 1.75, CRUISE = 11, TURN_SPEED = 5, MAX_CARS = 16;
+// gridlock: a car held up this long (not by a red light) slips through the others for a moment;
+// out of sight it is simply taken away
+const JAM = 9, GHOST = 3.5, JAM_GONE = 14;
 const SPAWN_MIN = 60, SPAWN_MAX = 150, DESPAWN = 190;
 const COLORS = [0xb3202a, 0x1f4fa8, 0xe8e8e8, 0x1b1b1d, 0x8a8f96, 0xd9a21b, 0x2e6b3c, 0x5b2a86, 0xd8622a, 0x6fb7d9, 0xf0f0f0, 0x303a48];
 
@@ -33,6 +36,29 @@ export class Traffic {
 
   node(i, j) {
     return [this.city.roadC(i), this.city.roadC(j)];
+  }
+
+  // is (x, z) inside a junction (the square where two roads cross)?
+  inBox(x, z, pad = 0) {
+    const { ROAD, PITCH, N } = this.city;
+    const i = Math.round((x - this.city.roadC(0)) / PITCH), j = Math.round((z - this.city.roadC(0)) / PITCH);
+    if (i < 0 || j < 0 || i > N || j > N) return false;
+    return Math.abs(x - this.city.roadC(i)) < ROAD / 2 + pad && Math.abs(z - this.city.roadC(j)) < ROAD / 2 + pad;
+  }
+
+  // is the way out of the junction ahead clear? (the lane past the exit, from the turn's last point)
+  exitClear(c, ai, stopIdx) {
+    const a = ai.points[stopIdx + 4], b = ai.points[stopIdx + 5];
+    if (!a || !b) return true;
+    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1, ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
+    for (const o of this.vehicles.cars) {
+      if (o === c) continue;
+      const [x, z] = this.vehicles.pose(o);
+      const dx = x - b.x, dz = z - b.z, along = dx * ux + dz * uz, lat = Math.abs(dx * -uz + dz * ux);
+      // a car standing (or crawling) in the first car-length or so past the junction
+      if (along > -3 && along < 7 && lat < 2.2 && !(o.vehicle?.speed > 2.5)) return false;
+    }
+    return true;
   }
 
   inGrid(i, j) {
@@ -114,7 +140,9 @@ export class Traffic {
     for (const c of [...this.cars]) {
       const v = c.vehicle;
       const far = !v || Math.hypot(v.pos.x - focus.x, v.pos.z - focus.z) > DESPAWN;
-      if (!c.ai || far || (c.ai.stuck > 25 && Math.hypot(v.pos.x - focus.x, v.pos.z - focus.z) > 35)) {
+      // (hopelessly jammed and not in view: gone)
+      const jammed = c.ai && v && c.ai.wait > JAM_GONE && !this.inView(v.pos);
+      if (!c.ai || far || jammed || (c.ai.stuck > 25 && Math.hypot(v.pos.x - focus.x, v.pos.z - focus.z) > 35)) {
         this.cars.splice(this.cars.indexOf(c), 1);
         if (c.ai && v) this.vehicles.remove(c);
         continue;
@@ -129,8 +157,20 @@ export class Traffic {
     }
   }
 
+  // in front of the camera? (the game hands its camera to the traffic: this.camera)
+  inView(p) {
+    const cam = this.camera;
+    if (!cam) return false;
+    this.frustum ||= new THREE.Frustum();
+    this.projM ||= new THREE.Matrix4();
+    this.frustum.setFromProjectionMatrix(this.projM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    return this.frustum.containsPoint(this.pt ? this.pt.set(p.x, 1, p.z) : (this.pt = new THREE.Vector3(p.x, 1, p.z)));
+  }
+
   drive(c, dt, people) {
     const ai = c.ai, v = c.vehicle;
+    ai.ghostT = Math.max(0, (ai.ghostT || 0) - dt);
+    c.ghost = ai.ghostT > 0;
     while (ai.points.length < 10) this.extend(ai);
     const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
 
@@ -148,14 +188,22 @@ export class Traffic {
     if (!ai.points.length) this.extend(ai);
 
     let target = ai.halt ? 0 : CRUISE; // someone is going for the door
-    // red light: brake to the stop point
+    let red = false;
+    // red light: brake to the stop point. Green, but the road out of the junction is backed up:
+    // wait at the line all the same (a car stuck in the middle blocks the cross traffic: gridlock)
     const stopIdx = ai.points.findIndex((p) => p.stop);
     if (stopIdx >= 0 && stopIdx < 4) {
       const p = ai.points[stopIdx];
       const ahead = (p.x - v.pos.x) * fx + (p.z - v.pos.z) * fz;
       const l = this.light(p.stop);
-      if (l === 'stop' || (l === 'amber' && ahead > 6)) target = Math.min(target, Math.max(0, (ahead - 0.3) * 0.9));
+      if (l === 'stop' || (l === 'amber' && ahead > 6) || (ahead > 0.5 && ahead < 14 && !this.exitClear(c, ai, stopIdx))) {
+        target = Math.min(target, Math.max(0, (ahead - 0.3) * 0.9));
+        red = true;
+      }
     }
+    // in the junction (or rolling into it): cars waiting at their own lines across it aren't in
+    // the way, they'll go when we're through
+    const inBox = this.inBox(v.pos.x, v.pos.z, 2);
     // slow for corners
     if (ai.points.slice(0, 3).some((p) => p.turn)) target = Math.min(target, TURN_SPEED + 2);
     if (ai.points[0]?.turn) target = Math.min(target, TURN_SPEED);
@@ -170,8 +218,11 @@ export class Traffic {
     let blocker = null;
     for (const o of this.vehicles.cars) {
       if (o === c || o === ai.dodging) continue;
-      const [x, z] = this.vehicles.pose(o);
+      const [x, z, h] = this.vehicles.pose(o);
       if (Math.abs(x - v.pos.x) < 26 && Math.abs(z - v.pos.z) < 26) {
+        // slipping out of a jam: the other traffic doesn't hold it up
+        if (c.ghost && o.ai) continue;
+        if (inBox && !(o.vehicle?.speed > 0.8) && Math.abs(Math.sin(h) * fx + Math.cos(h) * fz) < 0.5 && !this.inBox(x, z)) continue;
         const before = target;
         gap(x, z, 2.0, 5.5);
         // a car standing in the lane with nobody driving it (abandoned, wrecked, parked badly)
@@ -210,5 +261,16 @@ export class Traffic {
     if (thr < 0 && vf < 0.6) thr = 0;
     ai.ctl.throttle = thr;
     ai.stuck = vf < 0.3 && target > 2 ? ai.stuck + dt : 0;
+    // held up by anything but a red light (a car ahead that won't move, a knot in a junction):
+    // after a while it slips through, slowly
+    ai.wait = vf < 0.3 && !red && !ai.halt ? (ai.wait || 0) + dt : 0;
+    if (ai.wait > JAM && !c.ghost) {
+      ai.ghostT = GHOST;
+      ai.wait = 0;
+    }
+    if (c.ghost) {
+      ai.ctl.throttle = Math.max(ai.ctl.throttle, vf < 4 ? 0.35 : 0);
+      ai.ctl.handbrake = false;
+    }
   }
 }

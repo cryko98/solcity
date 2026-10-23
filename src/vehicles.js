@@ -915,6 +915,8 @@ export class Vehicles {
       if (!va) continue;
       for (const b of this.cars) {
         if (b === a) continue;
+        // (a traffic car slipping out of a jam passes through the other traffic, not through you)
+        if ((a.ghost && b.ai) || (b.ghost && a.ai)) continue;
         const [bx, bz, bh] = this.pose(b);
         if (Math.abs(bx - va.pos.x) > va.spec.halfL + MAX_HALF_L + 2 || Math.abs(bz - va.pos.z) > va.spec.halfL + MAX_HALF_L + 2) continue;
         // (the truck and its trailer; a parked car has no vehicle yet, and null is not a trailer)
